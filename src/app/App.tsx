@@ -647,35 +647,6 @@ function ProductCard({ product, onLike, go, onAddToCart }: { product: Product; o
           @{product.seller}
         </p>
         <p className="text-base font-bold mt-1.5" style={{ ...serif, color: T }}>{fmt(product.price)}</p>
-        {isSold ? (
-          <div className="flex gap-2 mt-3 pt-2" style={{ borderTop: `1px dashed ${MUTED}55` }}>
-            <button 
-              disabled
-              onClick={(e) => e.stopPropagation()}
-              className="w-full py-2 rounded-xl text-[11px] font-bold cursor-not-allowed opacity-60"
-              style={{ backgroundColor: COFFEE, color: LINEN }}
-            >
-              Đã bán (Hết hàng)
-            </button>
-          </div>
-        ) : (
-          <div className="flex gap-2 mt-3 pt-2" style={{ borderTop: `1px dashed ${MUTED}55` }}>
-            <button 
-              onClick={(e) => { e.stopPropagation(); onAddToCart && onAddToCart(product); }}
-              className="flex-1 py-2 rounded-xl text-[11px] font-bold transition-all hover:opacity-90"
-              style={{ backgroundColor: T, color: LINEN }}
-            >
-              Thêm giỏ hàng
-            </button>
-            <button 
-              onClick={(e) => { e.stopPropagation(); onAddToCart && onAddToCart(product); go("cart"); }}
-              className="p-2 rounded-xl transition-all hover:bg-opacity-80 flex items-center justify-center"
-              style={{ border: `1.5px solid ${T}`, color: T, backgroundColor: "transparent" }}
-            >
-              <ShoppingCart size={14} />
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
