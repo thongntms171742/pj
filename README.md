@@ -1,7 +1,7 @@
 
-  # Connected Multi-Screen Prototype
+  # Thrift It
 
-  This is a code bundle for Connected Multi-Screen Prototype. The original project is available at https://www.figma.com/design/qikOplUsUKnW47z7MXtxle/Connected-Multi-Screen-Prototype.
+  This is a code bundle for Thrift It. The original project is available at https://www.figma.com/design/qikOplUsUKnW47z7MXtxle/Connected-Multi-Screen-Prototype.
 
   ## Running the code
 
