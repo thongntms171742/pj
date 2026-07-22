@@ -5008,13 +5008,13 @@ export default function App() {
         <>
           {screen !== "admin" && <Header screen={screen} go={go} cartCount={cartCount} activeTag={activeTag} onTagChange={goToSearchWithTag} headerQuery={headerQuery} setHeaderQuery={setHeaderQuery} currentUserEmail={currentEmail} />}
           <main>
-            {screen === "home" && <HomeScreen go={go} products={products.filter(p => p.status !== "pending")} onLike={toggleLike} onAddToCart={addToCart} />}
-            {screen === "search" && <SearchScreen products={products.filter(p => p.status !== "pending")} onLike={toggleLike} go={go} onAddToCart={addToCart} activeTag={activeTag} headerQuery={headerQuery} />}
+            {screen === "home" && <HomeScreen go={go} products={products.filter(p => p.status === "active")} onLike={toggleLike} onAddToCart={addToCart} />}
+            {screen === "search" && <SearchScreen products={products.filter(p => p.status === "active")} onLike={toggleLike} go={go} onAddToCart={addToCart} activeTag={activeTag} headerQuery={headerQuery} />}
             {screen === "cart" && <CartScreen go={go} cartGroups={cartGroups} updateCart={updateCart} />}
             {screen === "chat" && <ChatScreen />}
             {screen === "notification" && <NotificationScreen go={go} />}
             {screen === "product-detail" && selectedProduct && <ProductDetailScreen product={selectedProduct} go={go} onLike={toggleLike} onAddToCart={addToCart} rentalPlan={rentalPlan} onRentProduct={handleRentProduct} />}
-            {screen === "seller" && selectedSeller && <SellerScreen seller={selectedSeller} go={go} products={products.filter(p => p.status !== "pending")} onAddToCart={addToCart} />}
+            {screen === "seller" && selectedSeller && <SellerScreen seller={selectedSeller} go={go} products={products.filter(p => p.status === "active")} onAddToCart={addToCart} />}
             {screen === "payment" && <PaymentScreen go={go} cartGroups={cartGroups} updateCart={updateCart} addOrder={addOrder} />}
             {screen === "account" && <AccountScreen go={go} onLogout={handleLogout} userName={currentUser} userEmail={currentEmail} orders={orders} myProducts={myProducts} setMyProducts={setMyProducts} userRole={userRole} setUserRole={setUserRole} rentalPlan={rentalPlan} mediaPlan={mediaPlan} mediaStatus={mediaStatus} setMediaStatus={setMediaStatus} rentedItems={rentedItems} setRentedItems={setRentedItems} onOpenCheckoutPlan={handleOpenCheckoutPlan} onUpdateOrderStatus={handleUpdateOrderStatus} />}
             {screen === "post" && <PostScreen go={go} onAddProduct={handleAddProduct} />}
