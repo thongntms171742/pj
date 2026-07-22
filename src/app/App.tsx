@@ -107,6 +107,45 @@ function setStoredCart(cart: CartGroup[]) {
   } catch {}
 }
 
+function getStoredProducts(): Product[] | null {
+  try {
+    const stored = localStorage.getItem("thriftit_products");
+    return stored ? JSON.parse(stored) : null;
+  } catch { return null; }
+}
+
+function setStoredProducts(products: Product[]) {
+  try {
+    localStorage.setItem("thriftit_products", JSON.stringify(products));
+  } catch {}
+}
+
+function getStoredMyProductsByEmail(): Record<string, SellerProduct[]> | null {
+  try {
+    const stored = localStorage.getItem("thriftit_myProductsByEmail");
+    return stored ? JSON.parse(stored) : null;
+  } catch { return null; }
+}
+
+function setStoredMyProductsByEmail(val: Record<string, SellerProduct[]>) {
+  try {
+    localStorage.setItem("thriftit_myProductsByEmail", JSON.stringify(val));
+  } catch {}
+}
+
+function getStoredOrders(): Order[] | null {
+  try {
+    const stored = localStorage.getItem("thriftit_orders");
+    return stored ? JSON.parse(stored) : null;
+  } catch { return null; }
+}
+
+function setStoredOrders(orders: Order[]) {
+  try {
+    localStorage.setItem("thriftit_orders", JSON.stringify(orders));
+  } catch {}
+}
+
 // ── Static data ────────────────────────────────────────────────────────────────
 const ALL_PRODUCTS: Product[] = [
   { id: 1, name: "Áo Linen Trắng Cổ Điển 1994", price: 185000, seller: "minhtu.vintage", condition: 85, size: "M", category: "Áo", image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=520&fit=crop&auto=format", liked: false },
@@ -4429,6 +4468,8 @@ export default function App() {
   });
   
   const [products, setProducts] = useState<Product[]>(() => {
+    const saved = getStoredProducts();
+    if (saved) return saved;
     // Apply stored liked products and active status
     return ALL_PRODUCTS.map(p => ({
       ...p,
@@ -4444,24 +4485,39 @@ export default function App() {
   const [cartGroups, setCartGroups] = useState<CartGroup[]>(storedCart || INIT_CART);
   const [activeTag, setActiveTag] = useState<string>(""); // Quick filter tag from header
   const [headerQuery, setHeaderQuery] = useState<string>(""); // Search query from header
-  const [orders, setOrders] = useState<Order[]>(INIT_ORDERS);
+  const [orders, setOrders] = useState<Order[]>(() => {
+    const saved = getStoredOrders();
+    return saved || INIT_ORDERS;
+  });
   const [userRole, setUserRole] = useState<"buyer" | "seller">(() => {
+    const saved = localStorage.getItem("thriftit_userRole");
+    if (saved === "buyer" || saved === "seller") return saved;
     if (storedUser.email === "shop.minhtu@thriftit.vn") return "seller";
     return "buyer";
   });
   const [rentalPlan, setRentalPlan] = useState<string>(() => {
+    const saved = localStorage.getItem("thriftit_rentalPlan");
+    if (saved !== null) return saved;
     if (storedUser.email === "linh.nguyen@gmail.com") return "Premium Rental";
     return "None";
   });
   const [mediaPlan, setMediaPlan] = useState<string>(() => {
+    const saved = localStorage.getItem("thriftit_mediaPlan");
+    if (saved !== null) return saved;
     if (storedUser.email === "shop.minhtu@thriftit.vn") return "Standard Package";
     return "None";
   });
   const [mediaStatus, setMediaStatus] = useState<string>(() => {
+    const saved = localStorage.getItem("thriftit_mediaStatus");
+    if (saved !== null) return saved;
     if (storedUser.email === "shop.minhtu@thriftit.vn") return "Đang chuẩn bị đạo cụ & lên lịch chụp (24/07)";
     return "";
   });
   const [rentedItems, setRentedItems] = useState<Array<{ id: number; name: string; image: string; rentDate: string; returnDate: string }>>(() => {
+    const saved = localStorage.getItem("thriftit_rentedItems");
+    if (saved !== null) {
+      try { return JSON.parse(saved); } catch {}
+    }
     if (storedUser.email === "linh.nguyen@gmail.com") {
       return [
         { id: 3, name: "Váy Hoa Retro Pastel Dáng A", image: "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=120", rentDate: "15/07/2026", returnDate: "28/07/2026" },
@@ -4473,17 +4529,21 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Split products list dynamically by account email to prevent mixing C2C listings and B2B shop listings!
-  const [myProductsByEmail, setMyProductsByEmail] = useState<Record<string, SellerProduct[]>>({
-    "linh.nguyen@gmail.com": [
-      { id: 1, name: "Áo Khoác Denim Rửa Cũ 80s", price: 350000, quantity: 1, status: "active" as const, image: "https://images.unsplash.com/photo-1495105787522-5334e3ffa0ef?w=150", views: 127, likes: 12, createdAt: "2024-08-15" },
-      { id: 2, name: "Quần Jean Ống Rộng Thập Niên 90", price: 220000, quantity: 2, status: "pending" as const, image: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=150", views: 43, likes: 5, createdAt: "2024-08-18" },
-      { id: 3, name: "Áo Len Cổ Lọ Cozy", price: 210000, quantity: 1, status: "sold" as const, image: "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=150", views: 89, likes: 8, createdAt: "2024-08-10" },
-    ],
-    "shop.minhtu@thriftit.vn": [
-      { id: 101, name: "Váy Lụa Slip Dress Vintage", price: 420000, quantity: 1, status: "active" as const, image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=150", views: 245, likes: 34, createdAt: "2024-08-14" },
-      { id: 102, name: "Blazer Dạ Oversize Caro", price: 580000, quantity: 1, status: "active" as const, image: "https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=150", views: 189, likes: 21, createdAt: "2024-08-16" }
-    ],
-    "demo@thriftit.vn": []
+  const [myProductsByEmail, setMyProductsByEmail] = useState<Record<string, SellerProduct[]>>(() => {
+    const saved = getStoredMyProductsByEmail();
+    if (saved) return saved;
+    return {
+      "linh.nguyen@gmail.com": [
+        { id: 1, name: "Áo Khoác Denim Rửa Cũ 80s", price: 350000, quantity: 1, status: "active" as const, image: "https://images.unsplash.com/photo-1495105787522-5334e3ffa0ef?w=150", views: 127, likes: 12, createdAt: "2024-08-15" },
+        { id: 2, name: "Quần Jean Ống Rộng Thập Niên 90", price: 220000, quantity: 2, status: "pending" as const, image: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=150", views: 43, likes: 5, createdAt: "2024-08-18" },
+        { id: 3, name: "Áo Len Cổ Lọ Cozy", price: 210000, quantity: 1, status: "sold" as const, image: "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=150", views: 89, likes: 8, createdAt: "2024-08-10" },
+      ],
+      "shop.minhtu@thriftit.vn": [
+        { id: 101, name: "Váy Lụa Slip Dress Vintage", price: 420000, quantity: 1, status: "active" as const, image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=150", views: 245, likes: 34, createdAt: "2024-08-14" },
+        { id: 102, name: "Blazer Dạ Oversize Caro", price: 580000, quantity: 1, status: "active" as const, image: "https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=150", views: 189, likes: 21, createdAt: "2024-08-16" }
+      ],
+      "demo@thriftit.vn": []
+    };
   });
 
   const myProducts = myProductsByEmail[currentEmail] || [];
@@ -4498,6 +4558,39 @@ export default function App() {
   const [checkoutPlan, setCheckoutPlan] = useState<{ type: "rental" | "media"; name: string; price: number } | null>(null);
   const [paymentStep, setPaymentStep] = useState<"checkout" | "processing" | "success">("checkout");
   const [selectedPayMethod, setSelectedPayMethod] = useState<string>("MoMo");
+
+  // Synchronize state changes to localStorage for reload persistence
+  useEffect(() => {
+    setStoredProducts(products);
+  }, [products]);
+
+  useEffect(() => {
+    setStoredMyProductsByEmail(myProductsByEmail);
+  }, [myProductsByEmail]);
+
+  useEffect(() => {
+    setStoredOrders(orders);
+  }, [orders]);
+
+  useEffect(() => {
+    localStorage.setItem("thriftit_userRole", userRole);
+  }, [userRole]);
+
+  useEffect(() => {
+    localStorage.setItem("thriftit_rentalPlan", rentalPlan);
+  }, [rentalPlan]);
+
+  useEffect(() => {
+    localStorage.setItem("thriftit_mediaPlan", mediaPlan);
+  }, [mediaPlan]);
+
+  useEffect(() => {
+    localStorage.setItem("thriftit_mediaStatus", mediaStatus);
+  }, [mediaStatus]);
+
+  useEffect(() => {
+    localStorage.setItem("thriftit_rentedItems", JSON.stringify(rentedItems));
+  }, [rentedItems]);
 
   const handleAddProduct = (newProd: { name: string; price: number; category: string; desc: string; size: string; condition: number; image: string }) => {
     const newId = products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1;
@@ -4692,8 +4785,38 @@ export default function App() {
       { id: 3, name: "Váy Hoa Retro Pastel Dáng A", image: "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=120", rentDate: "15/07/2026", returnDate: "28/07/2026" },
       { id: 7, name: "Đầm Maxi Bohemian Floral", image: "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=120", rentDate: "18/07/2026", returnDate: "30/07/2026" },
     ]);
+    
     clearStoredUser();
     localStorage.removeItem("thriftit_screen");
+    localStorage.removeItem("thriftit_products");
+    localStorage.removeItem("thriftit_myProductsByEmail");
+    localStorage.removeItem("thriftit_orders");
+    localStorage.removeItem("thriftit_userRole");
+    localStorage.removeItem("thriftit_rentalPlan");
+    localStorage.removeItem("thriftit_mediaPlan");
+    localStorage.removeItem("thriftit_mediaStatus");
+    localStorage.removeItem("thriftit_rentedItems");
+
+    // Reset states back to initial defaults
+    setProducts(ALL_PRODUCTS.map(p => ({
+      ...p,
+      liked: false,
+      status: "active"
+    })));
+    setOrders(INIT_ORDERS);
+    setMyProductsByEmail({
+      "linh.nguyen@gmail.com": [
+        { id: 1, name: "Áo Khoác Denim Rửa Cũ 80s", price: 350000, quantity: 1, status: "active" as const, image: "https://images.unsplash.com/photo-1495105787522-5334e3ffa0ef?w=150", views: 127, likes: 12, createdAt: "2024-08-15" },
+        { id: 2, name: "Quần Jean Ống Rộng Thập Niên 90", price: 220000, quantity: 2, status: "pending" as const, image: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=150", views: 43, likes: 5, createdAt: "2024-08-18" },
+        { id: 3, name: "Áo Len Cổ Lọ Cozy", price: 210000, quantity: 1, status: "sold" as const, image: "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=150", views: 89, likes: 8, createdAt: "2024-08-10" },
+      ],
+      "shop.minhtu@thriftit.vn": [
+        { id: 101, name: "Váy Lụa Slip Dress Vintage", price: 420000, quantity: 1, status: "active" as const, image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=150", views: 245, likes: 34, createdAt: "2024-08-14" },
+        { id: 102, name: "Blazer Dạ Oversize Caro", price: 580000, quantity: 1, status: "active" as const, image: "https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=150", views: 189, likes: 21, createdAt: "2024-08-16" }
+      ],
+      "demo@thriftit.vn": []
+    });
+
     go("login");
   };
 
