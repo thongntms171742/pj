@@ -2334,7 +2334,7 @@ function AccountScreen({
 }
 
 // ── Payment Screen ──────────────────────────────────────────────────────────────
-function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Screen) => void; cartGroups: CartGroup[]; updateCart: (cart: CartGroup[]) => void; addOrder: (items: OrderItem[], total: number, payment: string, name?: string, phone?: string, address?: string) => void }) {
+function PaymentScreen({ go, cartGroups, updateCart, addOrder, rentalPlan = "None", rentedItems = [] }: { go: (s: Screen) => void; cartGroups: CartGroup[]; updateCart: (cart: CartGroup[]) => void; addOrder: (items: OrderItem[], total: number, payment: string, name?: string, phone?: string, address?: string) => void; rentalPlan?: string; rentedItems?: Array<{ id: number; name: string }>; }) {
   const [step, setStep] = useState<"address" | "card" | "otp">("address");
   const [fullName, setFullName] = useState("Nguyễn Thanh Linh");
   const [phone, setPhone] = useState("0987654321");
@@ -2412,6 +2412,19 @@ function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Scree
       setOtpError(true);
       return;
     }
+    const checkedRentItems = checkedItems.filter(i => i.buyOrRent === "rent");
+    if (checkedRentItems.length > 0) {
+      if (rentalPlan === "None") {
+        alert("Vui lòng đăng ký Gói thuê bao thành viên để thanh toán sản phẩm thuê!");
+        return;
+      }
+      const rentLimit = rentalPlan.includes("Basic") ? 3 : rentalPlan.includes("Premium") ? 4 : 0;
+      if (rentedItems.length + checkedRentItems.length > rentLimit) {
+        alert(`Thanh toán thất bại! Gói "${rentalPlan}" của bạn chỉ cho phép thuê tối đa ${rentLimit} sản phẩm cùng lúc. Bạn đã thuê ${rentedItems.length} sản phẩm và đang chọn thanh toán thêm ${checkedRentItems.length} sản phẩm thuê. Vui lòng bỏ bớt sản phẩm thuê trong giỏ hàng hoặc nâng cấp gói thành viên.`);
+        return;
+      }
+    }
+
     setIsProcessing(true);
 
     // Create order items from checked cart items
@@ -4631,6 +4644,20 @@ export default function App() {
   };
 
   const addToCart = (product: Product, qty: number = 1, buyOrRent: "buy" | "rent" = "buy") => {
+    if (buyOrRent === "rent") {
+      if (rentalPlan === "None") {
+        alert("Vui lòng đăng ký Gói thuê bao thành viên (Rental Plan) trong tài khoản của bạn để thuê sản phẩm này với giá 0₫!");
+        go("account");
+        return;
+      }
+      const rentLimit = rentalPlan.includes("Basic") ? 3 : rentalPlan.includes("Premium") ? 4 : 0;
+      const inCartRentCount = cartGroups.flatMap(g => g.items).filter(i => i.buyOrRent === "rent").length;
+      if (rentedItems.length + inCartRentCount >= rentLimit) {
+        alert(`Gói "${rentalPlan}" của bạn chỉ cho phép thuê tối đa ${rentLimit} sản phẩm cùng lúc. Bạn hiện đã thuê ${rentedItems.length} sản phẩm và đang có ${inCartRentCount} sản phẩm thuê trong giỏ hàng.`);
+        return;
+      }
+    }
+
     setToastMsg(buyOrRent === "rent" ? `Đã thêm dịch vụ Thuê "${product.name}" vào giỏ hàng!` : `Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
     setTimeout(() => setToastMsg(null), 2500);
 
@@ -4639,6 +4666,10 @@ export default function App() {
     if (existingGroup) {
       const existingItem = existingGroup.items.find(i => i.id === product.id && i.buyOrRent === buyOrRent);
       if (existingItem) {
+        if (buyOrRent === "rent") {
+          alert("Sản phẩm thuê này đã có trong giỏ hàng!");
+          return;
+        }
         const newCart = cartGroups.map(g => {
           if (g.seller === product.seller) {
             return {
@@ -4702,8 +4733,12 @@ export default function App() {
       return;
     }
 
-    if (rentedItems.length >= 4) {
-      alert("Bạn đã thuê tối đa 4 sản phẩm cùng lúc. Vui lòng trả bớt sản phẩm cũ trước khi thuê thêm.");
+    const rentLimit = rentalPlan.includes("Basic") ? 3 : rentalPlan.includes("Premium") ? 4 : 0;
+    const inCartRentCount = cartGroups.flatMap(g => g.items).filter(i => i.buyOrRent === "rent").length;
+    const currentTotalRented = rentedItems.length + inCartRentCount;
+
+    if (currentTotalRented >= rentLimit) {
+      alert(`Gói "${rentalPlan}" của bạn chỉ cho phép thuê tối đa ${rentLimit} sản phẩm cùng lúc. Bạn hiện đã thuê ${rentedItems.length} sản phẩm và đang có ${inCartRentCount} sản phẩm thuê trong giỏ hàng. Vui lòng trả bớt sản phẩm cũ trước khi thuê thêm.`);
       return;
     }
 
@@ -4986,7 +5021,7 @@ export default function App() {
             {screen === "notification" && <NotificationScreen go={go} />}
             {screen === "product-detail" && selectedProduct && <ProductDetailScreen product={selectedProduct} go={go} onLike={toggleLike} onAddToCart={addToCart} rentalPlan={rentalPlan} onRentProduct={handleRentProduct} />}
             {screen === "seller" && selectedSeller && <SellerScreen seller={selectedSeller} go={go} products={products.filter(p => p.status === "active")} onAddToCart={addToCart} />}
-            {screen === "payment" && <PaymentScreen go={go} cartGroups={cartGroups} updateCart={updateCart} addOrder={addOrder} />}
+            {screen === "payment" && <PaymentScreen go={go} cartGroups={cartGroups} updateCart={updateCart} addOrder={addOrder} rentalPlan={rentalPlan} rentedItems={rentedItems} />}
             {screen === "account" && <AccountScreen go={go} onLogout={handleLogout} userName={currentUser} userEmail={currentEmail} orders={orders} myProducts={myProducts} setMyProducts={setMyProducts} userRole={userRole} setUserRole={setUserRole} rentalPlan={rentalPlan} mediaPlan={mediaPlan} mediaStatus={mediaStatus} setMediaStatus={setMediaStatus} rentedItems={rentedItems} setRentedItems={setRentedItems} onOpenCheckoutPlan={handleOpenCheckoutPlan} onUpdateOrderStatus={handleUpdateOrderStatus} />}
             {screen === "post" && <PostScreen go={go} onAddProduct={handleAddProduct} />}
             {screen === "pricing" && <PricingScreen go={go} rentalPlan={rentalPlan} mediaPlan={mediaPlan} onOpenCheckoutPlan={handleOpenCheckoutPlan} />}
