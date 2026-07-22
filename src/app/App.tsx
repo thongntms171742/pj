@@ -40,8 +40,11 @@ interface OrderItem {
 }
 interface Order {
   id: string; items: OrderItem[]; total: number;
-  status: "pending" | "shipping" | "delivering" | "review" | "completed";
+  status: "pending" | "shipping" | "delivering" | "review" | "completed" | "cancelled";
   createdAt: string; paymentMethod: string;
+  shippingName?: string;
+  shippingPhone?: string;
+  shippingAddress?: string;
 }
 
 function fmt(n: number) { return n.toLocaleString("vi-VN") + "₫"; }
@@ -559,6 +562,7 @@ function LoginScreen({ onLogin, onRegister }: { onLogin: (userName: string, user
 // ── Product Card ───────────────────────────────────────────────────────────────
 function ProductCard({ product, onLike, go, onAddToCart }: { product: Product; onLike: (id: number) => void; go: (s: Screen, p?: Product, se?: Seller) => void; onAddToCart?: (product: Product) => void }) {
   const condColor = product.condition >= 90 ? "#27AE60" : product.condition >= 75 ? T : "#E67E22";
+  const isSold = product.status === "sold";
   return (
     <div
       onClick={() => go("product-detail", product)}
@@ -571,6 +575,13 @@ function ProductCard({ product, onLike, go, onAddToCart }: { product: Product; o
           alt={product.name}
           className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
         />
+        {isSold && (
+          <div className="absolute inset-0 bg-black/55 backdrop-blur-[0.5px] flex items-center justify-center z-10">
+            <span className="text-[11px] font-bold tracking-widest text-white px-2.5 py-1.5 border-2 border-white rounded-lg rotate-12" style={ff}>
+              ĐÃ BÁN
+            </span>
+          </div>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); onLike(product.id); }}
           className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center shadow-md transition-all hover:scale-110"
@@ -597,22 +608,35 @@ function ProductCard({ product, onLike, go, onAddToCart }: { product: Product; o
           @{product.seller}
         </p>
         <p className="text-base font-bold mt-1.5" style={{ ...serif, color: T }}>{fmt(product.price)}</p>
-        <div className="flex gap-2 mt-3 pt-2" style={{ borderTop: `1px dashed ${MUTED}55` }}>
-          <button 
-            onClick={(e) => { e.stopPropagation(); onAddToCart && onAddToCart(product); }}
-            className="flex-1 py-2 rounded-xl text-[11px] font-bold transition-all hover:opacity-90"
-            style={{ backgroundColor: T, color: LINEN }}
-          >
-            Thêm giỏ hàng
-          </button>
-          <button 
-            onClick={(e) => { e.stopPropagation(); onAddToCart && onAddToCart(product); go("cart"); }}
-            className="p-2 rounded-xl transition-all hover:bg-opacity-80 flex items-center justify-center"
-            style={{ border: `1.5px solid ${T}`, color: T, backgroundColor: "transparent" }}
-          >
-            <ShoppingCart size={14} />
-          </button>
-        </div>
+        {isSold ? (
+          <div className="flex gap-2 mt-3 pt-2" style={{ borderTop: `1px dashed ${MUTED}55` }}>
+            <button 
+              disabled
+              onClick={(e) => e.stopPropagation()}
+              className="w-full py-2 rounded-xl text-[11px] font-bold cursor-not-allowed opacity-60"
+              style={{ backgroundColor: COFFEE, color: LINEN }}
+            >
+              Đã bán (Hết hàng)
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2 mt-3 pt-2" style={{ borderTop: `1px dashed ${MUTED}55` }}>
+            <button 
+              onClick={(e) => { e.stopPropagation(); onAddToCart && onAddToCart(product); }}
+              className="flex-1 py-2 rounded-xl text-[11px] font-bold transition-all hover:opacity-90"
+              style={{ backgroundColor: T, color: LINEN }}
+            >
+              Thêm giỏ hàng
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); onAddToCart && onAddToCart(product); go("cart"); }}
+              className="p-2 rounded-xl transition-all hover:bg-opacity-80 flex items-center justify-center"
+              style={{ border: `1.5px solid ${T}`, color: T, backgroundColor: "transparent" }}
+            >
+              <ShoppingCart size={14} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1063,7 +1087,19 @@ function CartScreen({ go, cartGroups, updateCart }: { go: (s: Screen) => void; c
     updateCart(newCart);
   };
   const adjustQty = (seller: string, id: number, d: number) => {
-    const newCart = cartGroups.map((g) => g.seller !== seller ? g : { ...g, items: g.items.map((i) => i.id === id ? { ...i, qty: Math.max(1, i.qty + d) } : i) });
+    const newCart = cartGroups.map((g) => g.seller !== seller ? g : {
+      ...g,
+      items: g.items.map((i) => {
+        if (i.id === id) {
+          if (i.buyOrRent === "rent") {
+            alert("Số lượng đồ thuê tối đa cho mỗi sản phẩm là 1.");
+            return i;
+          }
+          return { ...i, qty: Math.max(1, i.qty + d) };
+        }
+        return i;
+      })
+    });
     updateCart(newCart);
   };
   const removeItem = (seller: string, id: number) => {
@@ -1240,10 +1276,11 @@ function CartScreen({ go, cartGroups, updateCart }: { go: (s: Screen) => void; c
 
                         {/* Quantity controls */}
                         <div className="flex items-center gap-0 rounded-xl overflow-hidden flex-shrink-0"
-                          style={{ border: `1.5px solid ${MUTED}` }}>
+                          style={{ border: `1.5px solid ${MUTED}`, opacity: item.buyOrRent === "rent" ? 0.5 : 1 }}>
                           <button
+                            disabled={item.buyOrRent === "rent"}
                             onClick={() => adjustQty(group.seller, item.id, -1)}
-                            className="flex items-center justify-center transition-all hover:opacity-70"
+                            className="flex items-center justify-center transition-all hover:opacity-70 disabled:cursor-not-allowed"
                             style={{ width: 34, height: 34, backgroundColor: SOFT, color: COFFEE }}
                           >
                             <Minus size={13} />
@@ -1255,9 +1292,10 @@ function CartScreen({ go, cartGroups, updateCart }: { go: (s: Screen) => void; c
                             {item.qty}
                           </span>
                           <button
+                            disabled={item.buyOrRent === "rent"}
                             onClick={() => adjustQty(group.seller, item.id, 1)}
-                            className="flex items-center justify-center transition-all hover:opacity-90"
-                            style={{ width: 34, height: 34, backgroundColor: T, color: LINEN }}
+                            className="flex items-center justify-center transition-all hover:opacity-90 disabled:cursor-not-allowed"
+                            style={{ width: 34, height: 34, backgroundColor: item.buyOrRent === "rent" ? SOFT : T, color: item.buyOrRent === "rent" ? COFFEE : LINEN }}
                           >
                             <Plus size={13} />
                           </button>
@@ -1681,7 +1719,8 @@ function AccountScreen({
   setMediaStatus,
   rentedItems,
   setRentedItems,
-  onOpenCheckoutPlan
+  onOpenCheckoutPlan,
+  onUpdateOrderStatus
 }: {
   go: (s: Screen) => void;
   onLogout: () => void;
@@ -1699,6 +1738,7 @@ function AccountScreen({
   rentedItems: Array<{ id: number; name: string; image: string; rentDate: string; returnDate: string }>;
   setRentedItems: React.Dispatch<React.SetStateAction<Array<{ id: number; name: string; image: string; rentDate: string; returnDate: string }>>>;
   onOpenCheckoutPlan: (type: "rental" | "media", name: string, price: number) => void;
+  onUpdateOrderStatus?: (orderId: string, status: Order["status"]) => void;
 }) {
   // ── State quản lý ──────────────────────────────────────────────────────────
   const [accountTab, setAccountTab] = useState<string>(
@@ -1706,7 +1746,7 @@ function AccountScreen({
       ? (mediaPlan !== "None" ? "media" : "selling")
       : "purchases"
   );
-  const [orderTab, setOrderTab] = useState<"pending" | "shipping" | "delivering" | "review">("shipping");
+  const [orderTab, setOrderTab] = useState<"pending" | "shipping" | "delivering" | "review" | "cancelled">("shipping");
   const [sellingTab, setSellingTab] = useState<"all" | "active" | "pending" | "sold">("all");
 
   useEffect(() => {
@@ -1741,17 +1781,8 @@ function AccountScreen({
     estimatedRevenue: myProducts.filter(p => p.status === "sold").reduce((sum, p) => sum + p.price, 0),
   };
 
-  // ── Đơn hàng: merge mock + orders thật ─────────────────────────────────────
-  const mockOrders: Order[] = [
-    { id: "ORD-20240876", items: [{ id: "1", name: "Quần Jean Ống Rộng 90", price: 220000, size: "M", qty: 1, image: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=100", condition: 85, seller: "saigon.thrift" }], total: 250000, status: "shipping", createdAt: "2024-08-16", paymentMethod: "Vietcombank" },
-    { id: "ORD-20240865", items: [{ id: "2", name: "Váy Hoa Retro Pastel", price: 160000, size: "S", qty: 1, image: "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=100", condition: 90, seller: "hanoi.preloved" }], total: 190000, status: "shipping", createdAt: "2024-08-15", paymentMethod: "Techcombank" },
-    { id: "ORD-20240855", items: [{ id: "3", name: "Áo Linen Trắng 1994", price: 185000, size: "L", qty: 1, image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=100", condition: 95, seller: "minhtu.vintage" }], total: 215000, status: "delivering", createdAt: "2024-08-14", paymentMethod: "Vietcombank" },
-    { id: "ORD-20240820", items: [{ id: "4", name: "Áo Phông Band Tee 90s", price: 95000, size: "M", qty: 1, image: "https://images.unsplash.com/photo-1509631179647-0177331693ae?w=100", condition: 88, seller: "minhtu.vintage" }], total: 125000, status: "review", createdAt: "2024-08-10", paymentMethod: "MB Bank" },
-    { id: "ORD-20240810", items: [{ id: "5", name: "Áo Len Cổ Lọ Cozy", price: 210000, size: "M", qty: 1, image: "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=100", condition: 92, seller: "vintage.corner" }], total: 240000, status: "review", createdAt: "2024-08-08", paymentMethod: "Vietcombank" },
-    { id: "ORD-20240800", items: [{ id: "6", name: "Áo Khoác Denim Rửa Cũ", price: 350000, size: "L", qty: 1, image: "https://images.unsplash.com/photo-1495105787522-5334e3ffa0ef?w=100", condition: 80, seller: "minhtu.vintage" }], total: 380000, status: "review", createdAt: "2024-08-05", paymentMethod: "Techcombank" },
-  ];
-
-  const allOrders = [...orders, ...mockOrders];
+  // ── Đơn hàng ──────────────────────────────────────────────────────────────
+  const allOrders = orders;
 
   // ── Tính số đơn theo tab ───────────────────────────────────────────────────
   const orderCounts = {
@@ -1759,6 +1790,7 @@ function AccountScreen({
     shipping: allOrders.filter(o => o.status === "shipping").length,
     delivering: allOrders.filter(o => o.status === "delivering").length,
     review: allOrders.filter(o => o.status === "review").length,
+    cancelled: allOrders.filter(o => o.status === "cancelled").length,
   };
 
   const orderTabs = [
@@ -1766,6 +1798,7 @@ function AccountScreen({
     { id: "shipping" as const, label: "Vận chuyển", icon: Package, count: orderCounts.shipping, color: T },
     { id: "delivering" as const, label: "Đang giao", icon: Truck, count: orderCounts.delivering, color: "#2980B9" },
     { id: "review" as const, label: "Đánh giá", icon: Star, count: orderCounts.review, color: "#27AE60" },
+    { id: "cancelled" as const, label: "Đã hủy", icon: X, count: orderCounts.cancelled, color: "#E74C3C" },
   ];
 
   const filteredOrders = allOrders.filter(o => o.status === orderTab);
@@ -1789,6 +1822,7 @@ function AccountScreen({
       shipping: "Đang vận chuyển",
       delivering: "Đang giao hàng",
       review: "Chờ đánh giá",
+      cancelled: "Đã hủy đơn",
     };
     return labels[status] || status;
   };
@@ -2064,6 +2098,11 @@ function AccountScreen({
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold" style={{ color: ESPRESSO, ...ff }}>{order.items[0]?.name}{order.items.length > 1 && ` (+${order.items.length - 1} sản phẩm khác)`}</p>
                     <p className="text-xs mt-0.5" style={{ color: COFFEE, ...ff }}>@{order.items[0]?.seller} · #{order.id} · {order.createdAt}</p>
+                    {order.shippingAddress && (
+                      <p className="text-[11px] mt-1 italic max-w-[400px]" style={{ color: COFFEE + "aa", ...ff }}>
+                        📍 Giao tới: <strong>{order.shippingName}</strong> ({order.shippingPhone}) - {order.shippingAddress}
+                      </p>
+                    )}
                     <span className="inline-block text-xs px-2.5 py-0.5 rounded-full mt-2" style={{ backgroundColor: SOFT, color: COFFEE, ...ff }}>{getOrderStatusLabel(order.status)}</span>
                   </div>
                   <div className="text-right flex-shrink-0">
@@ -2072,17 +2111,47 @@ function AccountScreen({
                       {order.status === "shipping" && (
                         <>
                           <button className="text-xs px-3 py-1.5 rounded-lg font-semibold border transition-all hover:opacity-80" style={{ borderColor: MUTED, color: COFFEE, ...ff }}>Xem chi tiết</button>
-                          <button className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-80" style={{ backgroundColor: "#FDEDEC", color: "#E74C3C", ...ff }}>Hủy đơn</button>
+                          <button 
+                            onClick={() => {
+                              if (confirm(`Bạn có chắc chắn muốn hủy đơn hàng #${order.id} không?`)) {
+                                onUpdateOrderStatus && onUpdateOrderStatus(order.id, "cancelled");
+                              }
+                            }}
+                            className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-80" 
+                            style={{ backgroundColor: "#FDEDEC", color: "#E74C3C", ...ff }}
+                          >
+                            Hủy đơn
+                          </button>
                         </>
                       )}
                       {order.status === "delivering" && (
                         <>
-                          <button className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-80" style={{ backgroundColor: "#27AE60", color: LINEN, ...ff }}>Xác nhận đã nhận</button>
+                          <button 
+                            onClick={() => {
+                              onUpdateOrderStatus && onUpdateOrderStatus(order.id, "review");
+                            }}
+                            className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-80" 
+                            style={{ backgroundColor: "#27AE60", color: LINEN, ...ff }}
+                          >
+                            Xác nhận đã nhận
+                          </button>
                           <button className="text-xs px-3 py-1.5 rounded-lg font-semibold border transition-all hover:opacity-80" style={{ borderColor: MUTED, color: COFFEE, ...ff }}>Xem chi tiết</button>
                         </>
                       )}
                       {order.status === "review" && (
-                        <button className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-80" style={{ backgroundColor: "#27AE60", color: LINEN, ...ff }}>Đánh giá</button>
+                        <button 
+                          onClick={() => {
+                            const r = prompt("Nhập đánh giá của bạn (1-5 sao):", "5");
+                            if (r !== null) {
+                              alert("Cảm ơn bạn đã gửi đánh giá sản phẩm!");
+                              onUpdateOrderStatus && onUpdateOrderStatus(order.id, "completed");
+                            }
+                          }}
+                          className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-80" 
+                          style={{ backgroundColor: "#27AE60", color: LINEN, ...ff }}
+                        >
+                          Đánh giá ngay
+                        </button>
                       )}
                     </div>
                   </div>
@@ -2255,8 +2324,13 @@ function AccountScreen({
 }
 
 // ── Payment Screen ──────────────────────────────────────────────────────────────
-function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Screen) => void; cartGroups: CartGroup[]; updateCart: (cart: CartGroup[]) => void; addOrder: (items: OrderItem[], total: number, payment: string) => void }) {
-  const [step, setStep] = useState<"card" | "otp">("card");
+function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Screen) => void; cartGroups: CartGroup[]; updateCart: (cart: CartGroup[]) => void; addOrder: (items: OrderItem[], total: number, payment: string, name?: string, phone?: string, address?: string) => void }) {
+  const [step, setStep] = useState<"address" | "card" | "otp">("address");
+  const [fullName, setFullName] = useState("Nguyễn Thanh Linh");
+  const [phone, setPhone] = useState("0987654321");
+  const [address, setAddress] = useState("123 Đường Lê Lợi, Quận 1, TP. Hồ Chí Minh");
+  const [addressError, setAddressError] = useState("");
+
   const [selectedCard, setSelectedCard] = useState<string>("card-1");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [otpError, setOtpError] = useState(false);
@@ -2280,6 +2354,23 @@ function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Scree
   const subtotal = checkedItems.reduce((s, i) => s + (i.buyOrRent === "rent" ? 0 : i.price * i.qty), 0);
   const ship = checkedItems.length > 0 ? 30000 : 0;
   const total = subtotal + ship;
+
+  const handleNextToPayment = () => {
+    if (!fullName.trim()) {
+      setAddressError("Vui lòng nhập họ tên người nhận!");
+      return;
+    }
+    if (!phone.trim() || !/^\d{10,11}$/.test(phone)) {
+      setAddressError("Vui lòng nhập số điện thoại hợp lệ (10-11 chữ số)!");
+      return;
+    }
+    if (!address.trim() || address.trim().length < 10) {
+      setAddressError("Vui lòng nhập địa chỉ nhận hàng chi tiết!");
+      return;
+    }
+    setAddressError("");
+    setStep("card");
+  };
 
   const handleOtpChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return;
@@ -2330,7 +2421,7 @@ function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Scree
     setOrderId(newOrderId);
 
     // Add order and clear cart
-    addOrder(orderItems, total, `${selectedCardData?.bank} ***${selectedCardData?.last4}`);
+    addOrder(orderItems, total, `${selectedCardData?.bank} ***${selectedCardData?.last4}`, fullName, phone, address);
     const newCart = cartGroups.map(g => ({
       ...g,
       items: g.items.filter(i => !i.checked)
@@ -2367,17 +2458,29 @@ function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Scree
           <p className="text-sm mb-6" style={{ color: COFFEE, ...ff }}>
             Cảm ơn bạn đã mua sắm tại Thrifti. Đơn hàng của bạn đang được xử lý và sẽ giao trong 2-5 ngày.
           </p>
-          <div className="space-y-3 mb-8 p-4 rounded-2xl" style={{ backgroundColor: SOFT, border: `1px solid ${MUTED}` }}>
+          <div className="space-y-3 mb-8 p-4 rounded-2xl text-left" style={{ backgroundColor: SOFT, border: `1px solid ${MUTED}` }}>
             <div className="flex justify-between">
               <span className="text-sm" style={{ color: COFFEE, ...ff }}>Mã đơn hàng</span>
               <span className="text-sm font-bold" style={{ color: ESPRESSO, ...ff }}>#{orderId}</span>
             </div>
             <div className="flex justify-between">
+              <span className="text-sm" style={{ color: COFFEE, ...ff }}>Người nhận</span>
+              <span className="text-sm font-bold" style={{ color: ESPRESSO, ...ff }}>{fullName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm" style={{ color: COFFEE, ...ff }}>SĐT liên hệ</span>
+              <span className="text-sm font-bold" style={{ color: ESPRESSO, ...ff }}>{phone}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm" style={{ color: COFFEE, ...ff }}>Địa chỉ giao</span>
+              <span className="text-sm font-bold truncate max-w-[200px]" style={{ color: ESPRESSO, ...ff }} title={address}>{address}</span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-sm" style={{ color: COFFEE, ...ff }}>Phương thức</span>
               <span className="text-sm font-bold" style={{ color: ESPRESSO, ...ff }}>{selectedCardData?.bank} ****{selectedCardData?.last4}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-sm" style={{ color: COFFEE, ...ff }}>Tổng thanh toán</span>
+            <div className="flex justify-between items-center pt-2" style={{ borderTop: `1px dashed ${MUTED}` }}>
+              <span className="text-sm font-bold" style={{ color: ESPRESSO, ...ff }}>Tổng thanh toán</span>
               <span className="text-lg font-bold" style={{ ...serif, color: T }}>{fmt(total)}</span>
             </div>
           </div>
@@ -2399,7 +2502,15 @@ function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Scree
       {/* Header */}
       <div style={{ backgroundColor: COFFEE }}>
         <div className="max-w-[600px] mx-auto px-6 py-5 flex items-center gap-4">
-          <button onClick={() => go("cart")} className="flex items-center gap-2 text-sm font-semibold transition-all hover:opacity-80" style={{ color: LINEN, ...ff }}>
+          <button 
+            onClick={() => {
+              if (step === "card") setStep("address");
+              else if (step === "otp") setStep("card");
+              else go("cart");
+            }} 
+            className="flex items-center gap-2 text-sm font-semibold transition-all hover:opacity-80" 
+            style={{ color: LINEN, ...ff }}
+          >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M11 4L6 9L11 14" stroke={LINEN} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
             Quay lại
           </button>
@@ -2412,29 +2523,100 @@ function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Scree
         {/* Progress Steps */}
         <div className="flex items-center justify-center gap-3 mb-8">
           {[
-            { num: 1, label: "Chọn thẻ" },
-            { num: 2, label: "Xác thực OTP" },
-            { num: 3, label: "Hoàn tất" },
-          ].map((s, i) => (
-            <div key={s.num} className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
-                  style={{
-                    backgroundColor: step === "card" ? (i === 0 ? T : MUTED) : step === "otp" ? (i <= 1 ? T : MUTED) : T,
-                    color: (step === "card" && i === 0) || (step === "otp" && i <= 1) || step !== "card" && step !== "otp" ? LINEN : COFFEE,
-                  }}
-                >
-                  {i < ["card", "otp", "success"].indexOf(step === "otp" ? "otp" : step === "card" ? "card" : "success") ? <Check size={14} /> : s.num}
+            { num: 1, label: "Địa chỉ" },
+            { num: 2, label: "Chọn thẻ" },
+            { num: 3, label: "Xác thực OTP" },
+            { num: 4, label: "Hoàn tất" },
+          ].map((s, i) => {
+            const currentIdx = step === "address" ? 0 : step === "card" ? 1 : step === "otp" ? 2 : 3;
+            const isActive = i <= currentIdx;
+            return (
+              <div key={s.num} className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
+                    style={{
+                      backgroundColor: isActive ? T : MUTED,
+                      color: isActive ? LINEN : COFFEE,
+                    }}
+                  >
+                    {i < currentIdx ? <Check size={14} /> : s.num}
+                  </div>
+                  <span className="text-sm font-semibold" style={{ color: isActive ? T : COFFEE, ...ff }}>{s.label}</span>
                 </div>
-                <span className="text-sm font-semibold" style={{ color: (step === "card" && i === 0) || (step === "otp" && i <= 1) ? T : COFFEE, ...ff }}>{s.label}</span>
+                {i < 3 && <div className="w-8 h-px" style={{ backgroundColor: MUTED }} />}
               </div>
-              {i < 2 && <div className="w-12 h-px" style={{ backgroundColor: MUTED }} />}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* STEP 1: Chọn thẻ */}
+        {/* STEP 1: Địa chỉ */}
+        {step === "address" && (
+          <div className="space-y-6">
+            <div className="rounded-2xl p-5" style={{ backgroundColor: CARD, border: `1px solid ${MUTED}` }}>
+              <h3 className="text-base font-bold mb-4 font-serif" style={{ ...serif, color: ESPRESSO }}>Thông tin nhận hàng</h3>
+              
+              {addressError && (
+                <div className="mb-4 p-3.5 rounded-xl border text-xs font-semibold" style={{ backgroundColor: "#FDEDEC", color: "#E74C3C", borderColor: "#FADBD8" }}>
+                  ⚠️ {addressError}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold block mb-1.5" style={{ color: COFFEE, ...ff }}>Họ và tên người nhận *</label>
+                  <input
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="VD: Nguyễn Thanh Linh"
+                    className="w-full px-4 py-3 rounded-xl text-sm outline-none border-2 transition-all"
+                    style={{ backgroundColor: SOFT, border: `2px solid ${MUTED}`, color: ESPRESSO, ...ff }}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold block mb-1.5" style={{ color: COFFEE, ...ff }}>Số điện thoại liên hệ *</label>
+                  <input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="VD: 0987654321"
+                    className="w-full px-4 py-3 rounded-xl text-sm outline-none border-2 transition-all"
+                    style={{ backgroundColor: SOFT, border: `2px solid ${MUTED}`, color: ESPRESSO, ...ff }}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold block mb-1.5" style={{ color: COFFEE, ...ff }}>Địa chỉ giao hàng chi tiết *</label>
+                  <textarea
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Số nhà, tên đường, phường/xã, quận/huyện, tỉnh/thành phố..."
+                    rows={3}
+                    className="w-full px-4 py-3 rounded-xl text-sm outline-none border-2 resize-none transition-all"
+                    style={{ backgroundColor: SOFT, border: `2px solid ${MUTED}`, color: ESPRESSO, ...ff }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Next Button & Summary Preview */}
+            <div className="rounded-2xl p-5" style={{ backgroundColor: CARD, border: `1px solid ${MUTED}` }}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-xs" style={{ color: COFFEE }}>Tổng tiền ({checkedItems.length} sản phẩm):</p>
+                  <p className="text-xl font-bold text-amber-800 mt-0.5">{fmt(total)}</p>
+                </div>
+                <button
+                  onClick={handleNextToPayment}
+                  className="px-6 py-3 rounded-xl text-sm font-bold text-white transition-all hover:opacity-90 shadow-md"
+                  style={{ backgroundColor: T }}
+                >
+                  Chọn phương thức thanh toán
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2: Chọn thẻ */}
         {step === "card" && (
           <div className="space-y-6">
             {/* Order Summary Card */}
@@ -2517,7 +2699,7 @@ function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Scree
           </div>
         )}
 
-        {/* STEP 2: OTP Verification */}
+        {/* STEP 3: OTP Verification */}
         {step === "otp" && (
           <div className="space-y-6">
             {/* OTP Card */}
@@ -2527,7 +2709,7 @@ function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Scree
               </div>
               <h3 className="text-lg font-bold mb-2" style={{ ...serif, color: ESPRESSO }}>Xác thực thanh toán</h3>
               <p className="text-sm mb-4" style={{ color: COFFEE, ...ff }}>
-                Nhập mã OTP được gửi đến số điện thoại <strong style={{ color: ESPRESSO }}>0909***123</strong>
+                Nhập mã OTP được gửi đến số điện thoại <strong style={{ color: ESPRESSO }}>{phone.slice(0, 4)}***{phone.slice(-3)}</strong>
               </p>
               <p className="text-xs mb-6 px-4 py-2.5 rounded-xl" style={{ backgroundColor: SOFT, color: COFFEE, border: `1.5px solid ${MUTED}`, ...ff }}>
                 🔑 <strong>Hướng dẫn Demo:</strong> Nhập 6 chữ số bất kỳ (VD: 000000) để xác thực thành công. Nhập <strong>123456</strong> để mô phỏng lỗi giao dịch.
@@ -2826,6 +3008,10 @@ function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAddProduc
               <div className="pt-2 flex gap-3">
                 <button
                   onClick={() => {
+                    if (photoCount === 0) {
+                      alert("Vui lòng tải lên ít nhất 1 ảnh sản phẩm để tiếp tục!");
+                      return;
+                    }
                     if (!name.trim()) {
                       alert("Vui lòng nhập tên sản phẩm!");
                       return;
@@ -3293,38 +3479,50 @@ function ProductDetailScreen({
                 <Heart size={18} fill={product.liked ? "#E74C3C" : "none"} />
                 {product.liked ? "Đã thích" : "Yêu thích"}
               </button>
-              <div className="flex items-center gap-1 rounded-xl overflow-hidden" style={{ border: `1.5px solid ${MUTED}` }}>
-                <button onClick={() => setQty(Math.max(1, qty - 1))} className="px-4 py-3 transition-all hover:bg-gray-100" style={{ backgroundColor: SOFT }}>
+              <div className="flex items-center gap-1 rounded-xl overflow-hidden" style={{ border: `1.5px solid ${MUTED}`, opacity: product.status === "sold" ? 0.5 : 1 }}>
+                <button disabled={product.status === "sold"} onClick={() => setQty(Math.max(1, qty - 1))} className="px-4 py-3 transition-all hover:bg-gray-100 disabled:cursor-not-allowed" style={{ backgroundColor: SOFT }}>
                   <Minus size={16} style={{ color: COFFEE }} />
                 </button>
                 <span className="px-4 py-3 font-bold" style={{ backgroundColor: CARD, color: ESPRESSO }}>{qty}</span>
-                <button onClick={() => setQty(qty + 1)} className="px-4 py-3 transition-all hover:bg-gray-100" style={{ backgroundColor: T, color: LINEN }}>
+                <button disabled={product.status === "sold"} onClick={() => setQty(qty + 1)} className="px-4 py-3 transition-all hover:bg-gray-100 disabled:cursor-not-allowed" style={{ backgroundColor: T, color: LINEN }}>
                   <Plus size={16} />
                 </button>
               </div>
             </div>
 
-            <button
-              onClick={() => { onAddToCart(product, qty); setAddedToCart(true); setTimeout(() => setAddedToCart(false), 2000); }}
-              className="w-full py-4 rounded-2xl text-base font-bold shadow-lg transition-all hover:opacity-90 active:scale-[0.98]"
-              style={{ backgroundColor: addedToCart ? "#27AE60" : T, color: LINEN, ...ff }}
-            >
-              {addedToCart ? "✓ Đã thêm vào giỏ hàng" : "Thêm vào giỏ hàng"}
-            </button>
-            <button
-              onClick={() => { onAddToCart(product, qty); go("cart"); }}
-              className="w-full py-4 rounded-2xl text-base font-bold transition-all hover:opacity-90"
-              style={{ backgroundColor: ESPRESSO, color: LINEN, ...ff }}
-            >
-              Mua ngay
-            </button>
-            <button
-              onClick={() => onRentProduct(product)}
-              className="w-full py-4 rounded-2xl text-base font-bold transition-all hover:opacity-90 border-2"
-              style={{ borderColor: T, color: T, backgroundColor: "transparent", ...ff }}
-            >
-              {rentalPlan !== "None" ? "🔄 Thuê đồ hội viên (0₫ với Premium)" : "🔄 Đăng ký Thuê đồ (chỉ từ 45.000₫/ngày)"}
-            </button>
+            {product.status === "sold" ? (
+              <button
+                disabled
+                className="w-full py-4 rounded-2xl text-base font-bold cursor-not-allowed opacity-50 shadow-md"
+                style={{ backgroundColor: COFFEE, color: LINEN, ...ff }}
+              >
+                SẢN PHẨM ĐÃ BÁN (HẾT HÀNG)
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => { onAddToCart(product, qty); setAddedToCart(true); setTimeout(() => setAddedToCart(false), 2000); }}
+                  className="w-full py-4 rounded-2xl text-base font-bold shadow-lg transition-all hover:opacity-90 active:scale-[0.98]"
+                  style={{ backgroundColor: addedToCart ? "#27AE60" : T, color: LINEN, ...ff }}
+                >
+                  {addedToCart ? "✓ Đã thêm vào giỏ hàng" : "Thêm vào giỏ hàng"}
+                </button>
+                <button
+                  onClick={() => { onAddToCart(product, qty); go("cart"); }}
+                  className="w-full py-4 rounded-2xl text-base font-bold transition-all hover:opacity-90"
+                  style={{ backgroundColor: ESPRESSO, color: LINEN, ...ff }}
+                >
+                  Mua ngay
+                </button>
+                <button
+                  onClick={() => onRentProduct(product)}
+                  className="w-full py-4 rounded-2xl text-base font-bold transition-all hover:opacity-90 border-2"
+                  style={{ borderColor: T, color: T, backgroundColor: "transparent", ...ff }}
+                >
+                  {rentalPlan !== "None" ? "🔄 Thuê đồ hội viên (0₫ với Premium)" : "🔄 Đăng ký Thuê đồ (chỉ từ 45.000₫/ngày)"}
+                </button>
+              </>
+            )}
 
             {/* Trust badges */}
             <div className="grid grid-cols-3 gap-3">
@@ -4207,6 +4405,15 @@ function AdminScreen({
   );
 }
 
+const INIT_ORDERS: Order[] = [
+  { id: "ORD-20240876", items: [{ id: "1", name: "Quần Jean Ống Rộng 90", price: 220000, size: "M", qty: 1, image: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=100", condition: 85, seller: "saigon.thrift" }], total: 250000, status: "shipping", createdAt: "2024-08-16", paymentMethod: "Vietcombank" },
+  { id: "ORD-20240865", items: [{ id: "2", name: "Váy Hoa Retro Pastel", price: 160000, size: "S", qty: 1, image: "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=100", condition: 90, seller: "hanoi.preloved" }], total: 190000, status: "shipping", createdAt: "2024-08-15", paymentMethod: "Techcombank" },
+  { id: "ORD-20240855", items: [{ id: "3", name: "Áo Linen Trắng 1994", price: 185000, size: "L", qty: 1, image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=100", condition: 95, seller: "minhtu.vintage" }], total: 215000, status: "delivering", createdAt: "2024-08-14", paymentMethod: "Vietcombank" },
+  { id: "ORD-20240820", items: [{ id: "4", name: "Áo Phông Band Tee 90s", price: 95000, size: "M", qty: 1, image: "https://images.unsplash.com/photo-1509631179647-0177331693ae?w=100", condition: 88, seller: "minhtu.vintage" }], total: 125000, status: "review", createdAt: "2024-08-10", paymentMethod: "MB Bank" },
+  { id: "ORD-20240810", items: [{ id: "5", name: "Áo Len Cổ Lọ Cozy", price: 210000, size: "M", qty: 1, image: "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=100", condition: 92, seller: "vintage.corner" }], total: 240000, status: "review", createdAt: "2024-08-08", paymentMethod: "Vietcombank" },
+  { id: "ORD-20240800", items: [{ id: "6", name: "Áo Khoác Denim Rửa Cũ", price: 350000, size: "L", qty: 1, image: "https://images.unsplash.com/photo-1495105787522-5334e3ffa0ef?w=100", condition: 80, seller: "minhtu.vintage" }], total: 380000, status: "review", createdAt: "2024-08-05", paymentMethod: "Techcombank" },
+];
+
 // ── App Shell ──────────────────────────────────────────────────────────────────
 export default function App() {
   // Load initial state from localStorage
@@ -4237,7 +4444,7 @@ export default function App() {
   const [cartGroups, setCartGroups] = useState<CartGroup[]>(storedCart || INIT_CART);
   const [activeTag, setActiveTag] = useState<string>(""); // Quick filter tag from header
   const [headerQuery, setHeaderQuery] = useState<string>(""); // Search query from header
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<Order[]>(INIT_ORDERS);
   const [userRole, setUserRole] = useState<"buyer" | "seller">(() => {
     if (storedUser.email === "shop.minhtu@thriftit.vn") return "seller";
     return "buyer";
@@ -4490,7 +4697,7 @@ export default function App() {
     go("login");
   };
 
-  const addOrder = (orderItems: OrderItem[], total: number, paymentMethod: string) => {
+  const addOrder = (orderItems: OrderItem[], total: number, paymentMethod: string, name?: string, phone?: string, address?: string) => {
     const newOrder: Order = {
       id: `ORD-${Date.now().toString().slice(-6)}`,
       items: orderItems,
@@ -4498,8 +4705,24 @@ export default function App() {
       status: "shipping",
       createdAt: new Date().toLocaleDateString("vi-VN"),
       paymentMethod,
+      shippingName: name,
+      shippingPhone: phone,
+      shippingAddress: address,
     };
     setOrders(prev => [newOrder, ...prev]);
+
+    // Update products status to "sold" for purchased items
+    const purchasedIds = orderItems.map(item => Number(item.id));
+    setProducts(prev => prev.map(p => purchasedIds.includes(p.id) ? { ...p, status: "sold" } : p));
+
+    // Update myProductsByEmail status to "sold" for seller list
+    setMyProductsByEmail(prev => {
+      const updated = { ...prev };
+      for (const email of Object.keys(updated)) {
+        updated[email] = updated[email].map(p => purchasedIds.includes(p.id) ? { ...p, status: "sold" as const } : p);
+      }
+      return updated;
+    });
 
     // Handle adding checked rental items to rentedItems
     const checkedCartRentedItems = cartGroups.flatMap(g => g.items).filter(i => i.checked && i.buyOrRent === "rent");
@@ -4512,6 +4735,20 @@ export default function App() {
         returnDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString("vi-VN")
       }));
       setRentedItems(prev => [...newRented, ...prev]);
+    }
+  };
+
+  const handleUpdateOrderStatus = (orderId: string, nextStatus: Order["status"]) => {
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: nextStatus } : o));
+    
+    let msg = "";
+    if (nextStatus === "cancelled") msg = "Đã hủy đơn hàng thành công!";
+    else if (nextStatus === "review") msg = "Đã nhận hàng thành công! Bạn có thể đánh giá sản phẩm.";
+    else if (nextStatus === "completed") msg = "Cảm ơn bạn đã gửi đánh giá sản phẩm!";
+    
+    if (msg) {
+      setToastMsg(msg);
+      setTimeout(() => setToastMsg(null), 3000);
     }
   };
 
@@ -4656,7 +4893,7 @@ export default function App() {
             {screen === "product-detail" && selectedProduct && <ProductDetailScreen product={selectedProduct} go={go} onLike={toggleLike} onAddToCart={addToCart} rentalPlan={rentalPlan} onRentProduct={handleRentProduct} />}
             {screen === "seller" && selectedSeller && <SellerScreen seller={selectedSeller} go={go} products={products.filter(p => p.status !== "pending")} onAddToCart={addToCart} />}
             {screen === "payment" && <PaymentScreen go={go} cartGroups={cartGroups} updateCart={updateCart} addOrder={addOrder} />}
-            {screen === "account" && <AccountScreen go={go} onLogout={handleLogout} userName={currentUser} userEmail={currentEmail} orders={orders} myProducts={myProducts} setMyProducts={setMyProducts} userRole={userRole} setUserRole={setUserRole} rentalPlan={rentalPlan} mediaPlan={mediaPlan} mediaStatus={mediaStatus} setMediaStatus={setMediaStatus} rentedItems={rentedItems} setRentedItems={setRentedItems} onOpenCheckoutPlan={handleOpenCheckoutPlan} />}
+            {screen === "account" && <AccountScreen go={go} onLogout={handleLogout} userName={currentUser} userEmail={currentEmail} orders={orders} myProducts={myProducts} setMyProducts={setMyProducts} userRole={userRole} setUserRole={setUserRole} rentalPlan={rentalPlan} mediaPlan={mediaPlan} mediaStatus={mediaStatus} setMediaStatus={setMediaStatus} rentedItems={rentedItems} setRentedItems={setRentedItems} onOpenCheckoutPlan={handleOpenCheckoutPlan} onUpdateOrderStatus={handleUpdateOrderStatus} />}
             {screen === "post" && <PostScreen go={go} onAddProduct={handleAddProduct} />}
             {screen === "pricing" && <PricingScreen go={go} rentalPlan={rentalPlan} mediaPlan={mediaPlan} onOpenCheckoutPlan={handleOpenCheckoutPlan} />}
             {screen === "admin" && <AdminScreen go={go} products={products} setProducts={setProducts} mediaPlan={mediaPlan} setMediaPlan={setMediaPlan} mediaStatus={mediaStatus} setMediaStatus={setMediaStatus} myProductsByEmail={myProductsByEmail} setMyProductsByEmail={setMyProductsByEmail} rentalPlan={rentalPlan} setRentalPlan={setRentalPlan} userRole={userRole} setUserRole={setUserRole} onLogout={handleLogout} />}
