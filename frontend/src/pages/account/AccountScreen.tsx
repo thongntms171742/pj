@@ -147,6 +147,10 @@ export function AccountScreen({
     }
   }, [shipments]);
 
+  // ── Đơn hàng & filter ──
+  const allOrders = orders;
+  const filteredOrders = allOrders.filter((o) => getOrderTabStatus(o.status) === orderTab);
+
   // Auto-fetch shipments for all "shipping" orders when tab opens.
   useEffect(() => {
     if (orderTab === "shipping") {
@@ -185,9 +189,6 @@ export function AccountScreen({
     estimatedRevenue: myProducts.filter(p => p.status === "sold").reduce((sum, p) => sum + p.price, 0),
   };
 
-  // ── Đơn hàng ──────────────────────────────────────────────────────────────
-  const allOrders = orders;
-
   // ── Tính số đơn theo tab ───────────────────────────────────────────────────
   const orderCounts = {
     pending: allOrders.filter((o) => getOrderTabStatus(o.status) === "pending").length,
@@ -204,8 +205,6 @@ export function AccountScreen({
     { id: "review" as const, label: "Đánh giá", icon: Star, count: orderCounts.review, color: "#27AE60" },
     { id: "cancelled" as const, label: "Đã hủy", icon: X, count: orderCounts.cancelled, color: "#E74C3C" },
   ];
-
-  const filteredOrders = allOrders.filter((o) => getOrderTabStatus(o.status) === orderTab);
 
   // ── Filter sản phẩm theo tab bán ─────────────────────────────────────────────
   const filteredProducts = sellingTab === "all" ? myProducts : myProducts.filter(p => p.status === sellingTab);

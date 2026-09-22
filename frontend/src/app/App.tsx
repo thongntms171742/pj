@@ -13,7 +13,7 @@ import {
 import type {
   Screen, Product, Seller, CartGroup, Order, OrderItem, SellerProduct, Notification,
 } from "../types";
-import { api, ApiError } from "../lib/api";
+import { api, ApiError, setToken } from "../lib/api";
 import {
   adaptProduct, adaptOrder, adaptCartItems, adaptNotification, adaptToSellerProduct,
 } from "../lib/adapters";
@@ -57,8 +57,13 @@ function getStoredSession(): AuthUser | null {
 
 function setStoredSession(u: AuthUser | null) {
   try {
-    if (u) localStorage.setItem(SESSION_KEY, JSON.stringify(u));
-    else localStorage.removeItem(SESSION_KEY);
+    if (u) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(u));
+      setToken(u.token);
+    } else {
+      localStorage.removeItem(SESSION_KEY);
+      setToken(null);
+    }
   } catch {}
 }
 

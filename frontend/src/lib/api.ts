@@ -4,7 +4,19 @@
 //   - parses JSON
 //   - throws ApiError with a useful message on non-2xx
 
-const BASE = "/api";
+function resolveBaseUrl(): string {
+  let url = (import.meta.env.VITE_API_URL || "/api").trim();
+  if (url === "/api" || url.startsWith("/")) return url;
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    url = `https://${url}`;
+  }
+  if (!url.endsWith("/api")) {
+    url = `${url.replace(/\/+$/, "")}/api`;
+  }
+  return url;
+}
+
+const BASE = resolveBaseUrl();
 const TOKEN_KEY = "thriftit_token";
 
 export class ApiError extends Error {
@@ -20,7 +32,14 @@ export class ApiError extends Error {
 
 export function getToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    const direct = localStorage.getItem(TOKEN_KEY);
+    if (direct) return direct;
+    const sessionStr = localStorage.getItem("thriftit_session");
+    if (sessionStr) {
+      const parsed = JSON.parse(sessionStr);
+      return parsed?.token || null;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -29,7 +48,10 @@ export function getToken(): string | null {
 export function setToken(token: string | null) {
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
+    else {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem("thriftit_session");
+    }
   } catch {}
 }
 
@@ -64,6 +86,9 @@ async function request<T>(path: string, init: RequestInitJson = {}): Promise<T> 
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      setToken(null);
+    }
     let details: unknown = null;
     try {
       details = await res.json();
