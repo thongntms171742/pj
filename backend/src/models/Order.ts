@@ -45,11 +45,11 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 // Valid transitions from each status
 export const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  PENDING_PAYMENT: ["PAID", "CANCELLED"],
+  PENDING_PAYMENT: ["PAID", "CONFIRMED", "CANCELLED"],
   PAID: ["CONFIRMED", "CANCELLED", "REFUNDED"],
-  CONFIRMED: ["PACKING", "CANCELLED"],
-  PACKING: ["SHIPPING"],
-  SHIPPING: ["DELIVERING"],
+  CONFIRMED: ["PACKING", "SHIPPING", "CANCELLED"],
+  PACKING: ["SHIPPING", "CANCELLED"],
+  SHIPPING: ["DELIVERING", "CANCELLED"],
   DELIVERING: ["DELIVERED"],
   DELIVERED: ["COMPLETED", "DISPUTED"],
   COMPLETED: [],
@@ -57,6 +57,32 @@ export const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   DISPUTED: ["REFUNDED", "COMPLETED"],
   REFUNDED: [],
 };
+
+// ── Shipment timeline event ───────────────────────────────────────────────────
+const ShippingEventSchema = new Schema(
+  {
+    status: { type: String, required: true },
+    description: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now },
+    location: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+// ── Pickup address information ────────────────────────────────────────────────
+const PickupInfoSchema = new Schema(
+  {
+    name: { type: String, default: "" },
+    phone: { type: String, default: "" },
+    address: { type: String, default: "" },
+    province: { type: String, default: "" },
+    district: { type: String, default: "" },
+    ward: { type: String, default: "" },
+    email: { type: String, default: "" },
+    note: { type: String, default: "" },
+  },
+  { _id: false }
+);
 
 // ── Order document ────────────────────────────────────────────────────────────
 export interface IOrderItem {
@@ -68,6 +94,24 @@ export interface IOrderItem {
   quantity: number;
   conditionSnapshot?: number;
   sellerAmount: number;
+}
+
+export interface IPickupInfo {
+  name?: string;
+  phone?: string;
+  address?: string;
+  province?: string;
+  district?: string;
+  ward?: string;
+  email?: string;
+  note?: string;
+}
+
+export interface IShippingEvent {
+  status: string;
+  description: string;
+  timestamp: Date;
+  location?: string;
 }
 
 export interface IOrder extends Document {
@@ -89,6 +133,12 @@ export interface IOrder extends Document {
   shippingAddress: string;
   trackingNumber: string;
   shippingProvider: string;
+  trackingUrl: string;
+  pickupInfo?: IPickupInfo | null;
+  shippedAt?: Date | null;
+  estimatedDeliveryAt?: Date | null;
+  deliveredAt?: Date | null;
+  shippingEvents: IShippingEvent[];
   idempotencyKey: string;
 }
 
@@ -116,11 +166,18 @@ const OrderSchema = new Schema<IOrder>(
     shippingAddress: { type: String, default: "" },
     trackingNumber: { type: String, default: "" },
     shippingProvider: { type: String, default: "" },
+    trackingUrl: { type: String, default: "" },
+    pickupInfo: { type: PickupInfoSchema, default: null },
+    shippedAt: { type: Date, default: null },
+    estimatedDeliveryAt: { type: Date, default: null },
+    deliveredAt: { type: Date, default: null },
+    shippingEvents: { type: [ShippingEventSchema], default: [] },
     idempotencyKey: { type: String, default: undefined },
   },
   { timestamps: true }
 );
 
 OrderSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+OrderSchema.index({ "items.sellerId": 1 });
 
 export const Order = mongoose.model<IOrder>("Order", OrderSchema);
