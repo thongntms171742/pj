@@ -9,6 +9,7 @@ export function adaptProduct(p: ApiProduct, likedIds: Set<string>): Product {
   const id = hashId(p._id);
   return {
     id,
+    apiId: p._id,
     name: p.title,
     price: p.price,
     seller: p.sellerId?.handle ?? "",

@@ -354,6 +354,7 @@ export default function App() {
                     checked: false,
                     condition: product.condition,
                     apiId: product.apiId,
+                    productApiId: product.apiId,
                   },
                 ],
               }
@@ -375,6 +376,7 @@ export default function App() {
               checked: false,
               condition: product.condition,
               apiId: product.apiId,
+              productApiId: product.apiId,
             },
           ],
         },

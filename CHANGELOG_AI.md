@@ -19,5 +19,6 @@
 - Fixed Render build errors by moving TypeScript & `@types/*` into `dependencies` in `backend/package.json` and adding `types: ["node"]` in `tsconfig.json`.
 - Updated `render.yaml` buildCommand to `npm install --include=dev && npm run build`.
 - Fixed implicit any type error for `it` in `orderController.ts`.
+- Added `apiId: p._id` in `frontend/src/lib/adapters.ts` (`adaptProduct`) and `productApiId: product.apiId` in `frontend/src/app/App.tsx` (`addToCart`) to ensure cart persistence to MongoDB Atlas and guest cart merge upon login without touching backend.
 
 

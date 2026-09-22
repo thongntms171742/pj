@@ -37,3 +37,8 @@
 - **Frontend**: Static Site (root `frontend`, build: `npm install && npm run build`, publish: `dist`).
 - Environment variable `VITE_API_URL` links frontend to backend on Render.
 
+## Frontend Cart Persistence & Synchronization
+- `frontend/src/lib/adapters.ts`: `adaptProduct` sets `apiId: p._id` from backend product Mongo ID.
+- `frontend/src/app/App.tsx`: `addToCart` stores `productApiId: product.apiId` in cart items.
+  - When logged in: triggers `POST /api/cart/items` immediately to persist to MongoDB Atlas.
+  - When guest: preserves `productApiId` in `localStorage` so upon login, `POST /auth/cart/merge` successfully synchronizes local guest items to user's MongoDB cart.
