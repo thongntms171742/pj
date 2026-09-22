@@ -22,8 +22,8 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
       _id: o._id.toString(),
       orderCode: o.orderCode,
       buyerId: o.buyerId.toString(),
-      items: o.items.map((it) => ({
-        productId: it.productId.toString(),
+      items: (o.items || []).map((it: any) => ({
+        productId: it.productId ? it.productId.toString() : "",
         sellerId: it.sellerId.toString(),
         productName: it.productName,
         productImageUrl: it.productImageUrl,

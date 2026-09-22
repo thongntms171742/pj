@@ -16,5 +16,8 @@
 - Added missing `/api/sellers` and `/api/sellers/:idOrHandle` routes & controller (`sellerController.ts`).
 - Added `/api/orders/:code/shipment` endpoint for tracking shipments.
 - Fixed `GET /api/products` 500 error by ensuring all Mongoose models are registered on startup and adding defensive population guards.
-- Fixed 401 Unauthorized handling by syncing `setToken` with session storage and clearing expired tokens automatically.
+- Fixed Render build errors by moving TypeScript & `@types/*` into `dependencies` in `backend/package.json` and adding `types: ["node"]` in `tsconfig.json`.
+- Updated `render.yaml` buildCommand to `npm install --include=dev && npm run build`.
+- Fixed implicit any type error for `it` in `orderController.ts`.
+
 

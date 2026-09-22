@@ -205,7 +205,6 @@ export function AccountScreen({
     { id: "review" as const, label: "Đánh giá", icon: Star, count: orderCounts.review, color: "#27AE60" },
     { id: "cancelled" as const, label: "Đã hủy", icon: X, count: orderCounts.cancelled, color: "#E74C3C" },
   ];
-
   // ── Filter sản phẩm theo tab bán ─────────────────────────────────────────────
   const filteredProducts = sellingTab === "all" ? myProducts : myProducts.filter(p => p.status === sellingTab);
 
