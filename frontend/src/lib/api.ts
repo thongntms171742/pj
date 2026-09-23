@@ -139,6 +139,9 @@ export type ApiProduct = {
   views: number;
   likes: number;
   location?: string;
+  seller?: string;
+  sellerName?: string;
+  sellerAvatar?: string;
   sellerId: {
     _id: string;
     handle: string;

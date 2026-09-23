@@ -184,8 +184,23 @@ export default function App() {
         })
         .catch(() => {});
     }
+
+    if (currentRoles.includes("seller") || userRole === "seller") {
+      api
+        .get<{ products: import("../lib/api").ApiProduct[] }>("/products/mine")
+        .then((res) => {
+          const sellerProducts = res.products.map((p) =>
+            adaptToSellerProduct(p, p.seller || p.sellerId?.handle || "")
+          );
+          setMyProductsByEmail((prev) => ({
+            ...prev,
+            [currentEmail]: sellerProducts,
+          }));
+        })
+        .catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.token]);
+  }, [session?.token, userRole]);
 
   // Only user-role preference is kept in localStorage. Everything else is server-driven.
 

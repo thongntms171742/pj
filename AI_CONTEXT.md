@@ -42,3 +42,8 @@
 - `frontend/src/app/App.tsx`: `addToCart` stores `productApiId: product.apiId` in cart items.
   - When logged in: triggers `POST /api/cart/items` immediately to persist to MongoDB Atlas.
   - When guest: preserves `productApiId` in `localStorage` so upon login, `POST /auth/cart/merge` successfully synchronizes local guest items to user's MongoDB cart.
+
+## Frontend Seller Dashboard & Products Persistence
+- `frontend/src/app/App.tsx`: On login/refresh and when `userRole === 'seller'`, calls `GET /api/products/mine` to fetch all listings belonging to the seller.
+- Adapts them via `adaptToSellerProduct` and populates `myProductsByEmail[currentEmail]`, ensuring seller listings and stats remain consistent across page reloads (F5).
+
