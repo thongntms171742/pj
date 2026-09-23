@@ -27,5 +27,12 @@
   - Added `POST /api/orders/:code/shipment` for sellers to create shipping labels with realistic tracking numbers and timeline events.
   - Enriched `GET /api/orders/:code/shipment` with live tracking status, GHTK tracking URLs, and chronological event milestones.
   - Added transition updates for `DELIVERING` and `DELIVERED` with automatic buyer notification and timeline logging.
+- **Seller flow & display fix**:
+  - Enriched `sellerController.ts` with dual frontend property aliases (`name` & `shopName`, `avatar` & `avatarUrl`, `thumbs` & `coverImages`, `transactions` & `totalTransactions`).
+  - Handled flexible seller lookup in `GET /api/sellers/:idOrHandle` supporting handle with/without `@`, case-insensitive matching, email, and ObjectId.
+  - Added `GET /api/sellers/:idOrHandle/products` to fetch active listings of a specific shop.
+  - Enriched `productController.ts` with `seller` (string handle), `sellerName`, `sellerAvatar` top-level fields on products so `SellerScreen` and `ProductCard` filter correctly.
+  - Added `GET /api/products/mine` and `GET /api/products/seller` for authenticated sellers to retrieve all listings and dashboard stats.
+
 
 

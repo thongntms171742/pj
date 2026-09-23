@@ -65,10 +65,20 @@
 - `POST /api/orders/:code/shipment`: Seller generates shipping label (`provider`: GHTK, unique tracking number `GHTK...`, tracking URL, estimated delivery, and pickup info). Moves order to `SHIPPING` and creates initial timeline events (`CREATED`, `PICKED_UP`, `IN_TRANSIT`).
 - `GET /api/orders/:code/shipment`: Returns live shipping details and timeline events matching frontend `Shipment` interface.
 
+### 4. Seller & Shop Flow (`sellerController.ts`, `productController.ts`, `routes/sellers.ts`)
+- `GET /api/sellers`: Returns list of all active sellers mapped with dual frontend property aliases (`name` & `shopName`, `avatar` & `avatarUrl`, `thumbs` & `coverImages`, `transactions` & `totalTransactions`, `_id` & `id`).
+- `GET /api/sellers/me`: Returns profile of the currently authenticated seller.
+- `GET /api/sellers/:idOrHandle`: Case-insensitive seller lookup supporting handle with/without `@` prefix (e.g. `@minhtu.vintage` or `minhtu.vintage`), email, shopName, or MongoDB ObjectId.
+- `GET /api/sellers/:idOrHandle/products`: Returns all active products belonging to the specified seller with populated seller and category details.
+- `GET /api/products/mine` / `GET /api/products/seller`: Returns all products belonging to the authenticated seller (including `pending`, `active`, `sold`) and computes real-time seller statistics (`totalProducts`, `activeProducts`, `pendingProducts`, `soldProducts`, `totalViews`, `totalLikes`, `estimatedRevenue`).
+- `mapProduct` in `productController.ts`: Returns `seller` (string handle), `sellerName`, `sellerAvatar`, `name` (alias for `title`), and `image` (alias for `coverImage`) alongside populated `sellerId` so frontend `products.filter(p => p.seller === seller.handle)` and `ProductCard` render cleanly.
+
 ## Notes & Recommendations for Frontend (No Frontend Code Changed)
 1. **COD Orders**: Backend sets COD orders directly to `CONFIRMED` upon creation.
 2. **Online Payments**: `POST /payments/checkout` advances online orders to `CONFIRMED` and returns full `ApiOrder` object.
 3. **Cart Cleanup**: Creating an order automatically cleans checked items from the server database cart.
 4. **Shipment Modal**: The seller shipment creation endpoint `POST /api/orders/:id/shipment` accepts `{ pickup: { name, phone, address, province, district, ward, note } }` and responds with `{ shipment: Shipment }`.
+5. **Seller Screen & Cards**: Both property naming conventions (`name`/`avatar`/`thumbs`/`transactions` and `shopName`/`avatarUrl`/`coverImages`/`totalTransactions`) are supplied in responses for 100% frontend compatibility. Products also include the top-level string `seller: "handle"` matching `seller.handle`.
+
 
 
