@@ -36,5 +36,10 @@
   - Enriched `sellerController.ts` with dual frontend property aliases (`name` & `shopName`, `avatar` & `avatarUrl`, `thumbs` & `coverImages`, `transactions` & `totalTransactions`).
   - Handled flexible seller lookup in `GET /api/sellers/:idOrHandle` supporting handle with/without `@`, case-insensitive matching, email, and ObjectId.
   - Added `GET /api/sellers/:idOrHandle/products` to fetch active listings of a specific shop.
-  - Enriched `productController.ts` with `seller` (string handle), `sellerName`, `sellerAvatar` top-level fields on products so `SellerScreen` and `ProductCard` filter correctly.
   - Added `GET /api/products/mine` and `GET /api/products/seller` for authenticated sellers to retrieve all listings and dashboard stats.
+- **Seller orders needing processing fix ("Đơn hàng cần xử lý")**:
+  - Broadened `VALID_TRANSITIONS` in `Order.ts` allowing `SHIPPING` -> `DELIVERED` and `PAID` -> `PACKING`.
+  - Added robust ObjectId/string query matching in `getSellerOrders` for `items.sellerId`.
+  - Updated `AccountScreen.tsx` to include `PAID` and `DELIVERING` in the processing filter so active orders are not hidden.
+  - Implemented `handleSellerUpdateStatus` in `AccountScreen.tsx` to immediately update UI state and transition orders through Packing, Shipping, and Delivered.
+

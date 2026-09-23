@@ -107,6 +107,13 @@ export function AccountScreen({
   const [shipCreating, setShipCreating] = useState(false);
   const [shipError, setShipError] = useState("");
 
+  const handleSellerUpdateStatus = (orderId: string, nextStatus: Order["status"]) => {
+    setSellerOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o))
+    );
+    onUpdateOrderStatus?.(orderId, nextStatus);
+  };
+
   const handleCreateShipment = async () => {
     if (!shipDialogOrder) return;
     setShipCreating(true);
@@ -119,6 +126,7 @@ export function AccountScreen({
       setSellerOrders((prev) =>
         prev.map((o) => (o.id === shipDialogOrder.id ? { ...o, status: "SHIPPING" as const } : o))
       );
+      onUpdateOrderStatus?.(shipDialogOrder.id, "SHIPPING");
       setShipDialogOrder(null);
       showToast?.(`✓ Đã tạo vận đơn cho #${shipDialogOrder.id}. Đơn hàng đang được vận chuyển!`);
     } catch (err: unknown) {
@@ -660,14 +668,14 @@ export function AccountScreen({
               <h3 className="text-lg font-bold mb-4" style={{ ...serif, color: ESPRESSO }}>Đơn hàng cần xử lý</h3>
               {sellerOrdersLoading ? (
                 <div className="p-6 text-center text-sm" style={{ color: COFFEE }}>Đang tải đơn hàng…</div>
-              ) : sellerOrders.filter((o) => ["CONFIRMED", "PACKING", "SHIPPING", "DELIVERED"].includes(o.status)).length === 0 ? (
+              ) : sellerOrders.filter((o) => ["PAID", "CONFIRMED", "PACKING", "SHIPPING", "DELIVERING"].includes(o.status)).length === 0 ? (
                 <div className="p-6 rounded-2xl text-center text-sm mb-8" style={{ backgroundColor: CARD, border: `1px solid ${MUTED}`, color: COFFEE }}>
                   Chưa có đơn hàng nào cần xử lý
                 </div>
               ) : (
                 <div className="space-y-3 mb-8">
                   {sellerOrders
-                    .filter((o) => ["CONFIRMED", "PACKING", "SHIPPING", "DELIVERED"].includes(o.status))
+                    .filter((o) => ["PAID", "CONFIRMED", "PACKING", "SHIPPING", "DELIVERING"].includes(o.status))
                     .map((order) => {
                       const isPacking = order.status === "PACKING";
                       return (
@@ -684,9 +692,9 @@ export function AccountScreen({
                             <p className="text-sm font-bold" style={{ color: T, ...serif }}>{fmt(order.total)}</p>
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: SOFT, color: COFFEE }}>{order.status}</span>
                             <div className="flex gap-2 flex-wrap justify-end">
-                              {order.status === "CONFIRMED" && (
+                              {(order.status === "CONFIRMED" || order.status === "PAID") && (
                                 <button
-                                  onClick={() => onUpdateOrderStatus && onUpdateOrderStatus(order.id, "PACKING")}
+                                  onClick={() => handleSellerUpdateStatus(order.id, "PACKING")}
                                   className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-90"
                                   style={{ backgroundColor: T, color: LINEN, ...ff }}
                                 >
@@ -702,9 +710,9 @@ export function AccountScreen({
                                   <Truck size={12} className="inline mr-1" /> Tạo vận đơn
                                 </button>
                               )}
-                              {order.status === "SHIPPING" && (
+                              {(order.status === "SHIPPING" || order.status === "DELIVERING") && (
                                 <button
-                                  onClick={() => onUpdateOrderStatus && onUpdateOrderStatus(order.id, "DELIVERED")}
+                                  onClick={() => handleSellerUpdateStatus(order.id, "DELIVERED")}
                                   className="text-xs px-3 py-1.5 rounded-lg font-semibold border transition-all hover:opacity-80"
                                   style={{ borderColor: "#27AE60", color: "#27AE60", ...ff }}
                                 >

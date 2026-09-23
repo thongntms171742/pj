@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { Types } from "mongoose";
 import { Order, VALID_TRANSITIONS, OrderStatus, IOrder } from "../models/Order";
 import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
@@ -82,7 +83,12 @@ export const getSellerOrders = async (req: Request, res: Response): Promise<void
     const userId = req.user!.id;
     const { status } = req.query;
 
-    const filter: any = { "items.sellerId": userId };
+    const userObjId = Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : null;
+    const sellerFilter = userObjId
+      ? { $or: [{ "items.sellerId": userObjId }, { "items.sellerId": userId }] }
+      : { "items.sellerId": userId };
+
+    const filter: any = { ...sellerFilter };
     if (status && typeof status === "string") {
       filter.status = status.toUpperCase();
     }
