@@ -8,7 +8,7 @@
 - MongoDB Atlas connection with TLS clock skew support (`tlsAllowInvalidCertificates=true`).
 - Seed script (`seed.ts`) populating categories, users, products, cart items, orders, and notifications.
 
-### Fixed
+### Fixed & Implemented
 - Fixed MongoDB Atlas credentials (`to12345`).
 - Fixed duplicate index warnings on `User.ts` (`email`) and `Order.ts` (`idempotencyKey`).
 - Fixed JWT expiresIn TypeScript typing.
@@ -21,5 +21,20 @@
 - Fixed implicit any type error for `it` in `orderController.ts`.
 - Added `apiId: p._id` in `frontend/src/lib/adapters.ts` (`adaptProduct`) and `productApiId: product.apiId` in `frontend/src/app/App.tsx` (`addToCart`) to ensure cart persistence to MongoDB Atlas and guest cart merge upon login without touching backend.
 - Added `/products/mine` call in `frontend/src/app/App.tsx` (`useEffect`) when user has seller role, mapping results to `myProductsByEmail` via `adaptToSellerProduct` to preserve seller listings and stats across page reloads (F5).
-
-
+- Fixed 401 Unauthorized handling by syncing `setToken` with session storage and clearing expired tokens automatically.
+- **Cart flow**: Added ownership isolation, stock validation, self-purchase blocking, `DELETE /api/cart/clear`, and `POST /api/cart/merge`.
+- **Order & Payment flow**:
+  - Implemented automatic inventory holding (`status: "reserved"`) during online card checkout, and direct confirmation for COD.
+  - Implemented complete `checkout` payment flow with automatic inventory deduction, sold state updates, and buyer/seller notifications.
+  - Implemented automatic stock restoration when an order is `CANCELLED`.
+  - Registered `GET /api/orders/seller` before `GET /api/orders/:id` to prevent route collision.
+- **Shipment & Tracking flow**:
+  - Added `POST /api/orders/:code/shipment` for sellers to create shipping labels with realistic tracking numbers and timeline events.
+  - Enriched `GET /api/orders/:code/shipment` with live tracking status, GHTK tracking URLs, and chronological event milestones.
+  - Added transition updates for `DELIVERING` and `DELIVERED` with automatic buyer notification and timeline logging.
+- **Seller flow & display fix**:
+  - Enriched `sellerController.ts` with dual frontend property aliases (`name` & `shopName`, `avatar` & `avatarUrl`, `thumbs` & `coverImages`, `transactions` & `totalTransactions`).
+  - Handled flexible seller lookup in `GET /api/sellers/:idOrHandle` supporting handle with/without `@`, case-insensitive matching, email, and ObjectId.
+  - Added `GET /api/sellers/:idOrHandle/products` to fetch active listings of a specific shop.
+  - Enriched `productController.ts` with `seller` (string handle), `sellerName`, `sellerAvatar` top-level fields on products so `SellerScreen` and `ProductCard` filter correctly.
+  - Added `GET /api/products/mine` and `GET /api/products/seller` for authenticated sellers to retrieve all listings and dashboard stats.

@@ -37,13 +37,48 @@
 - **Frontend**: Static Site (root `frontend`, build: `npm install && npm run build`, publish: `dist`).
 - Environment variable `VITE_API_URL` links frontend to backend on Render.
 
-## Frontend Cart Persistence & Synchronization
-- `frontend/src/lib/adapters.ts`: `adaptProduct` sets `apiId: p._id` from backend product Mongo ID.
-- `frontend/src/app/App.tsx`: `addToCart` stores `productApiId: product.apiId` in cart items.
-  - When logged in: triggers `POST /api/cart/items` immediately to persist to MongoDB Atlas.
-  - When guest: preserves `productApiId` in `localStorage` so upon login, `POST /auth/cart/merge` successfully synchronizes local guest items to user's MongoDB cart.
+## Core Flows (Cart, Checkout/Payment, Shipment Tracking)
+### 1. Cart Flow (`cartController.ts`, `routes/cart.ts`)
+- `GET /api/cart`: Fetches authenticated user's cart and items populated with seller and category info, formatted via `mapCartItem`.
+- `POST /api/cart/items`: Adds item with checks: product exists, `status === 'active'`, `quantity > 0`, prevents self-purchase (`product.sellerId === userId`), and validates combined cart quantity does not exceed available stock.
+- `PATCH /api/cart/items/:id`: Updates quantity (stock validation, auto-deletes if quantity <= 0) and `checked` status with strict user cart ownership isolation.
+- `DELETE /api/cart/items/:id`: Removes item ensuring it belongs to caller's cart.
+- `DELETE /api/cart/clear`: Clears all items in the user's cart.
+- `POST /api/cart/merge`: Merges guest cart items upon login.
 
-## Frontend Seller Dashboard & Products Persistence
-- `frontend/src/app/App.tsx`: On login/refresh and when `userRole === 'seller'`, calls `GET /api/products/mine` to fetch all listings belonging to the seller.
-- Adapts them via `adaptToSellerProduct` and populates `myProductsByEmail[currentEmail]`, ensuring seller listings and stats remain consistent across page reloads (F5).
+### 2. Checkout & Payment Flow (`orderController.ts`, `paymentController.ts`)
+- `POST /api/orders`:
+  - Supports checkout via checked cart items or custom `items` payload.
+  - Validates active status, stock availability, and self-purchase restrictions.
+  - **COD Orders**: Immediately transitioned to `CONFIRMED`, stock decremented immediately (`quantity = quantity - item.quantity`; if 0, `status = 'sold'`), and sends notifications to both buyer and seller.
+  - **Card / Online Orders**: Initial status `PENDING_PAYMENT`, temporarily places items on hold (`status = 'reserved'`, `reservedUntil = Date.now() + 30m`, `reservedByOrderId = order._id`).
+- `POST /api/payments/checkout`:
+  - Advances order `PENDING_PAYMENT` -> `PAID` -> `CONFIRMED`.
+  - Finalizes inventory decrement (marks remaining stock `active` or `sold`), clears reservation holds, and sends notifications to buyer and seller.
+- `PATCH /api/orders/:code/status`:
+  - Enforces `VALID_TRANSITIONS` state machine.
+  - **Cancellation (`CANCELLED`)**: Restores inventory and holds back to active stock (`quantity += item.quantity`, `status = 'active'`).
+  - **Delivery updates (`DELIVERING`, `DELIVERED`, `COMPLETED`)**: Appends live delivery events to tracking timeline and notifies parties.
+
+### 3. Shipment & Live Tracking Flow (`orderController.ts`, `routes/orders.ts`)
+- `GET /api/orders/seller`: Retrieves all orders containing products sold by the authenticated seller (properly registered before `/:id` to avoid route collisions).
+- `POST /api/orders/:code/shipment`: Seller generates shipping label (`provider`: GHTK, unique tracking number `GHTK...`, tracking URL, estimated delivery, and pickup info). Moves order to `SHIPPING` and creates initial timeline events (`CREATED`, `PICKED_UP`, `IN_TRANSIT`).
+- `GET /api/orders/:code/shipment`: Returns live shipping details and timeline events matching frontend `Shipment` interface.
+
+### 4. Seller & Shop Flow (`sellerController.ts`, `productController.ts`, `routes/sellers.ts`)
+- `GET /api/sellers`: Returns list of all active sellers mapped with dual frontend property aliases (`name` & `shopName`, `avatar` & `avatarUrl`, `thumbs` & `coverImages`, `transactions` & `totalTransactions`, `_id` & `id`).
+- `GET /api/sellers/me`: Returns profile of the currently authenticated seller.
+- `GET /api/sellers/:idOrHandle`: Case-insensitive seller lookup supporting handle with/without `@` prefix (e.g. `@minhtu.vintage` or `minhtu.vintage`), email, shopName, or MongoDB ObjectId.
+- `GET /api/sellers/:idOrHandle/products`: Returns all active products belonging to the specified seller with populated seller and category details.
+- `GET /api/products/mine` / `GET /api/products/seller`: Returns all products belonging to the authenticated seller (including `pending`, `active`, `sold`) and computes real-time seller statistics (`totalProducts`, `activeProducts`, `pendingProducts`, `soldProducts`, `totalViews`, `totalLikes`, `estimatedRevenue`).
+- `mapProduct` in `productController.ts`: Returns `seller` (string handle), `sellerName`, `sellerAvatar`, `name` (alias for `title`), and `image` (alias for `coverImage`) alongside populated `sellerId` so frontend `products.filter(p => p.seller === seller.handle)` and `ProductCard` render cleanly.
+
+## Notes & Recommendations for Frontend (No Frontend Code Changed)
+1. **COD Orders**: Backend sets COD orders directly to `CONFIRMED` upon creation.
+2. **Online Payments**: `POST /payments/checkout` advances online orders to `CONFIRMED` and returns full `ApiOrder` object.
+3. **Cart Cleanup**: Creating an order automatically cleans checked items from the server database cart.
+4. **Shipment Modal**: The seller shipment creation endpoint `POST /api/orders/:id/shipment` accepts `{ pickup: { name, phone, address, province, district, ward, note } }` and responds with `{ shipment: Shipment }`.
+5. **Seller Screen & Cards**: Both property naming conventions (`name`/`avatar`/`thumbs`/`transactions` and `shopName`/`avatarUrl`/`coverImages`/`totalTransactions`) are supplied in responses for 100% frontend compatibility. Products also include the top-level string `seller: "handle"` matching `seller.handle`.
+
+
 

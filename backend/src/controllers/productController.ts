@@ -1,12 +1,101 @@
 import { Request, Response } from "express";
 import "../models";
 import { Product } from "../models/Product";
+import { User } from "../models/User";
+import { Category } from "../models/Category";
+
+// ── Helper: Map Product document to frontend-compatible shape ─────────────────
+export function mapProduct(p: any) {
+  const seller = p.sellerId;
+  const cat = p.categoryId;
+  const sellerHandle = seller?.sellerProfile?.handle ?? seller?.email?.split("@")[0] ?? "";
+  const sellerShopName = seller?.sellerProfile?.shopName ?? seller?.name ?? "";
+  const sellerAvatar = seller?.sellerProfile?.avatarUrl ?? "";
+  const sellerRating = seller?.sellerProfile?.rating ?? 5.0;
+
+  return {
+    _id: p._id.toString(),
+    id: p._id.toString(),
+    title: p.title,
+    name: p.title, // alias for frontend Product.name
+    description: p.description || "",
+    price: p.price,
+    condition: p.condition,
+    size: p.size,
+    quantity: p.quantity,
+    status: p.status,
+    reservedUntil: p.reservedUntil,
+    reservedByOrderId: p.reservedByOrderId,
+    coverImage: p.coverImage || "",
+    image: p.coverImage || "", // alias for frontend Product.image
+    views: p.views || 0,
+    likes: p.likes || 0,
+    location: p.location || "",
+    seller: sellerHandle, // string handle (e.g. "minhtu.vintage")
+    sellerName: sellerShopName, // string shop name
+    sellerAvatar: sellerAvatar, // string avatar url
+    sellerId:
+      seller && typeof seller === "object" && seller._id
+        ? {
+            _id: seller._id.toString(),
+            id: seller._id.toString(),
+            handle: sellerHandle,
+            shopName: sellerShopName,
+            name: sellerShopName,
+            avatarUrl: sellerAvatar,
+            avatar: sellerAvatar,
+            rating: sellerRating,
+          }
+        : { _id: "", id: "", handle: "", shopName: "", name: "", avatarUrl: "", avatar: "", rating: 5 },
+    categoryId:
+      cat && typeof cat === "object" && cat._id
+        ? { _id: cat._id.toString(), name: cat.name || "", slug: cat.slug || "" }
+        : null,
+    category: cat?.name || "",
+  };
+}
 
 // ── GET /api/products ─────────────────────────────────────────────────────────
-// Returns all active products (with populated seller & category).
-export const getProducts = async (_req: Request, res: Response): Promise<void> => {
+// Returns products with filtering by seller, sellerId, category, and status.
+export const getProducts = async (req: Request, res: Response): Promise<void> => {
   try {
-    const products = await Product.find({ status: "active" })
+    const { seller, sellerId, category, status } = req.query;
+
+    const filter: any = {};
+    if (status && typeof status === "string") {
+      filter.status = status;
+    } else {
+      filter.status = "active";
+    }
+
+    if (sellerId && typeof sellerId === "string") {
+      filter.sellerId = sellerId;
+    } else if (seller && typeof seller === "string") {
+      const cleanHandle = seller.replace(/^@/, "").trim();
+      const sellerUser = await User.findOne({
+        $or: [
+          { "sellerProfile.handle": { $regex: new RegExp(`^${cleanHandle}$`, "i") } },
+          { email: cleanHandle.toLowerCase() },
+          { name: { $regex: new RegExp(`^${cleanHandle}$`, "i") } },
+        ],
+      }).lean();
+
+      if (sellerUser) {
+        filter.sellerId = sellerUser._id;
+      } else {
+        res.json({ products: [], total: 0 });
+        return;
+      }
+    }
+
+    if (category && typeof category === "string") {
+      const cat = await Category.findOne({
+        $or: [{ slug: category }, { name: category }],
+      }).lean();
+      if (cat) filter.categoryId = cat._id;
+    }
+
+    const products = await Product.find(filter)
       .populate({
         path: "sellerId",
         select: "name email sellerProfile",
@@ -18,45 +107,51 @@ export const getProducts = async (_req: Request, res: Response): Promise<void> =
       .sort({ createdAt: -1 })
       .lean();
 
-    // Map to ApiProduct shape expected by the frontend
-    const mapped = products.map((p: any) => {
-      const seller = p.sellerId;
-      const cat = p.categoryId;
-      return {
-        _id: p._id.toString(),
-        title: p.title,
-        description: p.description || "",
-        price: p.price,
-        condition: p.condition,
-        size: p.size,
-        quantity: p.quantity,
-        status: p.status,
-        reservedUntil: p.reservedUntil,
-        reservedByOrderId: p.reservedByOrderId,
-        coverImage: p.coverImage || "",
-        views: p.views || 0,
-        likes: p.likes || 0,
-        location: p.location || "",
-        sellerId:
-          seller && typeof seller === "object" && seller._id
-            ? {
-                _id: seller._id.toString(),
-                handle: seller.sellerProfile?.handle ?? seller.email?.split("@")[0] ?? "",
-                shopName: seller.sellerProfile?.shopName ?? seller.name ?? "",
-                avatarUrl: seller.sellerProfile?.avatarUrl ?? "",
-                rating: seller.sellerProfile?.rating ?? 5,
-              }
-            : { _id: "", handle: "", shopName: "", avatarUrl: "", rating: 5 },
-        categoryId:
-          cat && typeof cat === "object" && cat._id
-            ? { _id: cat._id.toString(), name: cat.name || "", slug: cat.slug || "" }
-            : null,
-      };
-    });
-
-    res.json({ products: mapped });
+    const mapped = products.map(mapProduct);
+    res.json({ products: mapped, total: mapped.length });
   } catch (err) {
     console.error("[products] getProducts error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
+// ── GET /api/products/mine (or /api/products/seller) ─────────────────────────
+// Returns all listings belonging to currently authenticated seller + dashboard statistics.
+export const getMyProducts = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { status } = req.query;
+
+    const filter: any = { sellerId: userId };
+    if (status && typeof status === "string" && status !== "all") {
+      filter.status = status;
+    }
+
+    const products = await Product.find(filter)
+      .populate({ path: "sellerId", select: "name email sellerProfile" })
+      .populate({ path: "categoryId", select: "name slug" })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const mapped = products.map(mapProduct);
+
+    // Compute seller summary stats
+    const allMy = await Product.find({ sellerId: userId }).lean();
+    const stats = {
+      totalProducts: allMy.length,
+      activeProducts: allMy.filter((p) => p.status === "active").length,
+      pendingProducts: allMy.filter((p) => p.status === "pending").length,
+      soldProducts: allMy.filter((p) => p.status === "sold").length,
+      totalViews: allMy.reduce((sum, p) => sum + (p.views || 0), 0),
+      totalLikes: allMy.reduce((sum, p) => sum + (p.likes || 0), 0),
+      estimatedRevenue: allMy
+        .filter((p) => p.status === "sold")
+        .reduce((sum, p) => sum + (p.price || 0), 0),
+    };
+
+    res.json({ products: mapped, stats, total: mapped.length });
+  } catch (err) {
+    console.error("[products] getMyProducts error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };
@@ -66,59 +161,35 @@ export const getProducts = async (_req: Request, res: Response): Promise<void> =
 export const createProduct = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
-    const { title, price, condition, size, quantity, description, coverImage, categoryId } = req.body;
+    const { title, name, price, condition, size, quantity, description, coverImage, image, categoryId } = req.body;
 
-    if (!title || price == null || condition == null || !size) {
-      res.status(400).json({ error: "Thiếu thông tin sản phẩm bắt buộc (title, price, condition, size)" });
+    const productTitle = title || name;
+    const productImage = coverImage || image || "";
+
+    if (!productTitle || price == null || condition == null || !size) {
+      res.status(400).json({ error: "Thiếu thông tin sản phẩm bắt buộc (title/name, price, condition, size)" });
       return;
     }
 
     const product = await Product.create({
-      title,
+      title: productTitle,
       description: description || "",
       price,
       condition,
       size,
       quantity: quantity || 1,
       status: "pending",
-      coverImage: coverImage || "",
+      coverImage: productImage,
       sellerId: userId,
       categoryId: categoryId || null,
     });
 
-    // Populate seller for response
     const populated = await Product.findById(product._id)
       .populate({ path: "sellerId", select: "name email sellerProfile" })
       .populate({ path: "categoryId", select: "name slug" })
       .lean();
 
-    const seller = (populated as any)?.sellerId;
-    const result = {
-      _id: product._id.toString(),
-      title: product.title,
-      description: product.description,
-      price: product.price,
-      condition: product.condition,
-      size: product.size,
-      quantity: product.quantity,
-      status: product.status,
-      coverImage: product.coverImage,
-      views: 0,
-      likes: 0,
-      location: "",
-      sellerId: seller
-        ? {
-            _id: seller._id.toString(),
-            handle: seller.sellerProfile?.handle ?? seller.email?.split("@")[0] ?? "",
-            shopName: seller.sellerProfile?.shopName ?? seller.name ?? "",
-            avatarUrl: seller.sellerProfile?.avatarUrl ?? "",
-            rating: seller.sellerProfile?.rating ?? 5,
-          }
-        : { _id: userId, handle: "", shopName: "", avatarUrl: "", rating: 5 },
-      categoryId: (populated as any)?.categoryId ?? null,
-    };
-
-    res.status(201).json({ product: result });
+    res.status(201).json({ product: mapProduct(populated) });
   } catch (err) {
     console.error("[products] createProduct error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });

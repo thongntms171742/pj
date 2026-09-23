@@ -184,7 +184,6 @@ export default function App() {
         })
         .catch(() => {});
     }
-
     if (currentRoles.includes("seller") || userRole === "seller") {
       api
         .get<{ products: import("../lib/api").ApiProduct[] }>("/products/mine")
