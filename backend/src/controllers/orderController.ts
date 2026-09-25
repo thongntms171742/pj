@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import { Order, VALID_TRANSITIONS, OrderStatus, IOrder } from "../models/Order";
 import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
@@ -143,18 +144,22 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       shippingPhone,
       shippingAddress,
       paymentMethod = "COD",
-      idempotencyKey,
       items: directItems,
     } = req.body;
 
-    // Idempotency check
-    if (idempotencyKey) {
-      const existing = await Order.findOne({ idempotencyKey });
-      if (existing) {
-        res.json({ order: mapOrder(existing) });
-        return;
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      // Idempotency check
+      if (idempotencyKey) {
+        const existing = await Order.findOne({ idempotencyKey }).session(session);
+        if (existing) {
+          res.json({ order: mapOrder(existing) });
+          await session.abortTransaction();
+          session.endSession();
+          return;
+        }
       }
-    }
 
     interface ProcessItem {
       productId: string;
@@ -170,16 +175,19 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         quantity: Math.max(1, parseInt(it.quantity || it.qty || 1, 10)),
       }));
     } else {
-      // Find user cart and checked items
-      const cart = await Cart.findOne({ userId });
+      const cart = await Cart.findOne({ userId }).session(session);
       if (!cart) {
         res.status(400).json({ error: "Giỏ hàng trống" });
+        await session.abortTransaction();
+        session.endSession();
         return;
       }
 
-      const checkedItems = await CartItem.find({ cartId: cart._id, checked: true });
+      const checkedItems = await CartItem.find({ cartId: cart._id, checked: true }).session(session);
       if (checkedItems.length === 0) {
         res.status(400).json({ error: "Không có sản phẩm nào được chọn trong giỏ hàng" });
+        await session.abortTransaction();
+        session.endSession();
         return;
       }
 
@@ -194,17 +202,21 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     const orderItems: any[] = [];
     const productsToUpdate: any[] = [];
     
-    const feeConfig = await PlatformFeeConfig.findOne({ active: true }).sort({ effectiveFrom: -1 }).lean();
+    const feeConfig = await PlatformFeeConfig.findOne({ active: true }).sort({ effectiveFrom: -1 }).lean().session(session);
     if (!feeConfig) {
       res.status(500).json({ error: "Lỗi cấu hình: Chưa có biểu phí nền tảng" });
+      await session.abortTransaction();
+      session.endSession();
       return;
     }
     const platformFeeRate = feeConfig.rate;
 
     for (const item of itemsToProcess) {
-      const product = await Product.findById(item.productId).populate("sellerId");
+      const product = await Product.findById(item.productId).populate("sellerId").session(session);
       if (!product) {
         res.status(404).json({ error: `Sản phẩm không tồn tại: ${item.productId}` });
+        await session.abortTransaction();
+        session.endSession();
         return;
       }
 
@@ -212,6 +224,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         res.status(400).json({
           error: `Sản phẩm "${product.title}" hiện không còn mở bán (${product.status})`,
         });
+        await session.abortTransaction();
+        session.endSession();
         return;
       }
 
@@ -219,6 +233,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         res.status(400).json({
           error: `Sản phẩm "${product.title}" chỉ còn lại ${product.quantity} cái`,
         });
+        await session.abortTransaction();
+        session.endSession();
         return;
       }
 
@@ -226,6 +242,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         res.status(400).json({
           error: `Bạn không thể tự mua sản phẩm của chính mình ("${product.title}")`,
         });
+        await session.abortTransaction();
+        session.endSession();
         return;
       }
 
@@ -260,7 +278,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     const initialStatus: OrderStatus = isCod ? "CONFIRMED" : "PENDING_PAYMENT";
     const statusReason = isCod ? "Đặt hàng thanh toán khi nhận hàng (COD)" : "Chờ thanh toán đơn hàng";
 
-    const order = await Order.create({
+    const orderArr = await Order.create([{
       orderCode,
       buyerId: userId,
       items: orderItems,
@@ -278,7 +296,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       shippingPhone: shippingPhone || "",
       shippingAddress: shippingAddress || "",
       idempotencyKey: idempotencyKey || `auto-${Date.now()}`,
-    });
+    }], { session });
+    const order = orderArr[0];
 
     // Handle stock or reservations based on payment method
     for (const { product, quantity } of productsToUpdate) {
@@ -294,7 +313,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         product.reservedUntil = new Date(Date.now() + 30 * 60 * 1000);
         product.reservedByOrderId = order._id;
       }
-      await product.save();
+      await product.save({ session });
     }
 
     // Clean up cart
@@ -303,41 +322,45 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       .filter((id): id is string => Boolean(id));
 
     if (cartItemIds.length > 0) {
-      await CartItem.deleteMany({ _id: { $in: cartItemIds } });
+      await CartItem.deleteMany({ _id: { $in: cartItemIds } }).session(session);
     } else {
       // Also delete any cart items matching ordered products for this user
-      const userCart = await Cart.findOne({ userId });
+      const userCart = await Cart.findOne({ userId }).session(session);
       if (userCart) {
         const prodIds = itemsToProcess.map((it) => it.productId);
-        await CartItem.deleteMany({ cartId: userCart._id, productId: { $in: prodIds } });
+        await CartItem.deleteMany({ cartId: userCart._id, productId: { $in: prodIds } }).session(session);
       }
     }
 
     // Send notifications
-    await Notification.create({
+    await Notification.create([{
       userId,
       type: "order",
       title: isCod ? "Đơn hàng đã được xác nhận (COD)" : "Đơn hàng đã được tạo",
       message: isCod
         ? `Đơn hàng ${orderCode} đã được tạo thành công (COD). Người bán sẽ chuẩn bị hàng.`
         : `Đơn hàng ${orderCode} đã được tạo thành công. Vui lòng thanh toán để xác nhận.`,
-    });
+    }], { session });
 
     if (isCod) {
       // Notify sellers
       const sellerIds = Array.from(new Set(orderItems.map((it) => it.sellerId.toString())));
       for (const sId of sellerIds) {
-        await Notification.create({
+        await Notification.create([{
           userId: sId,
           type: "order",
           title: "Đơn hàng mới cần chuẩn bị (COD)",
           message: `Bạn có đơn hàng mới #${orderCode} (COD). Hãy chuẩn bị và tạo vận đơn vận chuyển!`,
-        });
+        }], { session });
       }
     }
 
+    await session.commitTransaction();
+    session.endSession();
     res.status(201).json({ order: mapOrder(order) });
   } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
     console.error("[orders] createOrder error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
