@@ -13,11 +13,17 @@
   - `Cart.ts`, `CartItem.ts`: Shopping cart & checked items
   - `Order.ts`: 11-step finite state machine order processing & status audit history
   - `Notification.ts`: User notifications
+  - `Review.ts`: Reviews for products
+  - `Ledger.ts`: Double-entry accounting system for financial transactions (PLATFORM_CASH, PLATFORM_REVENUE, SELLER_PAYABLE, etc.)
+  - `PlatformFeeConfig.ts`: Marketplace commission rates
 - `src/controllers/`: `authController`, `productController`, `sellerController`, `cartController`, `orderController`, `paymentController`, `notificationController`, `adminController`
 - `src/routes/`: `auth`, `products`, `sellers`, `cart`, `orders`, `payments`, `notifications`, `admin`
 - `src/middleware/auth.ts`: JWT verification (`requireAuth`, `requireAdmin`, `optionalAuth`)
-- `src/seed.ts`: Mock data seed script to populate Atlas
 - `src/server.ts`: Connects to MongoDB Atlas & starts Express on port 4000
+- `scripts/`:
+  - `backup-db.ts`: Local JSON snapshot generator via mongoose driver (`npm run db:backup`).
+  - `reset-demo-db.ts`: Safely clears carts/notifications and archives active products without mutating financial or historical data.
+  - `seed-demo-products.ts`: Safely generates 25 high-quality demo products distributed among existing sellers.
 
 ## Configuration (`backend/.env`)
 - `MONGODB_URI`: `mongodb+srv://nguyentangminhthong1_db_user:to12345@cluster0.jkkqqk7.mongodb.net/thriftit?retryWrites=true&w=majority&appName=Cluster0&tlsAllowInvalidCertificates=true`
@@ -55,10 +61,9 @@
 - `POST /api/payments/checkout`:
   - Advances order `PENDING_PAYMENT` -> `PAID` -> `CONFIRMED`.
   - Finalizes inventory decrement (marks remaining stock `active` or `sold`), clears reservation holds, and sends notifications to buyer and seller.
-- `PATCH /api/orders/:code/status`:
-  - Enforces `VALID_TRANSITIONS` state machine.
-  - **Cancellation (`CANCELLED`)**: Restores inventory and holds back to active stock (`quantity += item.quantity`, `status = 'active'`).
-  - **Delivery updates (`DELIVERING`, `DELIVERED`, `COMPLETED`)**: Appends live delivery events to tracking timeline and notifies parties.
+  - Writes to `Ledger` to debit `PLATFORM_CASH` and credit `PLATFORM_REVENUE` (based on `PlatformFeeConfig`) and `SELLER_PAYABLE`.
+- `POST /api/orders/:code/cod-collect` or `/api/payments/:code/cod-collect`:
+  - Idempotent COD collection logic utilizing `Ledger` to ensure double-collection never occurs.
 
 ### 3. Shipment & Live Tracking Flow (`orderController.ts`, `routes/orders.ts`)
 - `GET /api/orders/seller`: Retrieves all orders containing products sold by the authenticated seller (properly registered before `/:id` to avoid route collisions).
@@ -73,12 +78,14 @@
 - `GET /api/products/mine` / `GET /api/products/seller`: Returns all products belonging to the authenticated seller (including `pending`, `active`, `sold`) and computes real-time seller statistics (`totalProducts`, `activeProducts`, `pendingProducts`, `soldProducts`, `totalViews`, `totalLikes`, `estimatedRevenue`).
 - `mapProduct` in `productController.ts`: Returns `seller` (string handle), `sellerName`, `sellerAvatar`, `name` (alias for `title`), and `image` (alias for `coverImage`) alongside populated `sellerId` so frontend `products.filter(p => p.seller === seller.handle)` and `ProductCard` render cleanly.
 
+## Database Management Best Practices (Feature Freeze & Outcome 1)
+1. **Never delete historical data:** Products should be `archived` instead of deleted if they have dependent orders or reviews to avoid orphan references. Financial collections (`ledgers`, `platformfeeconfigs`, `orders`) should NEVER be truncated via scripts.
+2. **Safe DB Reset**: Use `npx ts-node --transpile-only scripts/reset-demo-db.ts --execute --confirm-reset` to safely clean the active catalog while preserving history.
+3. **Safe DB Seed**: Use `npx ts-node --transpile-only scripts/seed-demo-products.ts --execute --confirm-seed` to create fresh demo products for testing. Avoid using the old `seed.ts`.
+
 ## Notes & Recommendations for Frontend (No Frontend Code Changed)
 1. **COD Orders**: Backend sets COD orders directly to `CONFIRMED` upon creation.
 2. **Online Payments**: `POST /payments/checkout` advances online orders to `CONFIRMED` and returns full `ApiOrder` object.
 3. **Cart Cleanup**: Creating an order automatically cleans checked items from the server database cart.
 4. **Shipment Modal**: The seller shipment creation endpoint `POST /api/orders/:id/shipment` accepts `{ pickup: { name, phone, address, province, district, ward, note } }` and responds with `{ shipment: Shipment }`.
 5. **Seller Screen & Cards**: Both property naming conventions (`name`/`avatar`/`thumbs`/`transactions` and `shopName`/`avatarUrl`/`coverImages`/`totalTransactions`) are supplied in responses for 100% frontend compatibility. Products also include the top-level string `seller: "handle"` matching `seller.handle`.
-
-
-
