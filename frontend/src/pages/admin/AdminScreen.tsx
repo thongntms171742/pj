@@ -84,6 +84,9 @@ export function AdminScreen({
   const pendingProducts = Object.values(myProductsByEmail).flat().filter(p => p.status === "pending");
 
   const handleApproveListing = async (id: number, apiId?: string) => {
+    const previousMyProducts = myProductsByEmail;
+    const previousProducts = products;
+
     // Optimistic local update
     setMyProductsByEmail(prev => {
       const updated = { ...prev };
@@ -97,15 +100,22 @@ export function AdminScreen({
     if (apiId) {
       try {
         await api.patch(`/admin/listings/${apiId}/approve`);
+        alert("Duyệt tin đăng bán C2C thành công! Sản phẩm đã xuất hiện trên trang chủ.");
       } catch (err) {
         const msg = err instanceof ApiError ? err.message : "Lỗi duyệt tin";
         alert(`Duyệt thất bại: ${msg}`);
+        setMyProductsByEmail(previousMyProducts);
+        setProducts(previousProducts);
       }
+    } else {
+      alert("Duyệt tin đăng bán C2C thành công! Sản phẩm đã xuất hiện trên trang chủ.");
     }
-    alert("Duyệt tin đăng bán C2C thành công! Sản phẩm đã xuất hiện trên trang chủ.");
   };
 
   const handleRejectListing = async (id: number, apiId?: string) => {
+    const previousMyProducts = myProductsByEmail;
+    const previousProducts = products;
+
     setMyProductsByEmail(prev => {
       const updated = { ...prev };
       for (const email in updated) {
@@ -118,12 +128,17 @@ export function AdminScreen({
     if (apiId) {
       try {
         await api.patch(`/admin/listings/${apiId}/reject`);
+        alert("Đã từ chối tin đăng bán sản phẩm.");
       } catch (err) {
         const msg = err instanceof ApiError ? err.message : "Lỗi từ chối";
         console.error("Reject failed:", msg);
+        alert(`Từ chối thất bại: ${msg}`);
+        setMyProductsByEmail(previousMyProducts);
+        setProducts(previousProducts);
       }
+    } else {
+      alert("Đã từ chối tin đăng bán sản phẩm.");
     }
-    alert("Đã từ chối tin đăng bán sản phẩm.");
   };
 
   // Platform revenue: pull from /admin/stats; fall back to 0 when API not ready

@@ -257,7 +257,15 @@ export default function App() {
         description: newProd.desc,
         coverImage: newProd.image,
       })
-      .catch(() => {/* offline → keep local optimistic update */});
+      .catch((err) => {
+        setProducts((prev) => prev.filter((p) => p.id !== newId));
+        setMyProducts((prev) => prev.filter((p) => p.id !== newId));
+        if (err instanceof ApiError) {
+          showToast(`⚠️ Lỗi từ server: ${err.message}`);
+        } else {
+          showToast(`⚠️ Không thể kết nối server để thêm sản phẩm.`);
+        }
+      });
 
     showToast(`Đã gửi yêu cầu đăng bán sản phẩm "${newProd.name}". Admin sẽ duyệt tin của bạn trong thời gian sớm nhất!`);
   };
@@ -321,6 +329,10 @@ export default function App() {
     if (!session?.token) return;
     api.patch(`/cart/items/${itemApiId}`, patch).catch((err) => {
       console.warn("[cart] PATCH failed:", err);
+      api.get<{ items: import("../lib/api").ApiCartItem[] }>("/cart").then((res) => {
+        const { groups } = adaptCartItems(res.items);
+        setCartGroups(groups);
+      }).catch(() => {});
     });
   };
 
@@ -328,6 +340,10 @@ export default function App() {
     if (!session?.token) return;
     api.delete(`/cart/items/${itemApiId}`).catch((err) => {
       console.warn("[cart] DELETE failed:", err);
+      api.get<{ items: import("../lib/api").ApiCartItem[] }>("/cart").then((res) => {
+        const { groups } = adaptCartItems(res.items);
+        setCartGroups(groups);
+      }).catch(() => {});
     });
   };
 
@@ -335,6 +351,7 @@ export default function App() {
   const addToCart = (product: Product, qty: number = 1) => {
     showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
 
+    const previousCart = cartGroups;
     // Optimistic local update
     setCartGroups((prev) => {
       const existingGroup = prev.find((g) => g.seller === product.seller);
@@ -401,7 +418,14 @@ export default function App() {
     if (product.apiId && session?.token) {
       api
         .post<{ item: unknown }>("/cart/items", { productId: product.apiId, quantity: qty })
-        .catch(() => {/* offline → keep local */});
+        .catch((err) => {
+          setCartGroups(previousCart);
+          if (err instanceof ApiError) {
+            showToast(`⚠️ Không thể thêm vào giỏ: ${err.message}`);
+          } else {
+            showToast(`⚠️ Lỗi kết nối khi thêm vào giỏ hàng.`);
+          }
+        });
     }
   };
 
@@ -541,7 +565,7 @@ export default function App() {
     name?: string,
     phone?: string,
     address?: string
-  ) => {
+  ): Promise<boolean> => {
     // Idempotency key so a retry / double-click never produces two orders.
     const idempotencyKey = `idem-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
@@ -581,27 +605,41 @@ export default function App() {
           setCartGroups(groups);
         } catch {/* best-effort */}
 
-        // Auto-pay (mock) so the state machine advances. In production this
-        // is replaced by a gateway webhook.
-        try {
-          await api.post<{ order: import("../lib/api").ApiOrder }>("/payments/checkout", {
-            orderId: serverOrder.apiId ?? serverOrder.id,
-            method: "card",
-            cardLast4: "1234",
-          });
-          showToast(`✓ Đơn ${serverOrder.id} đã thanh toán và chờ shop xác nhận`);
-        } catch (payErr) {
-          const msg = payErr instanceof ApiError ? payErr.message : "thanh toán thất bại";
-          showToast(`⚠️ Đơn đã tạo nhưng thanh toán lỗi: ${msg}`);
+        if (paymentMethod.toUpperCase() === "COD") {
+          showToast(`✓ Đặt hàng thành công! Đơn hàng sẽ được thanh toán khi nhận.`);
+        } else {
+          // Auto-pay (mock) so the state machine advances. In production this
+          // is replaced by a gateway webhook.
+          try {
+            const payRes = await api.post<{ order: import("../lib/api").ApiOrder }>("/payments/checkout", {
+              orderId: serverOrder.apiId ?? serverOrder.id,
+              method: "card",
+              cardLast4: "1234",
+            });
+            const paidOrder = adaptOrder(payRes.order);
+            setOrders((prev) => prev.map(o => o.id === paidOrder.id ? paidOrder : o));
+            showToast(`✓ Đơn ${serverOrder.id} đã thanh toán và chờ shop xác nhận`);
+          } catch (payErr) {
+            const msg = payErr instanceof ApiError ? payErr.message : "thanh toán thất bại";
+            showToast(`⚠️ Đơn đã tạo nhưng thanh toán lỗi: ${msg}`);
+          }
         }
+        return true;
       } catch (err) {
-        const msg = err instanceof ApiError ? err.message : "Không kết nối được backend";
-        showToast(`⚠️ Đơn đã tạo offline: ${msg}`);
+        setOrders((prev) => prev.filter((o) => o.id !== localOrder.id));
+        if (err instanceof ApiError) {
+          showToast(`⚠️ Không thể tạo đơn: ${err.message}`);
+        } else {
+          showToast("⚠️ Không thể kết nối backend. Đơn hàng chưa được tạo.");
+        }
+        return false;
       }
     }
+    return false;
   };
 
   const handleUpdateOrderStatus = (orderId: string, nextStatus: Order["status"]) => {
+    const previousOrders = orders;
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o)));
 
     let msg = "";
@@ -617,7 +655,8 @@ export default function App() {
           console.warn("[order] status update failed:", err);
           const apiMsg = err instanceof ApiError ? err.message : "transition rejected";
           showToast(`⚠️ Không thể đổi trạng thái: ${apiMsg}`);
-          // Roll back local change
+          // Roll back local change immediately
+          setOrders(previousOrders);
           api.get<{ orders: import("../lib/api").ApiOrder[] }>("/orders").then((res) => {
             setOrders(res.orders.map(adaptOrder));
           }).catch(() => {});

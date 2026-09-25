@@ -83,12 +83,12 @@ export function adaptCartItems(items: ApiCartItem[]): { groups: CartGroup; liked
 // Maps backend OrderStatus → frontend-compatible tab status for AccountScreen.
 const STATUS_TAB_MAP: Record<string, "pending" | "shipping" | "delivering" | "review" | "cancelled"> = {
   PENDING_PAYMENT: "pending",
-  PAID: "pending",
-  CONFIRMED: "pending",
-  PACKING: "pending",
+  PAID: "shipping",
+  CONFIRMED: "shipping",
+  PACKING: "shipping",
   SHIPPING: "shipping",
   DELIVERING: "delivering",
-  DELIVERED: "delivering",
+  DELIVERED: "review",
   COMPLETED: "review",
   CANCELLED: "cancelled",
   DISPUTED: "delivering",

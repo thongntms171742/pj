@@ -122,11 +122,10 @@ export function AccountScreen({
       const res = await api.post<{ shipment: Shipment }>(`/orders/${shipDialogOrder.id}/shipment`, {
         pickup: shipDialogPickup,
       });
-      // Update local order status to reflect SHIPPING
+      // Update local order status to reflect SHIPPING (do not call onUpdateOrderStatus to avoid 422)
       setSellerOrders((prev) =>
         prev.map((o) => (o.id === shipDialogOrder.id ? { ...o, status: "SHIPPING" as const } : o))
       );
-      onUpdateOrderStatus?.(shipDialogOrder.id, "SHIPPING");
       setShipDialogOrder(null);
       showToast?.(`✓ Đã tạo vận đơn cho #${shipDialogOrder.id}. Đơn hàng đang được vận chuyển!`);
     } catch (err: unknown) {
@@ -208,7 +207,7 @@ export function AccountScreen({
 
   const orderTabs = [
     { id: "pending" as const, label: "Chờ thanh toán", icon: Clock, count: orderCounts.pending, color: "#E8A838" },
-    { id: "shipping" as const, label: "Vận chuyển", icon: Package, count: orderCounts.shipping, color: T },
+    { id: "shipping" as const, label: "Chờ lấy hàng", icon: Package, count: orderCounts.shipping, color: T },
     { id: "delivering" as const, label: "Đang giao", icon: Truck, count: orderCounts.delivering, color: "#2980B9" },
     { id: "review" as const, label: "Đánh giá", icon: Star, count: orderCounts.review, color: "#27AE60" },
     { id: "cancelled" as const, label: "Đã hủy", icon: X, count: orderCounts.cancelled, color: "#E74C3C" },
@@ -265,8 +264,6 @@ export function AccountScreen({
             { key: "address" as const, label: "Địa chỉ lấy hàng" },
             { key: "province" as const, label: "Tỉnh/Thành" },
             { key: "district" as const, label: "Quận/Huyện" },
-            { key: "ward" as const, label: "Phường/Xã (tùy chọn)" },
-            { key: "email" as const, label: "Email (tùy chọn)" },
           ].map((field) => (
             <div key={field.key}>
               <label className="text-xs font-semibold" style={{ color: COFFEE, ...ff }}>{field.label}</label>
@@ -614,18 +611,26 @@ export function AccountScreen({
                           </>
                         )}
                         {getOrderTabStatus(order.status) === "review" && (
-                          <button
-                            onClick={() => {
-                              const r = prompt("Nhập đánh giá của bạn (1-5 sao):", "5");
-                              if (r !== null) {
-                                onUpdateOrderStatus && onUpdateOrderStatus(order.id, "COMPLETED");
-                              }
-                            }}
-                            className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-80"
-                            style={{ backgroundColor: "#27AE60", color: LINEN, ...ff }}
-                          >
-                            Đánh giá ngay
-                          </button>
+                          <>
+                            {order.status === "DELIVERED" ? (
+                              <button
+                                onClick={() => {
+                                  const r = prompt("Nhập đánh giá của bạn (1-5 sao):", "5");
+                                  if (r !== null) {
+                                    onUpdateOrderStatus && onUpdateOrderStatus(order.id, "COMPLETED");
+                                  }
+                                }}
+                                className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-80"
+                                style={{ backgroundColor: "#27AE60", color: LINEN, ...ff }}
+                              >
+                                Đánh giá ngay
+                              </button>
+                            ) : (
+                              <span className="text-xs font-semibold px-3 py-1.5" style={{ color: "#27AE60", ...ff }}>
+                                ✓ Đã đánh giá
+                              </span>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -694,11 +699,11 @@ export function AccountScreen({
                             <div className="flex gap-2 flex-wrap justify-end">
                               {(order.status === "CONFIRMED" || order.status === "PAID") && (
                                 <button
-                                  onClick={() => handleSellerUpdateStatus(order.id, "PACKING")}
+                                  onClick={() => handleSellerUpdateStatus(order.id, order.status === "PAID" ? "CONFIRMED" : "PACKING")}
                                   className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-90"
                                   style={{ backgroundColor: T, color: LINEN, ...ff }}
                                 >
-                                  Bắt đầu đóng gói
+                                  {order.status === "PAID" ? "Xác nhận đơn" : "Bắt đầu đóng gói"}
                                 </button>
                               )}
                               {isPacking && (
@@ -712,11 +717,20 @@ export function AccountScreen({
                               )}
                               {(order.status === "SHIPPING" || order.status === "DELIVERING") && (
                                 <button
-                                  onClick={() => handleSellerUpdateStatus(order.id, "DELIVERED")}
+                                  onClick={async () => {
+                                    if (order.status === "DELIVERING" && order.paymentMethod?.toUpperCase() === "COD") {
+                                      try {
+                                        await api.post(`/payments/${order.id}/cod-collect`, {});
+                                      } catch (err) {
+                                        console.error("Lỗi thu hộ COD:", err);
+                                      }
+                                    }
+                                    handleSellerUpdateStatus(order.id, order.status === "SHIPPING" ? "DELIVERING" : "DELIVERED");
+                                  }}
                                   className="text-xs px-3 py-1.5 rounded-lg font-semibold border transition-all hover:opacity-80"
                                   style={{ borderColor: "#27AE60", color: "#27AE60", ...ff }}
                                 >
-                                  Xác nhận đã giao
+                                  {order.status === "SHIPPING" ? "(Mock) Shipper đang giao" : "(Mock) Đã giao thành công"}
                                 </button>
                               )}
                             </div>
