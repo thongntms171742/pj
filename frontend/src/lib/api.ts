@@ -200,7 +200,9 @@ export type ApiOrder = {
   items: ApiOrderItem[];
   subtotal: number;
   shippingFee: number;
-  platformFee: number;
+  platformFeeRate: number;
+  platformFeeAmount: number;
+  sellerAmount: number;
   discount: number;
   totalAmount: number;
   status:
