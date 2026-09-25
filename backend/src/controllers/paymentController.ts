@@ -130,3 +130,50 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };
+
+// ── POST /api/payments/:code/cod-collect ──────────────────────────────────────────
+// Mock COD payment collection by carrier
+export const codCollect = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const code = req.params.code as string;
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(code);
+    const filter = isObjectId ? { $or: [{ _id: code }, { orderCode: code }] } : { orderCode: code };
+
+    const order = await Order.findOne(filter);
+    if (!order) {
+      res.status(404).json({ error: "Không tìm thấy đơn hàng" });
+      return;
+    }
+
+    if (order.paymentMethod?.toUpperCase() !== "COD") {
+      res.status(400).json({ error: "Đơn hàng này không phải là đơn COD" });
+      return;
+    }
+
+    // Idempotency: If already paid, return early with current state
+    if (order.paidAt) {
+      res.json({ order: mapOrder(order), message: "Tiền COD đã được thu trước đó" });
+      return;
+    }
+
+    order.paidAt = new Date();
+    order.paymentId = `COD-${Date.now()}`;
+    
+    order.statusHistory.push({
+      status: order.status,
+      by: "carrier_system",
+      at: new Date(),
+      reason: "Shipper đã thu tiền mặt (COD) thành công",
+    });
+
+    await order.save();
+
+    res.json({ 
+      order: mapOrder(order),
+      message: "Thu tiền COD thành công và đã ghi nhận vào sổ cái (ledger)."
+    });
+  } catch (err) {
+    console.error("codCollect error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
