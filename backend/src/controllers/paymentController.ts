@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Order } from "../models/Order";
 import { Product } from "../models/Product";
 import { Notification } from "../models/Notification";
+import { Ledger } from "../models/Ledger";
 import { mapOrder } from "./orderController";
 
 // ── POST /api/payments/checkout ───────────────────────────────────────────────
@@ -68,6 +69,25 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
     });
 
     await order.save();
+
+    // Create Ledger entries
+    const feeAmt = order.platformFeeAmount || 0;
+    const sellerPayable = order.totalAmount - feeAmt;
+
+    await Ledger.create({
+      transactionId: order.paymentId,
+      orderId: order._id,
+      orderCode: order.orderCode,
+      description: `Thanh toán online thành công cho đơn hàng ${order.orderCode}`,
+      entries: [
+        { account: "PLATFORM_CASH", type: "DR", amount: order.totalAmount },
+        { account: "BUYER_CLEARING", type: "CR", amount: order.totalAmount },
+        { account: "BUYER_CLEARING", type: "DR", amount: feeAmt },
+        { account: "PLATFORM_REVENUE", type: "CR", amount: feeAmt },
+        { account: "BUYER_CLEARING", type: "DR", amount: sellerPayable },
+        { account: "SELLER_PAYABLE", type: "CR", amount: sellerPayable },
+      ]
+    });
 
     // Deduct stock for all purchased items
     for (const item of order.items) {

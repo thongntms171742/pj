@@ -20,7 +20,7 @@ services:
   # ── Frontend Static Site ───────────────────────────────────
   - type: static
     name: thriftit-frontend
-    rootDir: frontend
+    rootDir: .
     plan: free
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist

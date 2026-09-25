@@ -7,6 +7,7 @@ import {
   updateOrderStatus,
   getOrderShipment,
   createOrderShipment,
+  collectCOD,
 } from "../controllers/orderController";
 import { requireAuth } from "../middleware/auth";
 
@@ -19,5 +20,6 @@ router.get("/:id", requireAuth, getOrderById);
 router.get("/:code/shipment", getOrderShipment);
 router.post("/:code/shipment", requireAuth, createOrderShipment);
 router.patch("/:code/status", requireAuth, updateOrderStatus);
+router.post("/:code/cod-collect", requireAuth, collectCOD);
 
 export default router;

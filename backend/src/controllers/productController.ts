@@ -195,3 +195,98 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };
+
+// ── PATCH /api/products/:id ───────────────────────────────────────────────────
+// Seller updates their own product. Only editable when status is pending or active.
+export const updateProduct = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { id } = req.params;
+
+    const product = await Product.findById(id);
+    if (!product) {
+      res.status(404).json({ error: "Sản phẩm không tồn tại" });
+      return;
+    }
+
+    if (product.sellerId.toString() !== userId) {
+      res.status(403).json({ error: "Bạn không phải chủ sản phẩm này" });
+      return;
+    }
+
+    if (product.status !== "pending" && product.status !== "active") {
+      res.status(400).json({
+        error: `Không thể chỉnh sửa sản phẩm đang ở trạng thái "${product.status}"`,
+      });
+      return;
+    }
+
+    // Whitelist editable fields
+    const allowedFields = [
+      "title", "name", "description", "price", "condition",
+      "size", "quantity", "coverImage", "image", "categoryId", "location",
+    ] as const;
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        if (field === "name") {
+          (product as any).title = req.body[field];
+        } else if (field === "image") {
+          (product as any).coverImage = req.body[field];
+        } else {
+          (product as any)[field] = req.body[field];
+        }
+      }
+    }
+
+    await product.save();
+
+    const populated = await Product.findById(product._id)
+      .populate({ path: "sellerId", select: "name email sellerProfile" })
+      .populate({ path: "categoryId", select: "name slug" })
+      .lean();
+
+    res.json({ product: mapProduct(populated) });
+  } catch (err) {
+    console.error("[products] updateProduct error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
+// ── PATCH /api/products/:id/archive ───────────────────────────────────────────
+// Seller hides/archives their own product. Only allowed when pending or active.
+export const archiveProduct = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { id } = req.params;
+
+    const product = await Product.findById(id);
+    if (!product) {
+      res.status(404).json({ error: "Sản phẩm không tồn tại" });
+      return;
+    }
+
+    if (product.sellerId.toString() !== userId) {
+      res.status(403).json({ error: "Bạn không phải chủ sản phẩm này" });
+      return;
+    }
+
+    if (product.status === "sold") {
+      res.status(400).json({ error: "Không thể ẩn sản phẩm đã bán" });
+      return;
+    }
+
+    if (product.status === "reserved") {
+      res.status(400).json({ error: "Không thể ẩn sản phẩm đang được đặt hàng" });
+      return;
+    }
+
+    product.status = "archived";
+    await product.save();
+
+    res.json({ product: mapProduct(product) });
+  } catch (err) {
+    console.error("[products] archiveProduct error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};

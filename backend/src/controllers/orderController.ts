@@ -4,6 +4,8 @@ import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { Product } from "../models/Product";
 import { Notification } from "../models/Notification";
+import { PlatformFeeConfig } from "../models/PlatformFeeConfig";
+import { Ledger } from "../models/Ledger";
 
 // ── Helper: Map Order to frontend ApiOrder shape ──────────────────────────────
 export const mapOrder = (o: any) => ({
@@ -22,7 +24,9 @@ export const mapOrder = (o: any) => ({
   })),
   subtotal: o.subtotal,
   shippingFee: o.shippingFee,
-  platformFee: o.platformFee,
+  platformFeeRate: o.platformFeeRate,
+  platformFeeAmount: o.platformFeeAmount,
+  sellerAmount: o.sellerAmount,
   discount: o.discount,
   totalAmount: o.totalAmount,
   status: o.status,
@@ -189,6 +193,13 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     // Validate each product
     const orderItems: any[] = [];
     const productsToUpdate: any[] = [];
+    
+    const feeConfig = await PlatformFeeConfig.findOne({ active: true }).sort({ effectiveFrom: -1 }).lean();
+    if (!feeConfig) {
+      res.status(500).json({ error: "Lỗi cấu hình: Chưa có biểu phí nền tảng" });
+      return;
+    }
+    const platformFeeRate = feeConfig.rate;
 
     for (const item of itemsToProcess) {
       const product = await Product.findById(item.productId).populate("sellerId");
@@ -221,7 +232,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       const sellerId = product.sellerId?._id ?? product.sellerId;
       const unitPrice = product.price;
       const quantity = item.quantity;
-      const sellerAmount = unitPrice * quantity * 0.9; // 10% platform fee
+      const sellerAmount = unitPrice * quantity * (1 - platformFeeRate);
 
       orderItems.push({
         productId: product._id,
@@ -239,7 +250,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     const subtotal = orderItems.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0);
     const shippingFee = 30000;
-    const platformFee = Math.round(subtotal * 0.1);
+    const platformFeeAmount = Math.round(subtotal * platformFeeRate);
+    const totalSellerAmount = subtotal - platformFeeAmount;
     const totalAmount = subtotal + shippingFee;
 
     const orderCode = `ORD-${Date.now().toString().slice(-8)}`;
@@ -254,7 +266,9 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       items: orderItems,
       subtotal,
       shippingFee,
-      platformFee,
+      platformFeeRate,
+      platformFeeAmount,
+      sellerAmount: totalSellerAmount,
       discount: 0,
       totalAmount,
       status: initialStatus,
@@ -689,3 +703,58 @@ export const getOrderShipment = async (req: Request, res: Response): Promise<voi
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };
+
+// ── POST /api/orders/:code/cod-collect ─────────────────────────────────────────
+export const collectCOD = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { code } = req.params;
+    const order = await Order.findOne({ orderCode: code });
+    if (!order) {
+      res.status(404).json({ error: "Không tìm thấy đơn hàng" });
+      return;
+    }
+
+    if (order.paymentMethod?.toUpperCase() !== "COD") {
+      res.status(400).json({ error: "Đơn hàng này không phải thanh toán COD" });
+      return;
+    }
+
+    if (order.status !== "DELIVERED" && order.status !== "COMPLETED") {
+      res.status(400).json({ error: "Chỉ thu tiền COD khi đơn hàng đã giao (DELIVERED/COMPLETED)" });
+      return;
+    }
+
+    // Check if COD already collected (idempotency check using Ledger)
+    const existingLedger = await Ledger.findOne({ transactionId: `COD-COLLECT-${order.orderCode}` });
+    if (existingLedger) {
+      res.json({ message: "Đã thu tiền COD cho đơn hàng này trước đó", order: mapOrder(order) });
+      return;
+    }
+
+    const feeAmt = order.platformFeeAmount || 0;
+    const sellerPayable = order.totalAmount - feeAmt;
+
+    await Ledger.create({
+      transactionId: `COD-COLLECT-${order.orderCode}`,
+      orderId: order._id,
+      orderCode: order.orderCode,
+      description: `Thu tiền COD cho đơn hàng ${order.orderCode}`,
+      entries: [
+        { account: "PLATFORM_CASH", type: "DR", amount: order.totalAmount },
+        { account: "BUYER_CLEARING", type: "CR", amount: order.totalAmount },
+        
+        { account: "BUYER_CLEARING", type: "DR", amount: feeAmt },
+        { account: "PLATFORM_REVENUE", type: "CR", amount: feeAmt },
+        
+        { account: "BUYER_CLEARING", type: "DR", amount: sellerPayable },
+        { account: "SELLER_PAYABLE", type: "CR", amount: sellerPayable },
+      ]
+    });
+
+    res.json({ message: "Ghi nhận thu tiền COD thành công", order: mapOrder(order) });
+  } catch (err) {
+    console.error("[orders] collectCOD error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+

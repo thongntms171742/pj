@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { Product } from "../models/Product";
+import { PlatformFeeConfig } from "../models/PlatformFeeConfig";
 
 // ── GET /api/admin/pending-listings ───────────────────────────────────────────
 export const getPendingListings = async (_req: Request, res: Response): Promise<void> => {
@@ -79,6 +80,40 @@ export const rejectListing = async (req: Request, res: Response): Promise<void> 
     res.json({ product });
   } catch (err) {
     console.error("[admin] rejectListing error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
+// ── GET /api/admin/platform-fee ──────────────────────────────────────────────
+export const getPlatformFee = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const configs = await PlatformFeeConfig.find().sort({ effectiveFrom: -1 }).lean();
+    res.json({ configs });
+  } catch (err) {
+    console.error("[admin] getPlatformFee error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
+// ── POST /api/admin/platform-fee ─────────────────────────────────────────────
+export const setPlatformFee = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { rate, effectiveFrom } = req.body;
+    
+    // Deactivate current active config
+    await PlatformFeeConfig.updateMany({ active: true }, { active: false });
+    
+    // Create new config
+    const newConfig = await PlatformFeeConfig.create({
+      rate,
+      effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : new Date(),
+      active: true,
+      createdBy: req.user?.id,
+    });
+    
+    res.json({ config: newConfig });
+  } catch (err) {
+    console.error("[admin] setPlatformFee error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };

@@ -79,6 +79,52 @@
 3. **Cart Cleanup**: Creating an order automatically cleans checked items from the server database cart.
 4. **Shipment Modal**: The seller shipment creation endpoint `POST /api/orders/:id/shipment` accepts `{ pickup: { name, phone, address, province, district, ward, note } }` and responds with `{ shipment: Shipment }`.
 5. **Seller Screen & Cards**: Both property naming conventions (`name`/`avatar`/`thumbs`/`transactions` and `shopName`/`avatarUrl`/`coverImages`/`totalTransactions`) are supplied in responses for 100% frontend compatibility. Products also include the top-level string `seller: "handle"` matching `seller.handle`.
+6. **Order fields renamed**: `platformFee` → `platformFeeRate` + `platformFeeAmount` + `sellerAmount` (snapshot at checkout time). `mapOrder` returns these new field names.
 
+### 5. Financial Architecture (PlatformFeeConfig, Ledger)
+- **Architecture**: Modular monolith (NOT microservices). Clean domain boundaries: Payment / Order / Ledger.
+- `PlatformFeeConfig` model (`rate`, `effectiveFrom`, `active`, `createdBy`): Admin-configurable platform fee. Only the `active: true` config is used at checkout time.
+- **Fee Snapshot**: At `POST /api/orders`, the current fee rate is fetched and snapshotted into Order (`platformFeeRate`, `platformFeeAmount`, `sellerAmount`). Changing admin fee config does NOT affect historical orders.
+- **No fallback**: If no `PlatformFeeConfig` exists, `POST /api/orders` returns 500 — admin MUST configure fee before platform accepts orders.
+- `Ledger` model (double-entry accounting): Each transaction has balanced DR/CR entries.
+- **Chart of Accounts**: `PLATFORM_CASH`, `BUYER_CLEARING`, `PLATFORM_REVENUE`, `SELLER_PAYABLE` (4 accounts, no others).
+- **Online Payment ledger** (created in `paymentController.checkout`): DR PLATFORM_CASH / CR BUYER_CLEARING → DR BUYER_CLEARING / CR PLATFORM_REVENUE → DR BUYER_CLEARING / CR SELLER_PAYABLE.
+- **COD ledger** (created in `orderController.collectCOD`): Same entries but only triggered when `POST /api/orders/:code/cod-collect` is called (after DELIVERED/COMPLETED). COD does NOT create ledger entries at order creation time.
+- **Idempotency**: Both payment checkout and COD collect are idempotent — calling twice produces only one set of ledger entries.
+- Admin APIs: `GET /api/admin/platform-fee` (history), `POST /api/admin/platform-fee` (set new rate).
+- **Verified**: 5 financial test cases all pass (`verifyLedger.ts`).
 
+### 6. Review System (`Review` model, `reviewController.ts`) — 🔒 LOCKED
+- `Review` model: `userId`, `productId`, `orderId`, `rating` (1-5), `comment`, timestamps.
+- **Unique constraint**: `(userId, orderId, productId)` — one review per product per order per buyer. Confirmed exists in MongoDB Atlas.
+- `POST /api/products/:productId/reviews` (requireAuth): Creates review with 5 server-side checks:
+  1. User is the buyer of the referenced order
+  2. Order status is `COMPLETED`
+  3. Product exists in the order's items (uses OrderItem snapshot, NOT live Product query)
+  4. No duplicate review exists
+  5. Rating is 1-5
+- **Race condition guard**: `catch(err.code === 11000)` on `Review.create` — unique index is the real guard, `findOne` is UX only.
+- `GET /api/products/:productId/reviews` (public): Paginated (`page`, `limit`, `totalPages`). No email leak. `avgRating` via `$avg` aggregation.
+- **Verified**: 6 review test cases + 5-point audit all pass (`verifyReview.ts`, `auditReview.ts`).
 
+### 7. Product CRUD (`productController.ts`)
+- `POST /api/products`: Create product (status = `pending`, awaits admin approval).
+- `PATCH /api/products/:id`: Update product. Owner-only. Only editable when `pending` or `active`. Whitelist fields.
+- `PATCH /api/products/:id/archive`: Archive/hide product. Owner-only. Blocked for `sold` and `reserved` products.
+- **Verified**: Seller MVP E2E scenario test passes (`verifySellerMVP.ts`).
+
+## Buyer Funnel Status (MVP) — ✅ LOCKED
+> Tìm kiếm → Xem sản phẩm → Mua → Thanh toán → Theo dõi giao hàng → Nhận hàng → Hoàn tất → Đánh giá ✅
+
+## Seller Funnel Status (MVP) — ✅ LOCKED
+> Đăng sản phẩm → Sửa SP → Admin duyệt → Buyer mua → Seller thấy Order → PACKING → SHIPPING → DELIVERING → DELIVERED → COMPLETED → Buyer Review ✅
+
+**Verified via `verifySellerMVP.ts` — 18/18 passed.**
+
+## Next Steps (NOT backend features)
+1. Public Deploy (Render.com)
+2. Real-device testing
+3. User Manual
+4. Demo flow (5-7 min)
+5. TikTok + Facebook
+6. Thu thập KPI thật → OC1 + OC2
