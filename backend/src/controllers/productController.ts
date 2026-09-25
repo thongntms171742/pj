@@ -163,6 +163,14 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     const userId = req.user!.id;
     const { title, name, price, condition, size, quantity, description, coverImage, image, categoryId } = req.body;
 
+    const user = await User.findById(userId);
+    if (!user || user.sellerStatus !== "APPROVED") {
+      if (!user?.roles.includes("admin")) { // allow admin to bypass if needed, or just strict check
+        res.status(403).json({ error: "Tài khoản chưa được duyệt trở thành người bán" });
+        return;
+      }
+    }
+
     const productTitle = title || name;
     const productImage = coverImage || image || "";
 

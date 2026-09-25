@@ -95,6 +95,25 @@ export const getPlatformFee = async (_req: Request, res: Response): Promise<void
   }
 };
 
+// ── GET /api/admin/pending-sellers ───────────────────────────────────────────
+export const getPendingSellers = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const users = await import("../models/User").then(m => m.User).then(User => User.find({ sellerStatus: "PENDING" }).lean());
+    res.json({ users: users.map(u => ({
+      id: u._id.toString(),
+      name: u.name,
+      email: u.email,
+      shopName: u.sellerProfile?.shopName || "",
+      description: u.sellerProfile?.description || "",
+      createdAt: u.createdAt,
+      status: u.sellerStatus,
+    }))});
+  } catch (err) {
+    console.error("[admin] getPendingSellers error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
 // ── POST /api/admin/platform-fee ─────────────────────────────────────────────
 export const setPlatformFee = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -114,6 +133,50 @@ export const setPlatformFee = async (req: Request, res: Response): Promise<void>
     res.json({ config: newConfig });
   } catch (err) {
     console.error("[admin] setPlatformFee error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
+// ── PATCH /api/admin/sellers/:id/approve ─────────────────────────────────────
+export const approveSeller = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const User = await import("../models/User").then(m => m.User);
+    const user = await User.findById(id);
+    if (!user) {
+      res.status(404).json({ error: "Người dùng không tồn tại" });
+      return;
+    }
+    user.sellerStatus = "APPROVED";
+    if (user.sellerProfile) {
+      user.sellerProfile.status = "active";
+    }
+    if (!user.roles.includes("seller")) {
+      user.roles.push("seller");
+    }
+    await user.save();
+    res.json({ user });
+  } catch (err) {
+    console.error("[admin] approveSeller error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
+// ── PATCH /api/admin/sellers/:id/reject ──────────────────────────────────────
+export const rejectSeller = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const User = await import("../models/User").then(m => m.User);
+    const user = await User.findById(id);
+    if (!user) {
+      res.status(404).json({ error: "Người dùng không tồn tại" });
+      return;
+    }
+    user.sellerStatus = "REJECTED";
+    await user.save();
+    res.json({ user });
+  } catch (err) {
+    console.error("[admin] rejectSeller error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };

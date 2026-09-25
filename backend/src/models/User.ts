@@ -40,6 +40,9 @@ export interface IUser extends Document {
     commissionRate: number;
     status: "active" | "pending_approval" | "suspended";
   };
+  sellerStatus: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+  createdAt?: Date;
+  updatedAt?: Date;
   comparePassword(plain: string): Promise<boolean>;
 }
 
@@ -53,6 +56,11 @@ const UserSchema = new Schema<IUser>(
       default: ["buyer"],
     },
     sellerProfile: { type: SellerProfileSchema, default: undefined },
+    sellerStatus: {
+      type: String,
+      enum: ["NONE", "PENDING", "APPROVED", "REJECTED"],
+      default: "NONE",
+    },
   },
   { timestamps: true }
 );

@@ -45,6 +45,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         name: user.name,
         email: user.email,
         roles: user.roles,
+        sellerStatus: user.sellerStatus,
       },
     });
   } catch (err) {
@@ -87,6 +88,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         name: user.name,
         email: user.email,
         roles: user.roles,
+        sellerStatus: user.sellerStatus,
       },
     });
   } catch (err) {
@@ -181,3 +183,51 @@ export function mapCartItem(ci: any): any {
     checked: ci.checked,
   };
 }
+
+// ── POST /api/auth/seller/apply ───────────────────────────────────────────────
+export const applySeller = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { shopName, phone, address, description } = req.body;
+    
+    if (!shopName || !phone || !address) {
+      res.status(400).json({ error: "Vui lòng điền đủ thông tin (shopName, phone, address)" });
+      return;
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      res.status(404).json({ error: "Không tìm thấy người dùng" });
+      return;
+    }
+
+    if (user.sellerStatus === "PENDING") {
+      res.status(400).json({ error: "Hồ sơ của bạn đang được duyệt" });
+      return;
+    }
+
+    if (user.sellerStatus === "APPROVED") {
+      res.status(400).json({ error: "Bạn đã là người bán" });
+      return;
+    }
+
+    user.sellerStatus = "PENDING";
+    user.sellerProfile = {
+      handle: shopName.toLowerCase().replace(/\s+/g, '-'),
+      shopName,
+      description: description || "",
+      coverImages: [],
+      rating: 5.0,
+      totalTransactions: 0,
+      totalRevenue: 0,
+      commissionRate: 0.1,
+      status: "pending_approval",
+    };
+    await user.save();
+
+    res.json({ message: "Đã gửi yêu cầu đăng ký người bán", sellerStatus: user.sellerStatus });
+  } catch (err) {
+    console.error("[auth] applySeller error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
