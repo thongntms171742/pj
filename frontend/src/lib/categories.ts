@@ -20,10 +20,4 @@ export const FILTER_TAGS: string[] = [
   "Gần đây",
 ];
 
-export const FALLBACK_CATEGORIES: Category[] = [
-  { slug: "ao", name: "Áo", icon: "👕" },
-  { slug: "quan", name: "Quần", icon: "👖" },
-  { slug: "vay", name: "Váy", icon: "👗" },
-  { slug: "ao-khoac", name: "Áo khoác", icon: "🧥" },
-  { slug: "phu-kien", name: "Phụ kiện", icon: "👜" },
-];
+

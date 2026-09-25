@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { ThriftLogo } from "../../components/layout/Logo";
 import { T, MUTED, COFFEE, LINEN, CARD, ESPRESSO, SOFT, serif, ff } from "../../lib/theme";
-import { MOCK_ACCOUNTS } from "../../data/mock";
 
 interface LoginScreenProps {
   onLogin: (userName: string, userEmail: string, password?: string) => void;
@@ -27,16 +26,9 @@ export function LoginScreen({ onLogin, onRegister }: LoginScreenProps) {
     }
 
     setLoading(true);
-    // Pass email+password to App; App will try /api/auth/login first, fall back to offline match.
+    // Pass email+password to App; App will try /api/auth/login.
     onLogin("", email, pw);
     setTimeout(() => setLoading(false), 800);
-  };
-
-  // Offline-only fast login (used when backend unreachable). Click "Đăng nhập nhanh" button.
-  const handleQuickLogin = (acc: { email: string; password: string; name: string }) => {
-    setEmail(acc.email);
-    setPw(acc.password);
-    onLogin(acc.name, acc.email, acc.password);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -222,31 +214,6 @@ export function LoginScreen({ onLogin, onRegister }: LoginScreenProps) {
             >
               Đăng ký tài khoản mới
             </button>
-          </div>
-
-          <div
-            className="mt-4 p-4 rounded-xl"
-            style={{ backgroundColor: `${T}10`, border: `1px solid ${T}30` }}
-          >
-            <p className="text-xs font-semibold mb-2" style={{ color: ESPRESSO, ...ff }}>
-              🔑 Tài khoản demo theo Gói doanh thu (Slide):
-            </p>
-            <div className="space-y-2">
-              {MOCK_ACCOUNTS.map((acc) => (
-                <button
-                  key={acc.email}
-                  onClick={() => handleQuickLogin(acc)}
-                  className="block w-full text-left text-[11px] leading-relaxed hover:underline transition-all py-1"
-                  style={{ color: COFFEE, ...ff }}
-                  title="Click để đăng nhập nhanh"
-                >
-                  {acc.email === "linh.nguyen@gmail.com" ? "🟢" :
-                    acc.email === "shop.minhtu@thriftit.vn" ? "🔵" :
-                      acc.email === "demo@thriftit.vn" ? "🟡" : "🔴"}{" "}
-                  <strong>{acc.email}</strong> (MK: <strong>{acc.password}</strong>)
-                </button>
-              ))}
-            </div>
           </div>
 
           <p className="text-xs text-center mt-6" style={{ color: COFFEE, ...ff }}>

@@ -130,8 +130,8 @@ export default function App() {
         const adapted = res.products.map((p) => adaptProduct(p, likedIds));
         setProducts(adapted);
       })
-      .catch(() => {
-        // backend down → keep mock fallback
+      .catch((err) => {
+        console.error("Lỗi tải sản phẩm:", err);
       })
       .finally(() => setProductsLoading(false));
   }, []);
@@ -494,18 +494,6 @@ export default function App() {
       }
     }
 
-    // Fallback: offline/demo login (no password) — useful when backend is down.
-    setCurrentUser(userName);
-    setCurrentEmail(userEmail);
-    setStoredUser(userName, userEmail);
-    setCurrentRoles([userEmail === "shop.minhtu@thriftit.vn" ? "seller" : "buyer"]);
-    setUserRole(userEmail === "shop.minhtu@thriftit.vn" ? "seller" : "buyer");
-
-    if (userEmail === "admin@thriftit.vn") {
-      go("admin");
-    } else {
-      go("home");
-    }
   };
 
   // ── REGISTER ──
