@@ -44,35 +44,22 @@ export function ProductCard({ product, onLike, go }: ProductCardProps) {
         >
           <Heart size={15} fill={product.liked ? T : "none"} stroke={product.liked ? T : COFFEE} />
         </button>
-        <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5">
-          <span
-            className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-            style={{ backgroundColor: condColor, color: LINEN, fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-          >
-            {product.condition}%
-          </span>
-          <span
-            className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-            style={{
-              backgroundColor: "rgba(58,35,18,0.75)",
-              color: LINEN,
-              fontFamily: "'Plus Jakarta Sans', sans-serif",
-            }}
-          >
-            {product.size}
-          </span>
-        </div>
       </div>
-      <div className="p-3">
+      <div className="p-4 flex flex-col gap-1.5">
         <p className="text-sm font-semibold truncate leading-snug" style={{ color: ESPRESSO, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
           {product.name}
         </p>
-        <p className="text-xs mt-0.5" style={{ color: COFFEE, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-          {product.sellerName ? `Shop: ${product.sellerName}` : `@${product.seller}`}
-        </p>
-        <p className="text-base font-bold mt-1.5" style={{ ...serif, color: T }}>
+        <p className="text-base font-bold" style={{ ...serif, color: T }}>
           {fmt(product.price)}
         </p>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-xs font-semibold flex items-center gap-1" style={{ color: condColor, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            ✓ {product.condition}% Mới
+          </span>
+          <span className="text-xs" style={{ color: COFFEE, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            • {product.sellerName ? `Shop: ${product.sellerName}` : `@${product.seller}`}
+          </span>
+        </div>
       </div>
     </div>
   );

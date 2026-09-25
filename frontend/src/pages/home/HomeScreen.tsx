@@ -14,6 +14,7 @@ interface HomeScreenProps {
   onLike: (id: number) => void;
   onAddToCart: (product: Product) => void;
   loading?: boolean;
+  sellerStatus?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
 }
 
 function ProductSkeleton() {
@@ -49,7 +50,7 @@ function SellerSkeleton() {
   );
 }
 
-export function HomeScreen({ go, products, onLike, onAddToCart, loading }: HomeScreenProps) {
+export function HomeScreen({ go, products, onLike, onAddToCart, loading, sellerStatus = "NONE" }: HomeScreenProps) {
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [sellersLoading, setSellersLoading] = useState(true);
 
@@ -88,7 +89,7 @@ export function HomeScreen({ go, products, onLike, onAddToCart, loading }: HomeS
   return (
     <div style={{ backgroundColor: LINEN }}>
       {/* Hero banner */}
-      <div className="relative w-full overflow-hidden" style={{ height: "340px" }}>
+      <div className="relative w-full overflow-hidden" style={{ height: "280px" }}>
         <img
           src="https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=1440&h=400&fit=crop&auto=format"
           alt="Vintage collection"
@@ -122,11 +123,18 @@ export function HomeScreen({ go, products, onLike, onAddToCart, loading }: HomeS
                 Khám phá ngay
               </button>
               <button
-                onClick={() => go("post")}
+                onClick={() => {
+                  if (sellerStatus === "APPROVED") go("post");
+                  else if (sellerStatus === "PENDING") go("seller-apply");
+                  else go("seller-apply");
+                }}
                 className="px-6 py-3 rounded-xl font-bold text-sm border-2 transition-all hover:bg-white/10"
                 style={{ border: `2px solid ${LINEN}`, color: LINEN, ...ff }}
               >
-                + Đăng bán cá nhân
+                {sellerStatus === "APPROVED" ? "🏪 Kênh người bán"
+                  : sellerStatus === "PENDING" ? "🕐 Đang chờ duyệt"
+                  : sellerStatus === "REJECTED" ? "Hồ sơ chưa được duyệt"
+                  : "+ Đăng bán cá nhân"}
               </button>
             </div>
           </div>
@@ -134,8 +142,49 @@ export function HomeScreen({ go, products, onLike, onAddToCart, loading }: HomeS
       </div>
 
       <div className="max-w-[1440px] mx-auto px-8 py-12">
-        {/* Trusted Sellers */}
+        {/* New Listings */}
         <div className="mb-12">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-2xl font-bold" style={{ ...serif, color: ESPRESSO }}>
+                Sản phẩm mới
+              </h2>
+              <p className="text-sm mt-0.5" style={{ color: COFFEE, ...ff }}>
+                {products.length} sản phẩm vừa được đăng
+              </p>
+            </div>
+            <button
+              onClick={() => go("search")}
+              className="text-sm font-semibold flex items-center gap-1 hover:underline"
+              style={{ color: T, ...ff }}
+            >
+              Xem tất cả <ChevronRight size={15} />
+            </button>
+          </div>
+          {productGrid}
+        </div>
+
+        {/* Categories */}
+        <div className="mb-12">
+          <h2 className="text-xl font-bold mb-4" style={{ ...serif, color: ESPRESSO }}>
+            Khám phá theo danh mục
+          </h2>
+          <div className="flex flex-wrap gap-3">
+            {["Tất cả", "Áo", "Quần", "Váy", "Áo khoác", "Phụ kiện", "Giày", "Túi"].map((cat) => (
+              <button
+                key={cat}
+                onClick={() => go("search")}
+                className="px-6 py-3 rounded-xl font-semibold shadow-sm transition-all hover:scale-105"
+                style={{ backgroundColor: CARD, border: `1px solid ${MUTED}`, color: ESPRESSO, ...ff }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Trusted Sellers */}
+        <div>
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-2xl font-bold" style={{ ...serif, color: ESPRESSO }}>
@@ -165,31 +214,6 @@ export function HomeScreen({ go, products, onLike, onAddToCart, loading }: HomeS
                   <SellerCard key={s.id} seller={s} go={go} />
                 ))}
           </div>
-        </div>
-
-        {/* New Listings */}
-        <div>
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold" style={{ ...serif, color: ESPRESSO }}>
-                Mới Đăng{" "}
-                <span className="text-lg font-normal italic ml-2" style={{ color: COFFEE }}>
-                  Recently Listed
-                </span>
-              </h2>
-              <p className="text-sm mt-0.5" style={{ color: COFFEE, ...ff }}>
-                Những món mới nhất từ cộng đồng thrift it!
-              </p>
-            </div>
-            <button
-              onClick={() => go("search")}
-              className="text-sm font-semibold flex items-center gap-1 hover:underline"
-              style={{ color: T, ...ff }}
-            >
-              Xem tất cả <ChevronRight size={15} />
-            </button>
-          </div>
-          {productGrid}
         </div>
       </div>
     </div>

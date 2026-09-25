@@ -11,6 +11,7 @@ export type Screen =
   | "notification"
   | "product-detail"
   | "seller"
+  | "seller-apply"
   | "payment"
   | "admin";
 

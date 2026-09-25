@@ -7,7 +7,7 @@
 
 ## Backend Structure (`backend/`)
 - `src/models/`:
-  - `User.ts`: Users, roles (buyer, seller, admin), embedded sellerProfile
+  - `User.ts`: Users, roles (buyer, seller, admin), embedded sellerProfile. Includes `sellerStatus`: `"NONE" | "PENDING" | "APPROVED" | "REJECTED"`.
   - `Category.ts`: Product categories
   - `Product.ts`: Products with status (`pending`, `active`, `reserved`, `sold`, `archived`)
   - `Cart.ts`, `CartItem.ts`: Shopping cart & checked items
@@ -71,6 +71,8 @@
 - `GET /api/orders/:code/shipment`: Returns live shipping details and timeline events matching frontend `Shipment` interface.
 
 ### 4. Seller & Shop Flow (`sellerController.ts`, `productController.ts`, `routes/sellers.ts`)
+- **Seller Application Workflow**: Users start with `sellerStatus: "NONE"`. They can apply via `POST /api/auth/seller/apply` which sets status to `"PENDING"`. Admins approve/reject via `PATCH /api/admin/sellers/:id/approve` and `PATCH /api/admin/sellers/:id/reject` (in `adminController.ts`).
+- **Product Creation Guardrails**: `POST /api/products` explicitly requires `user.sellerStatus === "APPROVED"` to enforce authorization.
 - `GET /api/sellers`: Returns list of all active sellers mapped with dual frontend property aliases (`name` & `shopName`, `avatar` & `avatarUrl`, `thumbs` & `coverImages`, `transactions` & `totalTransactions`, `_id` & `id`).
 - `GET /api/sellers/me`: Returns profile of the currently authenticated seller.
 - `GET /api/sellers/:idOrHandle`: Case-insensitive seller lookup supporting handle with/without `@` prefix (e.g. `@minhtu.vintage` or `minhtu.vintage`), email, shopName, or MongoDB ObjectId.

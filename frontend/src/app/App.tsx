@@ -34,12 +34,14 @@ import { PaymentScreen } from "../pages/payment/PaymentScreen";
 import { PostScreen } from "../pages/post/PostScreen";
 import { AccountScreen } from "../pages/account/AccountScreen";
 import { AdminScreen } from "../pages/admin/AdminScreen";
+import { ApplySellerScreen } from "../pages/seller/ApplySellerScreen";
 
 interface AuthUser {
   name: string;
   email: string;
   token: string;
   roles: string[];
+  sellerStatus?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
 }
 
 const SESSION_KEY = "thriftit_session";
@@ -97,6 +99,9 @@ export default function App() {
   const [currentRoles, setCurrentRoles] = useState<string[]>(session?.roles || []);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
+  const [sellerStatus, setSellerStatus] = useState<"NONE" | "PENDING" | "APPROVED" | "REJECTED">(
+    (session?.sellerStatus as any) || "NONE"
+  );
   const [activeTag, setActiveTag] = useState<string>("");
   const [headerQuery, setHeaderQuery] = useState<string>("");
   const [userRole, setUserRole] = useState<"buyer" | "seller">(() => {
@@ -284,6 +289,7 @@ export default function App() {
     account: "Tài khoản",
     post: "Đăng bán",
     admin: "Bảng quản trị",
+    "seller-apply": "Đăng ký bán hàng",
   };
 
   const go = (s: Screen, product?: Product, seller?: Seller) => {
@@ -436,7 +442,7 @@ export default function App() {
     // First try real backend login if a password is provided.
     if (password) {
       try {
-        const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[] } }>(
+        const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[]; sellerStatus?: any } }>(
           "/auth/login",
           { email: userEmail, password }
         );
@@ -445,11 +451,13 @@ export default function App() {
           email: res.user.email,
           token: res.token,
           roles: res.user.roles,
+          sellerStatus: res.user.sellerStatus || "NONE",
         };
         setStoredSession(next);
         setCurrentUser(next.name);
         setCurrentEmail(next.email);
         setCurrentRoles(next.roles);
+        setSellerStatus(next.sellerStatus || "NONE");
         setStoredUser(next.name, next.email);
         setUserRole(next.roles.includes("seller") ? "seller" : "buyer");
 
@@ -499,7 +507,7 @@ export default function App() {
   // ── REGISTER ──
   const handleRegister = async (name: string, email: string, password: string) => {
     try {
-      const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[] } }>(
+      const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[]; sellerStatus?: any } }>(
         "/auth/register",
         { name, email, password }
       );
@@ -508,11 +516,13 @@ export default function App() {
         email: res.user.email,
         token: res.token,
         roles: res.user.roles,
+        sellerStatus: res.user.sellerStatus || "NONE",
       };
       setStoredSession(next);
       setCurrentUser(next.name);
       setCurrentEmail(next.email);
       setCurrentRoles(next.roles);
+      setSellerStatus(next.sellerStatus || "NONE");
       setStoredUser(next.name, next.email);
       setUserRole("buyer");
       go("home");
@@ -656,11 +666,11 @@ export default function App() {
     <div className="w-full max-w-[1440px] mx-auto min-w-[320px] shadow-sm relative" style={{ backgroundColor: LINEN, ...ff }}>
       {toastMsg && (
         <div
-          className="fixed top-24 right-8 z-[9999] px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 animate-fade-in-down transition-all"
-          style={{ backgroundColor: ESPRESSO, color: LINEN, border: `1.5px solid ${T}` }}
+          className="fixed bottom-8 right-8 z-[9999] px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-bounce transition-all"
+          style={{ backgroundColor: ESPRESSO, color: LINEN, border: `1px solid ${T}` }}
         >
-          <Sparkles size={18} style={{ color: T }} />
-          <span className="text-sm font-bold">{toastMsg}</span>
+          <span className="text-green-400 font-bold flex-shrink-0">✓</span>
+          <span className="text-sm font-medium" style={ff}>{toastMsg}</span>
         </div>
       )}
 
@@ -696,6 +706,7 @@ export default function App() {
                 onLike={toggleLike}
                 onAddToCart={addToCart}
                 loading={productsLoading}
+                sellerStatus={sellerStatus}
               />
             )}
             {screen === "search" && (
@@ -746,9 +757,11 @@ export default function App() {
                 setUserRole={setUserRole}
                 showToast={showToast}
                 onUpdateOrderStatus={handleUpdateOrderStatus}
+                sellerStatus={sellerStatus}
               />
             )}
             {screen === "post" && <PostScreen go={go} onAddProduct={handleAddProduct} />}
+            {screen === "seller-apply" && <ApplySellerScreen go={go} setSellerStatus={setSellerStatus} showToast={showToast} />}
             {screen === "admin" && (
               <AdminScreen
                 go={go}

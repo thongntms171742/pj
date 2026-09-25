@@ -33,6 +33,7 @@ export function AccountScreen({
   setUserRole: (role: "buyer" | "seller") => void;
   showToast?: (msg: string) => void;
   onUpdateOrderStatus?: (orderId: string, status: Order["status"]) => void;
+  sellerStatus?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
 }) {
   // ── State quản lý ──────────────────────────────────────────────────────────
   const [accountTab, setAccountTab] = useState<string>(
@@ -348,30 +349,38 @@ export function AccountScreen({
             {userEmail !== "admin@thriftit.vn" ? (
               <>
                 {/* Toggle Buyer / Seller mode */}
-                <button
-                  onClick={() => {
-                    const newRole = userRole === "buyer" ? "seller" : "buyer";
-                    setUserRole(newRole);
-                  }}
-                  className="flex items-center gap-2.5 px-4 py-3 rounded-xl font-semibold text-sm border-2 transition-all"
-                  style={{
-                    borderColor: T,
-                    color: T,
-                    backgroundColor: "transparent",
-                    ...ff
-                  }}
-                >
-                  <Store size={15} />
-                  {userRole === "buyer" ? "Kênh người bán" : "Kênh người mua"}
-                </button>
+                {sellerStatus === "APPROVED" && (
+                  <button
+                    onClick={() => {
+                      const newRole = userRole === "buyer" ? "seller" : "buyer";
+                      setUserRole(newRole);
+                    }}
+                    className="flex items-center gap-2.5 px-4 py-3 rounded-xl font-semibold text-sm border-2 transition-all"
+                    style={{
+                      borderColor: T,
+                      color: T,
+                      backgroundColor: "transparent",
+                      ...ff
+                    }}
+                  >
+                    <Store size={15} />
+                    {userRole === "buyer" ? "Kênh người bán" : "Kênh mua hàng"}
+                  </button>
+                )}
 
                 <button
-                  onClick={() => go("post")}
+                  onClick={() => {
+                    if (sellerStatus === "APPROVED") go("post");
+                    else if (sellerStatus === "PENDING") go("seller-apply");
+                    else go("seller-apply");
+                  }}
                   className="flex items-center gap-2.5 px-5 py-3 rounded-xl font-bold text-sm shadow-lg transition-all hover:opacity-90"
                   style={{ backgroundColor: T, color: LINEN, ...ff }}
                 >
                   <PlusCircle size={17} />
-                  {userRole === "seller" ? "Đăng bán sản phẩm" : "Đăng bán cá nhân"}
+                  {sellerStatus === "APPROVED" ? "Đăng bán sản phẩm" 
+                    : sellerStatus === "PENDING" ? "Đang chờ duyệt"
+                    : "Đăng bán cá nhân"}
                 </button>
               </>
             ) : (
@@ -643,6 +652,26 @@ export function AccountScreen({
                   </div>
                 )}
               </div>
+
+              {sellerStatus !== "APPROVED" && sellerStatus !== "PENDING" && (
+                <div className="mt-8 p-6 rounded-2xl flex items-center justify-between shadow-sm" style={{ backgroundColor: "#E9F7EF", border: `1px solid #27AE60` }}>
+                  <div>
+                    <h3 className="text-lg font-bold flex items-center gap-2" style={{ color: "#27AE60", ...serif }}>
+                      <Store size={20} /> Trở thành người bán
+                    </h3>
+                    <p className="text-sm mt-1" style={{ color: "#27AE60", opacity: 0.8, ...ff }}>
+                      Đăng ký ngay để bắt đầu bán đồ cũ và nhận ưu đãi từ thrift it!
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => go("seller-apply")}
+                    className="px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-md hover:opacity-90"
+                    style={{ backgroundColor: "#27AE60", color: "#fff", ...ff }}
+                  >
+                    Đăng ký ngay
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

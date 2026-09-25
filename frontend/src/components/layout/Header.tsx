@@ -30,8 +30,8 @@ export function Header({
   const showTags = screen === "home" || screen === "search";
 
   return (
-    <header className="sticky top-0 z-50 w-full" style={{ backgroundColor: COFFEE }}>
-      <div className="max-w-[1440px] mx-auto px-8 flex items-center gap-6 h-16">
+    <header className="sticky top-0 z-50 w-full shadow-sm" style={{ backgroundColor: COFFEE }}>
+      <div className="max-w-[1440px] mx-auto px-8 flex items-center gap-6 h-14">
         {/* Logo */}
         <button onClick={() => go("home")} className="flex items-center gap-3 flex-shrink-0 group">
           <ThriftLogo size={38} />

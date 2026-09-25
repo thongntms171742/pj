@@ -30,10 +30,11 @@ export function AdminScreen({
   setUserRole,
   onLogout
 }: AdminScreenProps) {
-  const [activeAdminTab, setActiveAdminTab] = useState<"stats" | "c2c" | "users">("stats");
+  const [activeAdminTab, setActiveAdminTab] = useState<"stats" | "c2c" | "users" | "sellers">("stats");
   const [commissionRate, setCommissionRate] = useState<number>(10);
   const [timeFilter, setTimeFilter] = useState<"week" | "month" | "quarter" | "year">("week");
   const [adminStats, setAdminStats] = useState<{ pendingListings: number; soldProducts: number; totalOrders: number; totalUsers: number; totalSellers: number; platformProfit: number } | null>(null);
+  const [pendingSellers, setPendingSellers] = useState<any[]>([]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -41,6 +42,10 @@ export function AdminScreen({
       .get<{ stats: typeof adminStats }>("/admin/stats")
       .then((res) => mounted && setAdminStats(res.stats))
       .catch(() => {/* silent */});
+    api
+      .get<{ users: any[] }>("/admin/pending-sellers")
+      .then((res) => mounted && setPendingSellers(res.users))
+      .catch(() => {});
     return () => {
       mounted = false;
     };
@@ -141,6 +146,26 @@ export function AdminScreen({
     }
   };
 
+  const handleApproveSeller = async (id: string) => {
+    try {
+      await api.patch(`/admin/sellers/${id}/approve`);
+      setPendingSellers(prev => prev.filter(u => u.id !== id));
+      alert("Đã duyệt đăng ký người bán thành công!");
+    } catch (err) {
+      alert("Lỗi duyệt đăng ký người bán");
+    }
+  };
+
+  const handleRejectSeller = async (id: string) => {
+    try {
+      await api.patch(`/admin/sellers/${id}/reject`);
+      setPendingSellers(prev => prev.filter(u => u.id !== id));
+      alert("Đã từ chối đăng ký người bán.");
+    } catch (err) {
+      alert("Lỗi từ chối");
+    }
+  };
+
   // Platform revenue: pull from /admin/stats; fall back to 0 when API not ready
   const totalC2CRevenue = adminStats?.platformProfit
     ? Math.round(adminStats.platformProfit / (commissionRate / 100))
@@ -171,6 +196,7 @@ export function AdminScreen({
             {[
               { id: "stats", label: "Tổng quan thống kê", icon: TrendingUp },
               { id: "c2c", label: "Duyệt bài đăng C2C", icon: Package, badge: pendingProducts.length },
+              { id: "sellers", label: "Duyệt Shop", icon: Users, badge: pendingSellers.length },
               { id: "users", label: "Quản lý Tài khoản", icon: Users }
             ].map((tab) => (
               <button
@@ -216,7 +242,7 @@ export function AdminScreen({
             <span className="text-xs font-bold text-coffee uppercase tracking-wider" style={ff}>Bảng điều khiển</span>
             <span className="text-xs text-muted-foreground">/</span>
             <span className="text-xs font-semibold text-espresso capitalize" style={ff}>
-              {activeAdminTab === "stats" ? "Thống kê tổng quan" : activeAdminTab === "c2c" ? "Duyệt bài đăng" : "Danh sách tài khoản"}
+              {activeAdminTab === "stats" ? "Thống kê tổng quan" : activeAdminTab === "c2c" ? "Duyệt bài đăng" : activeAdminTab === "sellers" ? "Duyệt Shop" : "Danh sách tài khoản"}
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -434,6 +460,68 @@ export function AdminScreen({
                               </button>
                               <button
                                 onClick={() => handleRejectListing(p.id, p.apiId)}
+                                className="px-3 py-1.5 rounded-xl text-[10px] font-bold text-white transition-all bg-red-600 hover:bg-red-700"
+                              >
+                                ✗ Từ chối
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: SELLERS MODERATION */}
+          {activeAdminTab === "sellers" && (
+            <div className="p-6 rounded-3xl bg-white border border-muted shadow-sm animate-fade-in">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-base font-bold font-serif" style={{ color: ESPRESSO }}>Hồ sơ đăng ký Shop ({pendingSellers.length})</h3>
+                <span className="text-xs text-muted-foreground font-semibold">Cần duyệt trước khi User được phép bán hàng</span>
+              </div>
+
+              {pendingSellers.length === 0 ? (
+                <div className="text-center py-16 text-coffee" style={ff}>
+                  <div className="w-12 h-12 rounded-full bg-green-50 text-green-600 flex items-center justify-center mx-auto text-xl font-bold mb-3">✓</div>
+                  <p className="text-sm font-bold">Không có hồ sơ nào cần duyệt!</p>
+                </div>
+              ) : (
+                <div className="overflow-hidden border border-muted rounded-2xl">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-muted text-coffee font-bold">
+                        <th className="p-4">Tên Shop</th>
+                        <th className="p-4">Người đăng ký (Email)</th>
+                        <th className="p-4">Giới thiệu</th>
+                        <th className="p-4 text-center">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-muted bg-white">
+                      {pendingSellers.map((s) => (
+                        <tr key={s.id} className="hover:bg-gray-50/55 transition-colors">
+                          <td className="p-4 font-bold text-espresso text-sm">
+                            {s.shopName}
+                          </td>
+                          <td className="p-4">
+                            <p className="font-bold text-coffee">{s.name}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">{s.email}</p>
+                          </td>
+                          <td className="p-4 text-coffee truncate max-w-[200px]">
+                            {s.description || "-"}
+                          </td>
+                          <td className="p-4">
+                            <div className="flex gap-2 justify-center">
+                              <button
+                                onClick={() => handleApproveSeller(s.id)}
+                                className="px-3 py-1.5 rounded-xl text-[10px] font-bold text-white transition-all bg-green-600 hover:bg-green-700"
+                              >
+                                ✓ Cấp quyền
+                              </button>
+                              <button
+                                onClick={() => handleRejectSeller(s.id)}
                                 className="px-3 py-1.5 rounded-xl text-[10px] font-bold text-white transition-all bg-red-600 hover:bg-red-700"
                               >
                                 ✗ Từ chối
