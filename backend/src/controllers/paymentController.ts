@@ -132,12 +132,19 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
 };
 
 // ── POST /api/payments/:code/cod-collect ──────────────────────────────────────────
-// Mock COD payment collection by carrier
+// Mock COD payment collection by carrier/admin
 export const codCollect = async (req: Request, res: Response): Promise<void> => {
   try {
     const code = req.params.code as string;
     const isObjectId = /^[0-9a-fA-F]{24}$/.test(code);
     const filter = isObjectId ? { $or: [{ _id: code }, { orderCode: code }] } : { orderCode: code };
+
+    // Actor authorization: Only Admin or mock shipper (we'll just use Admin for MVP)
+    const isAdmin = req.user?.roles?.includes("admin");
+    if (!isAdmin) {
+      res.status(403).json({ error: "Chỉ Admin/Đơn vị vận chuyển mới có quyền thu tiền COD" });
+      return;
+    }
 
     const order = await Order.findOne(filter);
     if (!order) {
@@ -150,20 +157,46 @@ export const codCollect = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    // Idempotency: If already paid, return early with current state
-    if (order.paidAt) {
-      res.json({ order: mapOrder(order), message: "Tiền COD đã được thu trước đó" });
+    if (order.status !== "DELIVERED" && order.status !== "COMPLETED") {
+      res.status(400).json({ error: "Chỉ thu tiền COD khi đơn hàng đã giao (DELIVERED/COMPLETED)" });
       return;
     }
 
+    // Idempotency check using Ledger
+    const existingLedger = await Ledger.findOne({ transactionId: `COD-COLLECT-${order.orderCode}` });
+    if (existingLedger || order.paidAt) {
+      res.json({ message: "Đã thu tiền COD cho đơn hàng này trước đó", order: mapOrder(order) });
+      return;
+    }
+
+    const feeAmt = order.platformFeeAmount || 0;
+    const sellerPayable = order.totalAmount - feeAmt;
+
+    await Ledger.create({
+      transactionId: `COD-COLLECT-${order.orderCode}`,
+      orderId: order._id,
+      orderCode: order.orderCode,
+      description: `Thu tiền COD cho đơn hàng ${order.orderCode}`,
+      entries: [
+        { account: "PLATFORM_CASH", type: "DR", amount: order.totalAmount },
+        { account: "BUYER_CLEARING", type: "CR", amount: order.totalAmount },
+        
+        { account: "BUYER_CLEARING", type: "DR", amount: feeAmt },
+        { account: "PLATFORM_REVENUE", type: "CR", amount: feeAmt },
+        
+        { account: "BUYER_CLEARING", type: "DR", amount: sellerPayable },
+        { account: "SELLER_PAYABLE", type: "CR", amount: sellerPayable },
+      ]
+    });
+
     order.paidAt = new Date();
-    order.paymentId = `COD-${Date.now()}`;
+    order.paymentId = `COD-COLLECT-${order.orderCode}`;
     
     order.statusHistory.push({
       status: order.status,
-      by: "carrier_system",
+      by: req.user?.email || "admin",
       at: new Date(),
-      reason: "Shipper đã thu tiền mặt (COD) thành công",
+      reason: "Đã ghi nhận thu tiền mặt (COD) thành công",
     });
 
     await order.save();

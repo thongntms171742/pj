@@ -378,6 +378,38 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    // Actor Authorization Check
+    const isBuyer = order.buyerId.toString() === userId;
+    const isSeller = order.items.some((it) => it.sellerId.toString() === userId);
+    const isAdmin = req.user?.roles?.includes("admin");
+
+    if (nextStatus === "PACKING" || nextStatus === "SHIPPING") {
+      if (!isSeller && !isAdmin) {
+        res.status(403).json({ error: "Chỉ người bán mới có quyền cập nhật trạng thái này" });
+        return;
+      }
+    } else if (nextStatus === "DELIVERING" || nextStatus === "DELIVERED") {
+      if (!isAdmin) {
+        res.status(403).json({ error: "Chỉ đơn vị vận chuyển hoặc Admin mới có quyền cập nhật trạng thái này" });
+        return;
+      }
+    } else if (nextStatus === "COMPLETED" || nextStatus === "DISPUTED") {
+      if (!isBuyer && !isAdmin) {
+        res.status(403).json({ error: "Chỉ người mua mới có quyền xác nhận trạng thái này" });
+        return;
+      }
+    } else if (nextStatus === "REFUNDED") {
+      if (!isAdmin) {
+        res.status(403).json({ error: "Chỉ Admin mới có quyền cập nhật trạng thái này" });
+        return;
+      }
+    } else if (nextStatus === "CANCELLED") {
+      if (!isBuyer && !isSeller && !isAdmin) {
+        res.status(403).json({ error: "Bạn không có quyền hủy đơn hàng này" });
+        return;
+      }
+    }
+
     // If cancelling, restore inventory and release holds
     if (nextStatus === "CANCELLED") {
       for (const item of order.items) {
@@ -614,6 +646,16 @@ export const getOrderShipment = async (req: Request, res: Response): Promise<voi
 
     const o = order as any;
 
+    const userId = req.user!.id;
+    const isBuyer = o.buyerId.toString() === userId;
+    const isSeller = o.items.some((it: any) => it.sellerId.toString() === userId);
+    const isAdmin = req.user?.roles?.includes("admin");
+
+    if (!isBuyer && !isSeller && !isAdmin) {
+      res.status(403).json({ error: "Bạn không có quyền xem thông tin giao hàng này" });
+      return;
+    }
+
     let shipmentStatus: "PENDING" | "CREATED" | "PICKED_UP" | "IN_TRANSIT" | "DELIVERING" | "DELIVERED" | "CANCELLED" = "PENDING";
     if (o.status === "DELIVERED" || o.status === "COMPLETED") {
       shipmentStatus = "DELIVERED";
@@ -704,57 +746,4 @@ export const getOrderShipment = async (req: Request, res: Response): Promise<voi
   }
 };
 
-// ── POST /api/orders/:code/cod-collect ─────────────────────────────────────────
-export const collectCOD = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { code } = req.params;
-    const order = await Order.findOne({ orderCode: code });
-    if (!order) {
-      res.status(404).json({ error: "Không tìm thấy đơn hàng" });
-      return;
-    }
-
-    if (order.paymentMethod?.toUpperCase() !== "COD") {
-      res.status(400).json({ error: "Đơn hàng này không phải thanh toán COD" });
-      return;
-    }
-
-    if (order.status !== "DELIVERED" && order.status !== "COMPLETED") {
-      res.status(400).json({ error: "Chỉ thu tiền COD khi đơn hàng đã giao (DELIVERED/COMPLETED)" });
-      return;
-    }
-
-    // Check if COD already collected (idempotency check using Ledger)
-    const existingLedger = await Ledger.findOne({ transactionId: `COD-COLLECT-${order.orderCode}` });
-    if (existingLedger) {
-      res.json({ message: "Đã thu tiền COD cho đơn hàng này trước đó", order: mapOrder(order) });
-      return;
-    }
-
-    const feeAmt = order.platformFeeAmount || 0;
-    const sellerPayable = order.totalAmount - feeAmt;
-
-    await Ledger.create({
-      transactionId: `COD-COLLECT-${order.orderCode}`,
-      orderId: order._id,
-      orderCode: order.orderCode,
-      description: `Thu tiền COD cho đơn hàng ${order.orderCode}`,
-      entries: [
-        { account: "PLATFORM_CASH", type: "DR", amount: order.totalAmount },
-        { account: "BUYER_CLEARING", type: "CR", amount: order.totalAmount },
-        
-        { account: "BUYER_CLEARING", type: "DR", amount: feeAmt },
-        { account: "PLATFORM_REVENUE", type: "CR", amount: feeAmt },
-        
-        { account: "BUYER_CLEARING", type: "DR", amount: sellerPayable },
-        { account: "SELLER_PAYABLE", type: "CR", amount: sellerPayable },
-      ]
-    });
-
-    res.json({ message: "Ghi nhận thu tiền COD thành công", order: mapOrder(order) });
-  } catch (err) {
-    console.error("[orders] collectCOD error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
-};
 
