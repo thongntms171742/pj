@@ -34,5 +34,15 @@
   - Enriched `productController.ts` with `seller` (string handle), `sellerName`, `sellerAvatar` top-level fields on products so `SellerScreen` and `ProductCard` filter correctly.
   - Added `GET /api/products/mine` and `GET /api/products/seller` for authenticated sellers to retrieve all listings and dashboard stats.
 
+## [2026-09-27]
+### Fixed
+- Fixed compile and syntax errors in `orderController.ts` (`TS1472`, `TS1005`, duplicate try-blocks, and destructuring of `idempotencyKey`).
+- Strengthened TypeScript types in `auth.ts` for `JWT_SECRET` and `JwtPayload` casting.
+- Enforced Actor Authorization Check before state machine validation in `orderController.ts` ensuring unauthorized actors receive 403 Forbidden.
+- Added MongoDB WriteConflict / TransientTransactionError retry loops in `orderController.ts` (`createOrder`) and `paymentController.ts` (`checkout`).
+- Standardized COD collection on `paymentController.codCollect` and updated `verifyLedger.ts`.
+- Created regression suite `src/verifyAuthConcurrency.ts` verifying all P0 security matrix rules, P1 concurrency stock isolation, payment idempotency, and fail-fast JWT startup (all 15 regression assertions passed: 15/15).
+- Documented transaction rollback fault-injection test as TODO (not yet tested).
+
 
 

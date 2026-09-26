@@ -134,22 +134,33 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
   }
 };
 
+function isWriteConflict(err: any): boolean {
+  return (
+    err?.code === 112 ||
+    err?.codeName === "WriteConflict" ||
+    Boolean(err?.errorLabels?.includes?.("TransientTransactionError")) ||
+    Boolean(err?.errorLabelSet?.has?.("TransientTransactionError"))
+  );
+}
+
 // ── POST /api/orders ──────────────────────────────────────────────────────────
 // Creates an order from checked cart items or direct items
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userId = req.user!.id;
-    const {
-      shippingName,
-      shippingPhone,
-      shippingAddress,
-      paymentMethod = "COD",
-      items: directItems,
-    } = req.body;
-
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
+      const userId = req.user!.id;
+      const {
+        shippingName,
+        shippingPhone,
+        shippingAddress,
+        paymentMethod = "COD",
+        idempotencyKey,
+        items: directItems,
+      } = req.body;
+
       // Idempotency check
       if (idempotencyKey) {
         const existing = await Order.findOne({ idempotencyKey }).session(session);
@@ -355,14 +366,25 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       }
     }
 
-    await session.commitTransaction();
-    session.endSession();
-    res.status(201).json({ order: mapOrder(order) });
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    console.error("[orders] createOrder error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+      await session.commitTransaction();
+      session.endSession();
+      res.status(201).json({ order: mapOrder(order) });
+      return;
+    } catch (err: any) {
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+      session.endSession();
+
+      if (isWriteConflict(err) && attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+        continue;
+      }
+
+      console.error("[orders] createOrder error:", err);
+      res.status(500).json({ error: "Lỗi hệ thống" });
+      return;
+    }
   }
 };
 
@@ -389,19 +411,10 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    // Validate transition
     const currentStatus = order.status as OrderStatus;
     const nextStatus = status as OrderStatus;
-    const allowed = VALID_TRANSITIONS[currentStatus];
 
-    if (!allowed || !allowed.includes(nextStatus)) {
-      res.status(422).json({
-        error: `Không thể chuyển từ trạng thái ${currentStatus} sang ${nextStatus}`,
-      });
-      return;
-    }
-
-    // Actor Authorization Check
+    // Actor Authorization Check FIRST
     const isBuyer = order.buyerId.toString() === userId;
     const isSeller = order.items.some((it) => it.sellerId.toString() === userId);
     const isAdmin = req.user?.roles?.includes("admin");
@@ -431,6 +444,21 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
         res.status(403).json({ error: "Bạn không có quyền hủy đơn hàng này" });
         return;
       }
+    } else {
+      if (!isAdmin) {
+        res.status(403).json({ error: "Không có quyền cập nhật trạng thái này" });
+        return;
+      }
+    }
+
+    // Validate transition
+    const allowed = VALID_TRANSITIONS[currentStatus];
+
+    if (!allowed || !allowed.includes(nextStatus)) {
+      res.status(422).json({
+        error: `Không thể chuyển từ trạng thái ${currentStatus} sang ${nextStatus}`,
+      });
+      return;
     }
 
     // If cancelling, restore inventory and release holds

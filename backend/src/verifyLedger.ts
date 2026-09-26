@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import { User, Category, Product, PlatformFeeConfig, Order, Ledger } from "./models";
-import { createOrder, collectCOD } from "./controllers/orderController";
-import { checkout } from "./controllers/paymentController";
+import { createOrder } from "./controllers/orderController";
+import { checkout, codCollect } from "./controllers/paymentController";
 import { Request, Response } from "express";
 
 dotenv.config();
@@ -133,11 +133,11 @@ async function runTests() {
   // Set order3 to DELIVERED first so we can collect
   await Order.findByIdAndUpdate(order3._id, { status: "DELIVERED" });
   
-  const colReq = { params: { code: order3.orderCode } } as unknown as Request;
+  const colReq = { params: { code: order3.orderCode }, user: { id: "admin1", roles: ["admin"] } } as unknown as Request;
   const colRes1 = mockRes();
-  await collectCOD(colReq, colRes1);
+  await codCollect(colReq, colRes1);
   const colRes2 = mockRes();
-  await collectCOD(colReq, colRes2);
+  await codCollect(colReq, colRes2);
 
   const l4Count = await Ledger.countDocuments({ orderId: order3._id });
   if (l4Count === 1 && colRes2.data.message === "Đã thu tiền COD cho đơn hàng này trước đó") {

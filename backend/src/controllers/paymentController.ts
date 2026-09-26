@@ -6,6 +6,15 @@ import { Notification } from "../models/Notification";
 import { Ledger } from "../models/Ledger";
 import { mapOrder } from "./orderController";
 
+function isWriteConflict(err: any): boolean {
+  return (
+    err?.code === 112 ||
+    err?.codeName === "WriteConflict" ||
+    Boolean(err?.errorLabels?.includes?.("TransientTransactionError")) ||
+    Boolean(err?.errorLabelSet?.has?.("TransientTransactionError"))
+  );
+}
+
 // ── POST /api/payments/checkout ───────────────────────────────────────────────
 // Mock payment: advances order from PENDING_PAYMENT → PAID → CONFIRMED,
 // deducts inventory, clears reservations, and notifies buyer and sellers.
@@ -24,10 +33,12 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
     const orFilter: any[] = [{ orderCode: idStr }];
     if (isObjectId) orFilter.push({ _id: idStr });
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const session = await mongoose.startSession();
+      session.startTransaction();
 
-    try {
+      try {
       // Find order without locking just to check existence/already paid
       let order = await Order.findOne({ $or: orFilter, buyerId: userId }).session(session);
       
@@ -153,12 +164,23 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
       await session.commitTransaction();
       session.endSession();
       res.json({ order: mapOrder(order) });
-    } catch (err) {
-      await session.abortTransaction();
+      return;
+    } catch (err: any) {
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
       session.endSession();
+
+      if (isWriteConflict(err) && attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+        continue;
+      }
+
       console.error("[payments] checkout error:", err);
       res.status(500).json({ error: "Lỗi hệ thống" });
+      return;
     }
+  }
   } catch (err) {
     console.error("[payments] checkout outer error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });

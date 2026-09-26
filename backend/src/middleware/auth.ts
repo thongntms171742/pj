@@ -1,10 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
+const secretEnv = process.env.JWT_SECRET;
+if (!secretEnv) {
   throw new Error("JWT_SECRET is required in environment variables");
 }
+const JWT_SECRET: string = secretEnv;
 
 export interface JwtPayload {
   id: string;
@@ -33,7 +34,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 
   try {
     const token = header.slice(7);
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    const decoded = (jwt.verify(token, JWT_SECRET) as unknown) as JwtPayload;
     req.user = decoded;
     next();
   } catch {
@@ -50,7 +51,7 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
   if (header?.startsWith("Bearer ")) {
     try {
       const token = header.slice(7);
-      req.user = jwt.verify(token, JWT_SECRET) as JwtPayload;
+      req.user = (jwt.verify(token, JWT_SECRET) as unknown) as JwtPayload;
     } catch {
       // invalid token → treat as anonymous
     }

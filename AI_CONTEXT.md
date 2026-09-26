@@ -113,18 +113,39 @@
 - `PATCH /api/products/:id/archive`: Archive/hide product. Owner-only. Blocked for `sold` and `reserved` products.
 - **Verified**: Seller MVP E2E scenario test passes (`verifySellerMVP.ts`).
 
+### 8. Concurrency, Security Matrix & Regression Verification (✅ VERIFIED)
+- **Actor Authorization Matrix (`orderController.ts`)**: Evaluated strictly *before* state-transition validity to guarantee unauthorized actors always receive `403 Forbidden` (not `422`).
+  - Buyer -> `PACKING`: `403`
+  - Unauthorized third-party -> `PACKING`: `403`
+  - Authorized Seller -> `PACKING`: `200`
+  - Buyer -> `DELIVERING`: `403`
+  - Seller -> `DELIVERED`: `403`
+  - Seller -> `COMPLETED`: `403`
+  - Authorized Buyer -> `COMPLETED`: `200`
+  - Third-party -> `GET /api/orders/:code/shipment`: `403`
+  - Authorized Buyer -> `GET /api/orders/:code/shipment`: `200`
+  - Buyer -> `POST /api/payments/:code/cod-collect`: `403`
+  - Admin -> `POST /api/payments/:code/cod-collect`: `200`
+- **Concurrency & WriteConflict Handling**:
+  - `createOrder` and `paymentController.checkout` wrapped in retry loops for `TransientTransactionError` / `WriteConflict` (code `112`).
+  - Concurrent checkout of single-quantity inventory verified: exactly 1 order succeeds (`201`), 1 order fails (`400 OUT_OF_STOCK`), stock remains accurately at `0`.
+- **Payment & Ledger Idempotency**:
+  - Idempotency key supported on checkout and COD collection.
+  - Repeated simultaneous payment requests produce exactly 1 ledger record.
+- **Fail-Fast Security Startup**:
+  - `auth.ts` verifies `JWT_SECRET` presence immediately on module initialization and refuses to boot without it (zero fallback secrets).
+- **Regression Suite**: `src/verifyAuthConcurrency.ts` (All 15 regression assertions passed: 15/15) and `src/verifyLedger.ts` (5/5 financial ledger tests passed).
+- **Transaction Rollback**: Fault-injection test under forced failure is not yet tested (TODO).
+
 ## Buyer Funnel Status (MVP) — ✅ LOCKED
 > Tìm kiếm → Xem sản phẩm → Mua → Thanh toán → Theo dõi giao hàng → Nhận hàng → Hoàn tất → Đánh giá ✅
 
 ## Seller Funnel Status (MVP) — ✅ LOCKED
 > Đăng sản phẩm → Sửa SP → Admin duyệt → Buyer mua → Seller thấy Order → PACKING → SHIPPING → DELIVERING → DELIVERED → COMPLETED → Buyer Review ✅
 
-**Verified via `verifySellerMVP.ts` — 18/18 passed.**
+**Verified via `verifySellerMVP.ts`, `verifyAuthConcurrency.ts`, and `verifyLedger.ts`.**
 
-## Next Steps (NOT backend features)
+## Next Steps
 1. Public Deploy (Render.com)
-2. Real-device testing
-3. User Manual
-4. Demo flow (5-7 min)
-5. TikTok + Facebook
-6. Thu thập KPI thật → OC1 + OC2
+2. Frontend integration verification with running backend
+3. Real-device testing
