@@ -14,6 +14,7 @@ interface HeaderProps {
   setHeaderQuery?: (q: string) => void;
   currentUserEmail?: string;
   unreadNotifications?: number;
+  isAdmin?: boolean;
 }
 
 export function Header({
@@ -26,6 +27,7 @@ export function Header({
   setHeaderQuery,
   currentUserEmail,
   unreadNotifications = 0,
+  isAdmin,
 }: HeaderProps) {
   const showTags = screen === "home" || screen === "search";
 
@@ -49,7 +51,7 @@ export function Header({
           >
             <Sparkles size={13} /> Gói dịch vụ
           </button>
-          {currentUserEmail === "admin@thriftit.vn" && (
+          {(isAdmin || currentUserEmail === "admin@thriftit.vn") && (
             <button
               onClick={() => go("admin")}
               className="text-xs font-bold hover:opacity-90 transition-all px-2.5 py-1 rounded bg-amber-500 text-espresso"

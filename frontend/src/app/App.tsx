@@ -77,8 +77,8 @@ export default function App() {
 
   const [screen, setScreen] = useState<Screen>(() => {
     const u = getStoredSession();
-    if (!u) return storedUser.name ? "login" : "login";
-    if (u.email === "admin@thriftit.vn") return "admin";
+    if (!u) return "login";
+    if (u.roles?.includes("admin")) return "admin";
     const savedScreen = getStoredString(STORAGE_KEYS.screen);
     return (savedScreen as Screen) || "home";
   });
@@ -94,8 +94,8 @@ export default function App() {
   // Orders: server-driven, empty when no session.
   const [orders, setOrders] = useState<Order[]>([]);
 
-  const [currentUser, setCurrentUser] = useState<string>(session?.name || storedUser.name || "Nguyễn Thanh Linh");
-  const [currentEmail, setCurrentEmail] = useState<string>(session?.email || storedUser.email || "linh.nguyen@gmail.com");
+  const [currentUser, setCurrentUser] = useState<string>(session?.name || storedUser.name || "");
+  const [currentEmail, setCurrentEmail] = useState<string>(session?.email || storedUser.email || "");
   const [currentRoles, setCurrentRoles] = useState<string[]>(session?.roles || []);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
@@ -107,7 +107,7 @@ export default function App() {
   const [userRole, setUserRole] = useState<"buyer" | "seller">(() => {
     const saved = getStoredString(STORAGE_KEYS.userRole);
     if (saved === "buyer" || saved === "seller") return saved;
-    if (session?.email === "shop.minhtu@thriftit.vn" || currentEmail === "shop.minhtu@thriftit.vn") return "seller";
+    if (session?.roles?.includes("seller") || session?.sellerStatus === "APPROVED") return "seller";
     return "buyer";
   });
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -217,43 +217,13 @@ export default function App() {
     setTimeout(() => setToastMsg(null), 3000);
   };
 
-  // ── Post a new listing (still works offline + queues nothing; backend POST) ──
-  const handleAddProduct = (newProd: {
+  // ── Post a new listing (server-driven: wait for response from backend) ──
+  const handleAddProduct = async (newProd: {
     name: string; price: number; category: string; desc: string; size: string; condition: number; image: string;
   }) => {
-    const newId = products.length > 0 ? Math.max(...products.map((p) => p.id)) + 1 : 1;
-    const sellerHandle = currentEmail === "shop.minhtu@thriftit.vn" ? "minhtu.vintage" : "linh.vintage";
-
-    const addedProduct: Product = {
-      id: newId,
-      name: newProd.name,
-      price: newProd.price,
-      seller: sellerHandle,
-      condition: newProd.condition,
-      size: newProd.size,
-      category: newProd.category,
-      image: newProd.image,
-      liked: false,
-      status: "pending",
-    };
-    setProducts((prev) => [addedProduct, ...prev]);
-
-    const newSellerProd: SellerProduct = {
-      id: newId,
-      name: newProd.name,
-      price: newProd.price,
-      quantity: 1,
-      status: "pending",
-      image: newProd.image,
-      views: 0,
-      likes: 0,
-      createdAt: new Date().toLocaleDateString("vi-VN"),
-    };
-    setMyProducts((prev) => [newSellerProd, ...prev]);
-
-    // Fire-and-forget to backend
-    api
-      .post<{ product: import("../lib/api").ApiProduct }>("/products", {
+    try {
+      showToast(`Đang gửi yêu cầu đăng bán sản phẩm...`);
+      const res = await api.post<{ product: import("../lib/api").ApiProduct }>("/products", {
         title: newProd.name,
         price: newProd.price,
         condition: newProd.condition,
@@ -261,18 +231,23 @@ export default function App() {
         quantity: 1,
         description: newProd.desc,
         coverImage: newProd.image,
-      })
-      .catch((err) => {
-        setProducts((prev) => prev.filter((p) => p.id !== newId));
-        setMyProducts((prev) => prev.filter((p) => p.id !== newId));
-        if (err instanceof ApiError) {
-          showToast(`⚠️ Lỗi từ server: ${err.message}`);
-        } else {
-          showToast(`⚠️ Không thể kết nối server để thêm sản phẩm.`);
-        }
       });
 
-    showToast(`Đã gửi yêu cầu đăng bán sản phẩm "${newProd.name}". Admin sẽ duyệt tin của bạn trong thời gian sớm nhất!`);
+      const likedIds = new Set(getStoredLikedProducts().map(String));
+      const adapted = adaptProduct(res.product, likedIds);
+      const sellerProd = adaptToSellerProduct(res.product, adapted.seller);
+
+      setProducts((prev) => [adapted, ...prev]);
+      setMyProducts((prev) => [sellerProd, ...prev]);
+      showToast(`Đã gửi yêu cầu đăng bán sản phẩm "${newProd.name}". Admin sẽ duyệt tin của bạn!`);
+      go("account");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        showToast(`⚠️ Lỗi từ server: ${err.message}`);
+      } else {
+        showToast(`⚠️ Không thể kết nối server để thêm sản phẩm.`);
+      }
+    }
   };
 
   const SCREEN_LABEL: Record<Screen, string> = {
@@ -293,7 +268,7 @@ export default function App() {
   };
 
   const go = (s: Screen, product?: Product, seller?: Seller) => {
-    if (currentEmail === "admin@thriftit.vn" && s !== "admin" && s !== "login") {
+    if (currentRoles.includes("admin") && s !== "admin" && s !== "login") {
       setScreen("admin");
       setStoredString(STORAGE_KEYS.screen, "admin");
       return;
@@ -488,7 +463,7 @@ export default function App() {
           showToast(`Chào mừng ${next.name}!`);
         }
 
-        if (next.email === "admin@thriftit.vn") {
+        if (next.roles?.includes("admin")) {
           go("admin");
         } else {
           go("home");
@@ -696,6 +671,7 @@ export default function App() {
               setHeaderQuery={setHeaderQuery}
               currentUserEmail={currentEmail}
               unreadNotifications={unreadNotifications}
+              isAdmin={currentRoles.includes("admin")}
             />
           )}
           <main>
@@ -758,6 +734,8 @@ export default function App() {
                 showToast={showToast}
                 onUpdateOrderStatus={handleUpdateOrderStatus}
                 sellerStatus={sellerStatus}
+                roles={currentRoles}
+                isAdmin={currentRoles.includes("admin")}
               />
             )}
             {screen === "post" && <PostScreen go={go} onAddProduct={handleAddProduct} />}

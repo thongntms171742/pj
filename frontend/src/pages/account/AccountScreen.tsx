@@ -20,7 +20,10 @@ export function AccountScreen({
   setMyProducts,
   userRole,
   setUserRole,
-  onUpdateOrderStatus
+  onUpdateOrderStatus,
+  sellerStatus,
+  roles,
+  isAdmin,
 }: {
   go: (s: Screen) => void;
   onLogout: () => void;
@@ -34,7 +37,10 @@ export function AccountScreen({
   showToast?: (msg: string) => void;
   onUpdateOrderStatus?: (orderId: string, status: Order["status"]) => void;
   sellerStatus?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+  roles?: string[];
+  isAdmin?: boolean;
 }) {
+  const isUserAdmin = Boolean(isAdmin || roles?.includes("admin") || userEmail === "admin@thriftit.vn");
   // ── State quản lý ──────────────────────────────────────────────────────────
   const [accountTab, setAccountTab] = useState<string>(
     userRole === "seller" ? "selling" : "purchases"
@@ -312,14 +318,14 @@ export function AccountScreen({
         <div className="max-w-[1440px] mx-auto px-8 py-8 flex items-center gap-6">
           <div className="relative">
             <img
-              src={userEmail === "admin@thriftit.vn"
+              src={isUserAdmin
                 ? "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=160&h=160&fit=crop&auto=format"
                 : "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=160&h=160&fit=crop&auto=format"}
               alt="Avatar"
               className="w-24 h-24 rounded-full object-cover border-4 shadow-lg"
               style={{ borderColor: T }}
             />
-            {userEmail !== "admin@thriftit.vn" && (
+            {!isUserAdmin && (
               <button className="absolute bottom-0 right-0 w-8 h-8 rounded-full flex items-center justify-center shadow-md" style={{ backgroundColor: T }}>
                 <Edit3 size={13} style={{ color: LINEN }} />
               </button>
@@ -328,7 +334,7 @@ export function AccountScreen({
           <div>
             <h2 className="text-2xl font-bold" style={{ ...serif, color: LINEN }}>{userName}</h2>
             <p className="text-sm mt-0.5" style={{ color: MUTED, ...ff }}>{userEmail}</p>
-            {userEmail === "admin@thriftit.vn" ? (
+            {isUserAdmin ? (
               <div className="flex items-center gap-5 mt-3">
                 <span className="text-sm px-2.5 py-0.5 rounded-full font-bold bg-amber-500 text-espresso" style={ff}>Hệ thống Admin</span>
               </div>
@@ -346,7 +352,7 @@ export function AccountScreen({
             )}
           </div>
           <div className="ml-auto flex items-center gap-3">
-            {userEmail !== "admin@thriftit.vn" ? (
+            {!isUserAdmin ? (
               <>
                 {/* Toggle Buyer / Seller mode */}
                 {sellerStatus === "APPROVED" && (
@@ -405,7 +411,7 @@ export function AccountScreen({
         </div>
       </div>
 
-      {userEmail === "admin@thriftit.vn" ? (
+      {isUserAdmin ? (
         <div className="max-w-[1440px] mx-auto px-8 py-12">
           <div className="bg-white border border-muted rounded-3xl p-10 text-center shadow-sm max-w-2xl mx-auto animate-fade-in">
             <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto mb-6">
