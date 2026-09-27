@@ -34,14 +34,14 @@ import { PaymentScreen } from "../pages/payment/PaymentScreen";
 import { PostScreen } from "../pages/post/PostScreen";
 import { AccountScreen } from "../pages/account/AccountScreen";
 import { AdminScreen } from "../pages/admin/AdminScreen";
-import { ApplySellerScreen } from "../pages/seller/ApplySellerScreen";
+import { SellerApplyScreen } from "../pages/seller/SellerApplyScreen";
 
 interface AuthUser {
   name: string;
   email: string;
   token: string;
   roles: string[];
-  sellerStatus?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+  sellerStatus: string;
 }
 
 const SESSION_KEY = "thriftit_session";
@@ -77,8 +77,8 @@ export default function App() {
 
   const [screen, setScreen] = useState<Screen>(() => {
     const u = getStoredSession();
-    if (!u) return "login";
-    if (u.roles?.includes("admin")) return "admin";
+    if (!u) return storedUser.name ? "login" : "login";
+    if (u.roles.includes("admin")) return "admin";
     const savedScreen = getStoredString(STORAGE_KEYS.screen);
     return (savedScreen as Screen) || "home";
   });
@@ -97,17 +97,15 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<string>(session?.name || storedUser.name || "");
   const [currentEmail, setCurrentEmail] = useState<string>(session?.email || storedUser.email || "");
   const [currentRoles, setCurrentRoles] = useState<string[]>(session?.roles || []);
+  const [sellerStatus, setSellerStatus] = useState<string>(session?.sellerStatus || "NONE");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
-  const [sellerStatus, setSellerStatus] = useState<"NONE" | "PENDING" | "APPROVED" | "REJECTED">(
-    (session?.sellerStatus as any) || "NONE"
-  );
   const [activeTag, setActiveTag] = useState<string>("");
   const [headerQuery, setHeaderQuery] = useState<string>("");
   const [userRole, setUserRole] = useState<"buyer" | "seller">(() => {
     const saved = getStoredString(STORAGE_KEYS.userRole);
     if (saved === "buyer" || saved === "seller") return saved;
-    if (session?.roles?.includes("seller") || session?.sellerStatus === "APPROVED") return "seller";
+    if (session?.roles?.includes("seller") || currentRoles.includes("seller")) return "seller";
     return "buyer";
   });
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -135,11 +133,11 @@ export default function App() {
         const adapted = res.products.map((p) => adaptProduct(p, likedIds));
         setProducts(adapted);
       })
-      .catch((err) => {
-        console.error("Lỗi tải sản phẩm:", err);
+      .catch(() => {
+        // backend down → keep mock fallback
       })
       .finally(() => setProductsLoading(false));
-  }, [session?.token]);
+  }, []);
 
   // ── Hydrate cart + orders + seller dashboard when session is active ──
   useEffect(() => {
@@ -189,22 +187,26 @@ export default function App() {
         })
         .catch(() => {});
     }
-    if (currentRoles.includes("seller") || userRole === "seller") {
-      api
-        .get<{ products: import("../lib/api").ApiProduct[] }>("/products/mine")
-        .then((res) => {
-          const sellerProducts = res.products.map((p) =>
-            adaptToSellerProduct(p, p.seller || p.sellerId?.handle || "")
-          );
-          setMyProductsByEmail((prev) => ({
-            ...prev,
-            [currentEmail]: sellerProducts,
-          }));
-        })
-        .catch(() => {});
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.token, userRole]);
+  }, [session?.token]);
+
+  // ── Restore selected product on refresh ──
+  useEffect(() => {
+    if (screen === "product-detail" && !selectedProduct) {
+      const pid = getStoredString("selectedProductId");
+      if (pid) {
+        api
+          .get<{ product: import("../lib/api").ApiProduct }>(`/products/${pid}`)
+          .then((res) => {
+            const likedIds = new Set(getStoredLikedProducts().map(String));
+            setSelectedProduct(adaptProduct(res.product, likedIds));
+          })
+          .catch(() => go("home"));
+      } else {
+        go("home");
+      }
+    }
+  }, [screen, selectedProduct]);
 
   // Only user-role preference is kept in localStorage. Everything else is server-driven.
 
@@ -217,12 +219,11 @@ export default function App() {
     setTimeout(() => setToastMsg(null), 3000);
   };
 
-  // ── Post a new listing (server-driven: wait for response from backend) ──
+  // ── Post a new listing ──
   const handleAddProduct = async (newProd: {
     name: string; price: number; category: string; desc: string; size: string; condition: number; image: string;
   }) => {
     try {
-      showToast(`Đang gửi yêu cầu đăng bán sản phẩm...`);
       const res = await api.post<{ product: import("../lib/api").ApiProduct }>("/products", {
         title: newProd.name,
         price: newProd.price,
@@ -232,21 +233,18 @@ export default function App() {
         description: newProd.desc,
         coverImage: newProd.image,
       });
+      
+      const addedProduct = adaptProduct(res.product, new Set(getStoredLikedProducts().map(String)));
+      setProducts((prev) => [addedProduct, ...prev]);
 
-      const likedIds = new Set(getStoredLikedProducts().map(String));
-      const adapted = adaptProduct(res.product, likedIds);
-      const sellerProd = adaptToSellerProduct(res.product, adapted.seller);
+      const newSellerProd = adaptToSellerProduct(res.product, currentUser);
+      setMyProducts((prev) => [newSellerProd, ...prev]);
 
-      setProducts((prev) => [adapted, ...prev]);
-      setMyProducts((prev) => [sellerProd, ...prev]);
-      showToast(`Đã gửi yêu cầu đăng bán sản phẩm "${newProd.name}". Admin sẽ duyệt tin của bạn!`);
-      go("account");
+      showToast(`Đã gửi yêu cầu đăng bán sản phẩm "${newProd.name}". Admin sẽ duyệt tin của bạn trong thời gian sớm nhất!`);
+      go("seller"); // redirect to shop
     } catch (err) {
-      if (err instanceof ApiError) {
-        showToast(`⚠️ Lỗi từ server: ${err.message}`);
-      } else {
-        showToast(`⚠️ Không thể kết nối server để thêm sản phẩm.`);
-      }
+      const msg = err instanceof ApiError ? err.message : "Đăng sản phẩm thất bại";
+      showToast(`⚠️ ${msg}`);
     }
   };
 
@@ -264,7 +262,6 @@ export default function App() {
     account: "Tài khoản",
     post: "Đăng bán",
     admin: "Bảng quản trị",
-    "seller-apply": "Đăng ký bán hàng",
   };
 
   const go = (s: Screen, product?: Product, seller?: Seller) => {
@@ -273,7 +270,10 @@ export default function App() {
       setStoredString(STORAGE_KEYS.screen, "admin");
       return;
     }
-    if (product) setSelectedProduct(product);
+    if (product) {
+      setSelectedProduct(product);
+      setStoredString("selectedProductId", product.apiId || product.id.toString());
+    }
     if (seller) setSelectedSeller(seller);
     setScreen(s);
     setStoredString(STORAGE_KEYS.screen, s);
@@ -310,10 +310,6 @@ export default function App() {
     if (!session?.token) return;
     api.patch(`/cart/items/${itemApiId}`, patch).catch((err) => {
       console.warn("[cart] PATCH failed:", err);
-      api.get<{ items: import("../lib/api").ApiCartItem[] }>("/cart").then((res) => {
-        const { groups } = adaptCartItems(res.items);
-        setCartGroups(groups);
-      }).catch(() => {});
     });
   };
 
@@ -321,10 +317,6 @@ export default function App() {
     if (!session?.token) return;
     api.delete(`/cart/items/${itemApiId}`).catch((err) => {
       console.warn("[cart] DELETE failed:", err);
-      api.get<{ items: import("../lib/api").ApiCartItem[] }>("/cart").then((res) => {
-        const { groups } = adaptCartItems(res.items);
-        setCartGroups(groups);
-      }).catch(() => {});
     });
   };
 
@@ -332,7 +324,6 @@ export default function App() {
   const addToCart = (product: Product, qty: number = 1) => {
     showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
 
-    const previousCart = cartGroups;
     // Optimistic local update
     setCartGroups((prev) => {
       const existingGroup = prev.find((g) => g.seller === product.seller);
@@ -366,7 +357,6 @@ export default function App() {
                     checked: false,
                     condition: product.condition,
                     apiId: product.apiId,
-                    productApiId: product.apiId,
                   },
                 ],
               }
@@ -388,7 +378,6 @@ export default function App() {
               checked: false,
               condition: product.condition,
               apiId: product.apiId,
-              productApiId: product.apiId,
             },
           ],
         },
@@ -399,14 +388,7 @@ export default function App() {
     if (product.apiId && session?.token) {
       api
         .post<{ item: unknown }>("/cart/items", { productId: product.apiId, quantity: qty })
-        .catch((err) => {
-          setCartGroups(previousCart);
-          if (err instanceof ApiError) {
-            showToast(`⚠️ Không thể thêm vào giỏ: ${err.message}`);
-          } else {
-            showToast(`⚠️ Lỗi kết nối khi thêm vào giỏ hàng.`);
-          }
-        });
+        .catch(() => {/* offline → keep local */});
     }
   };
 
@@ -417,7 +399,7 @@ export default function App() {
     // First try real backend login if a password is provided.
     if (password) {
       try {
-        const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[]; sellerStatus?: any } }>(
+        const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[], sellerStatus?: string } }>(
           "/auth/login",
           { email: userEmail, password }
         );
@@ -426,13 +408,13 @@ export default function App() {
           email: res.user.email,
           token: res.token,
           roles: res.user.roles,
-          sellerStatus: res.user.sellerStatus || "NONE",
+          sellerStatus: res.user.sellerStatus || "none",
         };
         setStoredSession(next);
         setCurrentUser(next.name);
         setCurrentEmail(next.email);
         setCurrentRoles(next.roles);
-        setSellerStatus(next.sellerStatus || "NONE");
+        setSellerStatus(next.sellerStatus);
         setStoredUser(next.name, next.email);
         setUserRole(next.roles.includes("seller") ? "seller" : "buyer");
 
@@ -463,7 +445,7 @@ export default function App() {
           showToast(`Chào mừng ${next.name}!`);
         }
 
-        if (next.roles?.includes("admin")) {
+        if (next.roles.includes("admin")) {
           go("admin");
         } else {
           go("home");
@@ -477,12 +459,21 @@ export default function App() {
       }
     }
 
+    // Fallback: offline/demo login (no password) — useful when backend is down.
+    setCurrentUser(userName);
+    setCurrentEmail(userEmail);
+    setStoredUser(userName, userEmail);
+    // Remove the fake fallback logic since we should rely on backend roles for real login
+    setCurrentRoles([]);
+    setUserRole("buyer");
+
+    go("home");
   };
 
   // ── REGISTER ──
   const handleRegister = async (name: string, email: string, password: string) => {
     try {
-      const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[]; sellerStatus?: any } }>(
+      const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[], sellerStatus?: string } }>(
         "/auth/register",
         { name, email, password }
       );
@@ -491,13 +482,13 @@ export default function App() {
         email: res.user.email,
         token: res.token,
         roles: res.user.roles,
-        sellerStatus: res.user.sellerStatus || "NONE",
+        sellerStatus: res.user.sellerStatus || "none",
       };
       setStoredSession(next);
       setCurrentUser(next.name);
       setCurrentEmail(next.email);
       setCurrentRoles(next.roles);
-      setSellerStatus(next.sellerStatus || "NONE");
+      setSellerStatus(next.sellerStatus);
       setStoredUser(next.name, next.email);
       setUserRole("buyer");
       go("home");
@@ -512,6 +503,7 @@ export default function App() {
     setCurrentUser("");
     setCurrentEmail("");
     setCurrentRoles([]);
+    setSellerStatus("NONE");
     setUserRole("buyer");
     setStoredSession(null);
     clearStoredUser();
@@ -538,7 +530,7 @@ export default function App() {
     name?: string,
     phone?: string,
     address?: string
-  ): Promise<boolean> => {
+  ) => {
     // Idempotency key so a retry / double-click never produces two orders.
     const idempotencyKey = `idem-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
@@ -578,41 +570,27 @@ export default function App() {
           setCartGroups(groups);
         } catch {/* best-effort */}
 
-        if (paymentMethod.toUpperCase() === "COD") {
-          showToast(`✓ Đặt hàng thành công! Đơn hàng sẽ được thanh toán khi nhận.`);
-        } else {
-          // Auto-pay (mock) so the state machine advances. In production this
-          // is replaced by a gateway webhook.
-          try {
-            const payRes = await api.post<{ order: import("../lib/api").ApiOrder }>("/payments/checkout", {
-              orderId: serverOrder.apiId ?? serverOrder.id,
-              method: "card",
-              cardLast4: "1234",
-            });
-            const paidOrder = adaptOrder(payRes.order);
-            setOrders((prev) => prev.map(o => o.id === paidOrder.id ? paidOrder : o));
-            showToast(`✓ Đơn ${serverOrder.id} đã thanh toán và chờ shop xác nhận`);
-          } catch (payErr) {
-            const msg = payErr instanceof ApiError ? payErr.message : "thanh toán thất bại";
-            showToast(`⚠️ Đơn đã tạo nhưng thanh toán lỗi: ${msg}`);
-          }
+        // Auto-pay (mock) so the state machine advances. In production this
+        // is replaced by a gateway webhook.
+        try {
+          await api.post<{ order: import("../lib/api").ApiOrder }>("/payments/checkout", {
+            orderId: serverOrder.apiId ?? serverOrder.id,
+            method: paymentMethod === "COD" ? "COD" : "card",
+            cardLast4: paymentMethod === "COD" ? "" : paymentMethod.slice(-4),
+          });
+          showToast(`✓ Đơn ${serverOrder.id} đã ${paymentMethod === "COD" ? "được xác nhận" : "thanh toán và chờ shop xác nhận"}`);
+        } catch (payErr) {
+          const msg = payErr instanceof ApiError ? payErr.message : "thanh toán thất bại";
+          showToast(`⚠️ Đơn đã tạo nhưng thanh toán lỗi: ${msg}`);
         }
-        return true;
       } catch (err) {
-        setOrders((prev) => prev.filter((o) => o.id !== localOrder.id));
-        if (err instanceof ApiError) {
-          showToast(`⚠️ Không thể tạo đơn: ${err.message}`);
-        } else {
-          showToast("⚠️ Không thể kết nối backend. Đơn hàng chưa được tạo.");
-        }
-        return false;
+        const msg = err instanceof ApiError ? err.message : "Không kết nối được backend";
+        showToast(`⚠️ Đơn đã tạo offline: ${msg}`);
       }
     }
-    return false;
   };
 
   const handleUpdateOrderStatus = (orderId: string, nextStatus: Order["status"]) => {
-    const previousOrders = orders;
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o)));
 
     let msg = "";
@@ -628,8 +606,7 @@ export default function App() {
           console.warn("[order] status update failed:", err);
           const apiMsg = err instanceof ApiError ? err.message : "transition rejected";
           showToast(`⚠️ Không thể đổi trạng thái: ${apiMsg}`);
-          // Roll back local change immediately
-          setOrders(previousOrders);
+          // Roll back local change
           api.get<{ orders: import("../lib/api").ApiOrder[] }>("/orders").then((res) => {
             setOrders(res.orders.map(adaptOrder));
           }).catch(() => {});
@@ -641,11 +618,11 @@ export default function App() {
     <div className="w-full max-w-[1440px] mx-auto min-w-[320px] shadow-sm relative" style={{ backgroundColor: LINEN, ...ff }}>
       {toastMsg && (
         <div
-          className="fixed bottom-8 right-8 z-[9999] px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-bounce transition-all"
-          style={{ backgroundColor: ESPRESSO, color: LINEN, border: `1px solid ${T}` }}
+          className="fixed top-24 right-8 z-[9999] px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 animate-fade-in-down transition-all"
+          style={{ backgroundColor: ESPRESSO, color: LINEN, border: `1.5px solid ${T}` }}
         >
-          <span className="text-green-400 font-bold flex-shrink-0">✓</span>
-          <span className="text-sm font-medium" style={ff}>{toastMsg}</span>
+          <Sparkles size={18} style={{ color: T }} />
+          <span className="text-sm font-bold">{toastMsg}</span>
         </div>
       )}
 
@@ -671,7 +648,6 @@ export default function App() {
               setHeaderQuery={setHeaderQuery}
               currentUserEmail={currentEmail}
               unreadNotifications={unreadNotifications}
-              isAdmin={currentRoles.includes("admin")}
             />
           )}
           <main>
@@ -682,7 +658,6 @@ export default function App() {
                 onLike={toggleLike}
                 onAddToCart={addToCart}
                 loading={productsLoading}
-                sellerStatus={sellerStatus}
               />
             )}
             {screen === "search" && (
@@ -717,6 +692,21 @@ export default function App() {
                 onAddToCart={addToCart}
               />
             )}
+            {screen === "seller-apply" && (
+              <SellerApplyScreen 
+                go={go} 
+                onApplySuccess={() => {
+                  setSellerStatus("pending_approval");
+                  const currentSession = getStoredSession();
+                  if (currentSession) {
+                    setStoredSession({
+                      ...currentSession,
+                      sellerStatus: "pending_approval"
+                    });
+                  }
+                }} 
+              />
+            )}
             {screen === "payment" && (
               <PaymentScreen go={go} cartGroups={cartGroups} updateCart={updateCart} addOrder={addOrder} />
             )}
@@ -733,13 +723,11 @@ export default function App() {
                 setUserRole={setUserRole}
                 showToast={showToast}
                 onUpdateOrderStatus={handleUpdateOrderStatus}
-                sellerStatus={sellerStatus}
+                sellerStatus={currentRoles.includes("seller") ? "APPROVED" : sellerStatus === "pending_approval" ? "PENDING" : "NONE"}
                 roles={currentRoles}
-                isAdmin={currentRoles.includes("admin")}
               />
             )}
             {screen === "post" && <PostScreen go={go} onAddProduct={handleAddProduct} />}
-            {screen === "seller-apply" && <ApplySellerScreen go={go} setSellerStatus={setSellerStatus} showToast={showToast} />}
             {screen === "admin" && (
               <AdminScreen
                 go={go}

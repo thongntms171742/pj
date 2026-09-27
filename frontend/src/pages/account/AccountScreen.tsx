@@ -24,6 +24,7 @@ export function AccountScreen({
   sellerStatus,
   roles,
   isAdmin,
+  showToast,
 }: {
   go: (s: Screen) => void;
   onLogout: () => void;
@@ -629,10 +630,25 @@ export function AccountScreen({
                           <>
                             {order.status === "DELIVERED" ? (
                               <button
-                                onClick={() => {
+                                onClick={async () => {
                                   const r = prompt("Nhập đánh giá của bạn (1-5 sao):", "5");
                                   if (r !== null) {
-                                    onUpdateOrderStatus && onUpdateOrderStatus(order.id, "COMPLETED");
+                                    const rating = parseInt(r);
+                                    if (isNaN(rating) || rating < 1 || rating > 5) {
+                                      showToast?.("Vui lòng nhập số từ 1 đến 5");
+                                      return;
+                                    }
+                                    try {
+                                      await api.post(`/products/${order.items[0].id}/reviews`, {
+                                        rating,
+                                        comment: "Đã nhận hàng",
+                                        orderId: order.apiId || order.id,
+                                      });
+                                      onUpdateOrderStatus && onUpdateOrderStatus(order.id, "COMPLETED");
+                                    } catch (err: unknown) {
+                                      const msg = err instanceof Error ? err.message : "Đánh giá thất bại";
+                                      showToast?.(`⚠️ ${msg}`);
+                                    }
                                   }
                                 }}
                                 className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-80"
@@ -753,13 +769,6 @@ export function AccountScreen({
                               {(order.status === "SHIPPING" || order.status === "DELIVERING") && (
                                 <button
                                   onClick={async () => {
-                                    if (order.status === "DELIVERING" && order.paymentMethod?.toUpperCase() === "COD") {
-                                      try {
-                                        await api.post(`/payments/${order.id}/cod-collect`, {});
-                                      } catch (err) {
-                                        console.error("Lỗi thu hộ COD:", err);
-                                      }
-                                    }
                                     handleSellerUpdateStatus(order.id, order.status === "SHIPPING" ? "DELIVERING" : "DELIVERED");
                                   }}
                                   className="text-xs px-3 py-1.5 rounded-lg font-semibold border transition-all hover:opacity-80"

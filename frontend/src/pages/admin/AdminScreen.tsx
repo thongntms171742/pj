@@ -51,41 +51,6 @@ export function AdminScreen({
     };
   }, []);
 
-  const getChartData = () => {
-    switch (timeFilter) {
-      case "week":
-        return [
-          { label: "T2", val: 82000000 },
-          { label: "T3", val: 95000000 },
-          { label: "T4", val: 78000000 },
-          { label: "T5", val: 110000000 },
-          { label: "T6", val: 125000000 },
-          { label: "T7", val: 140000000 },
-          { label: "CN", val: 155000000 }
-        ];
-      case "month":
-        return [
-          { label: "Tuần 1", val: 320000000 },
-          { label: "Tuần 2", val: 380000000 },
-          { label: "Tuần 3", val: 410000000 },
-          { label: "Tuần 4", val: 460000000 }
-        ];
-      case "quarter":
-        return [
-          { label: "Tháng 1", val: 1250000000 },
-          { label: "Tháng 2", val: 1480000000 },
-          { label: "Tháng 3", val: 1650000000 }
-        ];
-      case "year":
-        return [
-          { label: "Quý 1", val: 4500000000 },
-          { label: "Quý 2", val: 5100000000 },
-          { label: "Quý 3", val: 4800000000 },
-          { label: "Quý 4", val: 5900000000 }
-        ];
-    }
-  };
-
   const pendingProducts = Object.values(myProductsByEmail).flat().filter(p => p.status === "pending");
 
   const handleApproveListing = async (id: number, apiId?: string) => {
@@ -196,8 +161,7 @@ export function AdminScreen({
             {[
               { id: "stats", label: "Tổng quan thống kê", icon: TrendingUp },
               { id: "c2c", label: "Duyệt bài đăng C2C", icon: Package, badge: pendingProducts.length },
-              { id: "sellers", label: "Duyệt Shop", icon: Users, badge: pendingSellers.length },
-              { id: "users", label: "Quản lý Tài khoản", icon: Users }
+              { id: "sellers", label: "Duyệt Shop", icon: Users, badge: pendingSellers.length }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -283,9 +247,9 @@ export function AdminScreen({
                 ))}
               </div>
 
-              {/* Commission Control panel & SVG Area Chart */}
-              <div className="grid grid-cols-2 gap-8">
-                <div className="p-6 rounded-3xl bg-white border border-muted shadow-sm flex flex-col justify-between" style={{ minHeight: "340px" }}>
+              {/* Commission Control panel */}
+              <div className="grid grid-cols-1 gap-8">
+                <div className="p-6 rounded-3xl bg-white border border-muted shadow-sm flex flex-col">
                   <div>
                     <h3 className="text-sm font-bold mb-2" style={{ color: ESPRESSO, ...ff }}>Cấu hình tỷ lệ Chiết khấu Platform</h3>
                     <p className="text-xs text-coffee mb-6 leading-relaxed" style={ff}>
@@ -312,96 +276,6 @@ export function AdminScreen({
                   </div>
                   <div className="p-3.5 rounded-xl bg-gray-50 border text-[11px] text-coffee mt-4 leading-relaxed" style={ff}>
                     <strong>Phí hoa hồng ước tính:</strong> {fmt(platformProfitFromC2C)} (dựa trên tổng doanh số C2C đạt {fmt(totalC2CRevenue)}).
-                  </div>
-                </div>
-
-                <div className="p-6 rounded-3xl bg-white border border-muted shadow-sm flex flex-col justify-between" style={{ minHeight: "340px" }}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-sm font-bold mb-1" style={{ color: ESPRESSO, ...ff }}>Biểu đồ doanh thu</h3>
-                      <p className="text-xs text-coffee" style={ff}>Tổng doanh thu sàn C2C:</p>
-                    </div>
-                    {/* Time Filters */}
-                    <div className="flex gap-1.5 p-1 rounded-xl bg-gray-50 border border-muted flex-shrink-0">
-                      {[
-                        { id: "week" as const, label: "Tuần" },
-                        { id: "month" as const, label: "Tháng" },
-                        { id: "quarter" as const, label: "Quý" },
-                        { id: "year" as const, label: "Năm" }
-                      ].map((t) => (
-                        <button
-                          key={t.id}
-                          onClick={() => setTimeFilter(t.id)}
-                          className="px-2.5 py-1 rounded-lg text-[9px] font-bold transition-all"
-                          style={{
-                            backgroundColor: timeFilter === t.id ? COFFEE : "transparent",
-                            color: timeFilter === t.id ? LINEN : COFFEE
-                          }}
-                        >
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* SVG Chart */}
-                  <div className="relative flex-1 flex items-end h-44 w-full">
-                    {/* Y-axis gridlines */}
-                    <div className="absolute inset-x-0 top-0 bottom-6 flex flex-col justify-between pointer-events-none">
-                      {[1, 2, 3].map((i) => (
-                        <div key={i} className="w-full border-t border-dashed border-gray-100" />
-                      ))}
-                    </div>
-
-                    <svg className="w-full h-full" viewBox="0 0 500 150">
-                      <defs>
-                        <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={T} stopOpacity="0.25" />
-                          <stop offset="100%" stopColor={T} stopOpacity="0.0" />
-                        </linearGradient>
-                      </defs>
-
-                      {(() => {
-                        const points = getChartData();
-                        const count = points.length;
-
-                        const coords = points.map((p, idx) => {
-                          const x = 35 + idx * ((500 - 70) / (count - 1 || 1));
-                          const multiplier = timeFilter === "week" ? 1 : timeFilter === "month" ? 4 : timeFilter === "quarter" ? 12 : 48;
-                          const totalVal = p.val + (platformProfitFromC2C * multiplier / 10);
-
-                          let minVal = 50000000;
-                          let maxVal = 170000000;
-                          if (timeFilter === "month") { minVal = 200000000; maxVal = 550000000; }
-                          else if (timeFilter === "quarter") { minVal = 1000000000; maxVal = 2000000000; }
-                          else if (timeFilter === "year") { minVal = 3000000000; maxVal = 7000000000; }
-
-                          const y = 120 - ((totalVal - minVal) / (maxVal - minVal)) * 95;
-                          return { x, y, label: p.label, val: totalVal };
-                        });
-
-                        const linePath = coords.map((c, idx) => `${idx === 0 ? "M" : "L"} ${c.x} ${c.y}`).join(" ");
-                        const areaPath = `${linePath} L ${coords[coords.length - 1].x} 120 L ${coords[0].x} 120 Z`;
-
-                        return (
-                          <>
-                            <path d={areaPath} fill="url(#chartGrad)" />
-                            <path d={linePath} fill="none" stroke={T} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                            {coords.map((c, idx) => (
-                              <g key={idx}>
-                                <circle cx={c.x} cy={c.y} r="3.5" fill="white" stroke={T} strokeWidth="2" />
-                                <text x={c.x} y={c.y - 10} textAnchor="middle" className="text-[9px] font-bold fill-espresso" style={ff}>
-                                  {timeFilter === "year" || timeFilter === "quarter" ? `${(c.val / 1000000000).toFixed(2)}B` : `${(c.val / 1000000).toFixed(1)}M`}
-                                </text>
-                                <text x={c.x} y="138" textAnchor="middle" className="text-[10px] font-bold fill-coffee" style={ff}>
-                                  {c.label}
-                                </text>
-                              </g>
-                            ))}
-                          </>
-                        );
-                      })()}
-                    </svg>
                   </div>
                 </div>
               </div>
@@ -537,63 +411,7 @@ export function AdminScreen({
             </div>
           )}
 
-          {/* TAB 3: USERS DIRECTORY MANAGEMENT */}
-          {activeAdminTab === "users" && (
-            <div className="p-6 rounded-3xl bg-white border border-muted shadow-sm animate-fade-in">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-base font-bold font-serif" style={{ color: ESPRESSO }}>Quản lý Danh sách tài khoản demo</h3>
-                <span className="text-[10px] bg-amber-500 text-espresso font-bold px-2 py-0.5 rounded">Admin Control Panel</span>
-              </div>
-
-              <div className="overflow-hidden border border-muted rounded-2xl">
-                <table className="w-full border-collapse text-left text-xs">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-muted text-coffee font-bold">
-                      <th className="p-4">Họ và tên</th>
-                      <th className="p-4">Email</th>
-                      <th className="p-4">Vai trò (Role)</th>
-                      <th className="p-4 text-center">Thao tác đổi Role</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-muted bg-white">
-                    {[
-                      { name: "Nguyễn Thanh Linh", email: "linh.nguyen@gmail.com", role: "buyer", isCurrent: true },
-                      { name: "Minh Tú Vintage", email: "shop.minhtu@thriftit.vn", role: "seller", isCurrent: false },
-                      { name: "Demo User", email: "demo@thriftit.vn", role: "buyer", isCurrent: false },
-                    ].map((user) => (
-                      <tr key={user.email} className={`hover:bg-gray-50/55 transition-colors ${user.isCurrent ? "bg-amber-50/30" : ""}`}>
-                        <td className="p-4">
-                          <p className="font-bold text-espresso text-sm">{user.name}</p>
-                          {user.isCurrent && <span className="text-[9px] bg-amber-600 text-white font-bold px-1.5 py-0.5 rounded mt-1 inline-block">Đang đăng nhập</span>}
-                        </td>
-                        <td className="p-4 font-mono font-bold text-coffee">{user.email}</td>
-                        <td className="p-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${user.role === "seller" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}>
-                            {user.role === "seller" ? "Người bán (Shop)" : "Người mua (Khách)"}
-                          </span>
-                        </td>
-                        <td className="p-4 text-center">
-                          {user.isCurrent ? (
-                            <button
-                              onClick={() => {
-                                const switched = userRole === "buyer" ? "seller" : "buyer";
-                                setUserRole(switched);
-                              }}
-                              className="px-3.5 py-1.5 rounded-xl text-[10px] font-bold text-white transition-all bg-espresso hover:opacity-90"
-                            >
-                              Chuyển sang {userRole === "buyer" ? "Shop" : "Khách"}
-                            </button>
-                          ) : (
-                            <span className="text-muted-foreground text-[10px] italic">Yêu cầu đăng nhập để đổi</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          {/* Users tab removed for MVP */}
         </div>
       </div>
     </div>

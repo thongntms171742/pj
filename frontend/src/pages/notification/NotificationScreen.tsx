@@ -38,7 +38,8 @@ export function NotificationScreen({ go: _go }: { go: (s: Screen) => void }) {
 
   const handleMarkAll = async () => {
     try {
-      await api.patch("/notifications/read-all");
+      const unread = notifications.filter(n => !n.read);
+      await Promise.all(unread.map(n => api.patch(`/notifications/${n.apiId || n.id}/read`)));
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     } catch {
       // ignore
