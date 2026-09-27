@@ -5,41 +5,26 @@ import { Product } from "../models/Product";
 import { mapProduct } from "./productController";
 
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 
 async function askGemini(prompt: string, image?: { mimeType: string; data: string }): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY (hoặc KIE API KEY) chưa được cấu hình trên backend");
+  if (!apiKey) throw new Error("GEMINI_API_KEY chưa được cấu hình trên backend");
 
-  const baseUrl = process.env.AI_BASE_URL || "https://api.kie.ai/v1";
-
-  const content: Array<Record<string, unknown>> = [{ type: "text", text: prompt }];
-  if (image) {
-    content.push({ type: "image_url", image_url: { url: `data:${image.mimeType};base64,${image.data}` } });
-  }
-
-  const payload = {
-    model: GEMINI_MODEL,
-    messages: [{ role: "user", content }],
-    response_format: { type: "json_object" }
-  };
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const parts: Array<Record<string, unknown>> = [];
+  if (image) parts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
+  parts.push({ text: prompt });
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(payload)
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+    body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: "application/json" } }),
   });
-
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`AI API trả về HTTP ${response.status}: ${errorText.substring(0, 150)}`);
   }
-  
-  const result = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const text = result.choices?.[0]?.message?.content;
+  const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("");
   if (!text) throw new Error("AI không trả về kết quả");
   return text;
 }
