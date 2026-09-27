@@ -5,6 +5,7 @@ import {
   createProduct,
   updateProduct,
   archiveProduct,
+  getProductById,
 } from "../controllers/productController";
 import { createReview, getProductReviews } from "../controllers/reviewController";
 import { requireAuth } from "../middleware/auth";
@@ -13,6 +14,7 @@ const router = Router();
 
 router.get("/mine", requireAuth, getMyProducts);
 router.get("/seller", requireAuth, getMyProducts);
+router.get("/:id", getProductById);
 router.get("/", getProducts);
 router.post("/", requireAuth, createProduct);
 router.patch("/:id/archive", requireAuth, archiveProduct);

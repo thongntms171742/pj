@@ -1,6 +1,32 @@
 import { Request, Response } from "express";
 import { Product } from "../models/Product";
 import { PlatformFeeConfig } from "../models/PlatformFeeConfig";
+import { Order } from "../models/Order";
+
+// ── GET /api/admin/stats ─────────────────────────────────────────────────────
+export const getStats = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pendingSellersCount = await import("../models/User").then(m => m.User.countDocuments({ sellerStatus: "PENDING" }));
+    const pendingListingsCount = await Product.countDocuments({ status: "pending" });
+    const totalOrders = await Order.countDocuments();
+    
+    // Revenue from COMPLETED orders
+    const completedOrders = await Order.find({ status: "COMPLETED" }).lean();
+    const totalRevenue = completedOrders.reduce((sum, o) => sum + (o.platformFeeAmount || 0), 0);
+    const totalTransactionValue = completedOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+
+    res.json({
+      pendingSellers: pendingSellersCount,
+      pendingListings: pendingListingsCount,
+      totalOrders,
+      totalRevenue,
+      totalTransactionValue
+    });
+  } catch (err) {
+    console.error("[admin] getStats error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
 
 // ── GET /api/admin/pending-listings ───────────────────────────────────────────
 export const getPendingListings = async (_req: Request, res: Response): Promise<void> => {

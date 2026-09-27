@@ -115,6 +115,32 @@ export const getProducts = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
+// ── GET /api/products/:id ─────────────────────────────────────────────────────
+export const getProductById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    if (!isObjectId) {
+      res.status(400).json({ error: "ID sản phẩm không hợp lệ" });
+      return;
+    }
+    const product = await Product.findById(id)
+      .populate({ path: "sellerId", select: "name email sellerProfile" })
+      .populate({ path: "categoryId", select: "name slug" })
+      .lean();
+
+    if (!product) {
+      res.status(404).json({ error: "Không tìm thấy sản phẩm" });
+      return;
+    }
+
+    res.json({ product: mapProduct(product) });
+  } catch (err) {
+    console.error("[products] getProductById error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
 // ── GET /api/products/mine (or /api/products/seller) ─────────────────────────
 // Returns all listings belonging to currently authenticated seller + dashboard statistics.
 export const getMyProducts = async (req: Request, res: Response): Promise<void> => {

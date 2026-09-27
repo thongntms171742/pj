@@ -65,6 +65,30 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
         return;
       }
 
+      // Check reservation expiry before proceeding
+      for (const item of order.items) {
+        const product = await Product.findById(item.productId).session(session);
+        if (
+          !product || 
+          product.status !== "reserved" || 
+          product.reservedByOrderId?.toString() !== order._id.toString() ||
+          (product.reservedUntil && new Date(product.reservedUntil).getTime() < Date.now())
+        ) {
+          order.status = "CANCELLED";
+          order.statusHistory.push({
+            status: "CANCELLED",
+            by: "system",
+            at: new Date(),
+            reason: "Hết thời gian giữ hàng, đơn hàng đã bị hủy",
+          });
+          await order.save({ session });
+          res.status(400).json({ error: "Đơn hàng đã hết hạn thanh toán (quá 30 phút). Vui lòng đặt hàng lại." });
+          await session.commitTransaction();
+          session.endSession();
+          return;
+        }
+      }
+
       // Atomic update to prevent race conditions
       const paymentId = idempotencyKey || `PAY-${order.orderCode}-${Date.now()}`;
       

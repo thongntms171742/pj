@@ -32,10 +32,37 @@ export const getNotifications = async (req: Request, res: Response): Promise<voi
 export const markAsRead = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    await Notification.findByIdAndUpdate(id, { isRead: true });
+    const userId = req.user!.id;
+
+    const notification = await Notification.findById(id);
+    if (!notification) {
+      res.status(404).json({ error: "Không tìm thấy thông báo" });
+      return;
+    }
+
+    if (notification.userId.toString() !== userId) {
+      res.status(403).json({ error: "Không có quyền sửa thông báo này" });
+      return;
+    }
+
+    notification.isRead = true;
+    await notification.save();
+
     res.json({ success: true });
   } catch (err) {
     console.error("[notifications] markAsRead error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
+// ── PATCH /api/notifications/read-all ─────────────────────────────────────────
+export const markAllAsRead = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    await Notification.updateMany({ userId, isRead: false }, { isRead: true });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[notifications] markAllAsRead error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };
