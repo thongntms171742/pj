@@ -10,6 +10,7 @@ import orderRoutes from "./routes/orders";
 import paymentRoutes from "./routes/payments";
 import notificationRoutes from "./routes/notifications";
 import adminRoutes from "./routes/admin";
+import aiRoutes from "./routes/ai";
 
 const app = express();
 
@@ -31,6 +32,7 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/ai", aiRoutes);
 
 // ── 404 catch-all ──────────────────────────────────────────────────────────────
 app.use("/api/*", (_req, res) => {
