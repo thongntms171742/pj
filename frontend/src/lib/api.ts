@@ -139,6 +139,9 @@ export type ApiProduct = {
   views: number;
   likes: number;
   location?: string;
+  seller?: string;
+  sellerName?: string;
+  sellerAvatar?: string;
   sellerId: {
     _id: string;
     handle: string;
@@ -197,7 +200,9 @@ export type ApiOrder = {
   items: ApiOrderItem[];
   subtotal: number;
   shippingFee: number;
-  platformFee: number;
+  platformFeeRate: number;
+  platformFeeAmount: number;
+  sellerAmount: number;
   discount: number;
   totalAmount: number;
   status:

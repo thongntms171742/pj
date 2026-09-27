@@ -8,7 +8,7 @@
 - MongoDB Atlas connection with TLS clock skew support (`tlsAllowInvalidCertificates=true`).
 - Seed script (`seed.ts`) populating categories, users, products, cart items, orders, and notifications.
 
-### Fixed
+### Fixed & Implemented
 - Fixed MongoDB Atlas credentials (`to12345`).
 - Fixed duplicate index warnings on `User.ts` (`email`) and `Order.ts` (`idempotencyKey`).
 - Fixed JWT expiresIn TypeScript typing.
@@ -16,6 +16,11 @@
 - Added missing `/api/sellers` and `/api/sellers/:idOrHandle` routes & controller (`sellerController.ts`).
 - Added `/api/orders/:code/shipment` endpoint for tracking shipments.
 - Fixed `GET /api/products` 500 error by ensuring all Mongoose models are registered on startup and adding defensive population guards.
+- Fixed Render build errors by moving TypeScript & `@types/*` into `dependencies` in `backend/package.json` and adding `types: ["node"]` in `tsconfig.json`.
+- Updated `render.yaml` buildCommand to `npm install --include=dev && npm run build`.
+- Fixed implicit any type error for `it` in `orderController.ts`.
+- Added `apiId: p._id` in `frontend/src/lib/adapters.ts` (`adaptProduct`) and `productApiId: product.apiId` in `frontend/src/app/App.tsx` (`addToCart`) to ensure cart persistence to MongoDB Atlas and guest cart merge upon login without touching backend.
+- Added `/products/mine` call in `frontend/src/app/App.tsx` (`useEffect`) when user has seller role, mapping results to `myProductsByEmail` via `adaptToSellerProduct` to preserve seller listings and stats across page reloads (F5).
 - Fixed 401 Unauthorized handling by syncing `setToken` with session storage and clearing expired tokens automatically.
 - **Cart flow**: Added ownership isolation, stock validation, self-purchase blocking, `DELETE /api/cart/clear`, and `POST /api/cart/merge`.
 - **Order & Payment flow**:
@@ -31,18 +36,22 @@
   - Enriched `sellerController.ts` with dual frontend property aliases (`name` & `shopName`, `avatar` & `avatarUrl`, `thumbs` & `coverImages`, `transactions` & `totalTransactions`).
   - Handled flexible seller lookup in `GET /api/sellers/:idOrHandle` supporting handle with/without `@`, case-insensitive matching, email, and ObjectId.
   - Added `GET /api/sellers/:idOrHandle/products` to fetch active listings of a specific shop.
-  - Enriched `productController.ts` with `seller` (string handle), `sellerName`, `sellerAvatar` top-level fields on products so `SellerScreen` and `ProductCard` filter correctly.
   - Added `GET /api/products/mine` and `GET /api/products/seller` for authenticated sellers to retrieve all listings and dashboard stats.
+- **Seller orders needing processing fix ("Đơn hàng cần xử lý")**:
+  - Broadened `VALID_TRANSITIONS` in `Order.ts` allowing `SHIPPING` -> `DELIVERED` and `PAID` -> `PACKING`.
+  - Added robust ObjectId/string query matching in `getSellerOrders` for `items.sellerId`.
+  - Updated `AccountScreen.tsx` to include `PAID` and `DELIVERING` in the processing filter so active orders are not hidden.
+  - Implemented `handleSellerUpdateStatus` in `AccountScreen.tsx` to immediately update UI state and transition orders through Packing, Shipping, and Delivered.
 
-## [2026-09-27]
-### Fixed
-- Fixed compile and syntax errors in `orderController.ts` (`TS1472`, `TS1005`, duplicate try-blocks, and destructuring of `idempotencyKey`).
-- Strengthened TypeScript types in `auth.ts` for `JWT_SECRET` and `JwtPayload` casting.
-- Enforced Actor Authorization Check before state machine validation in `orderController.ts` ensuring unauthorized actors receive 403 Forbidden.
-- Added MongoDB WriteConflict / TransientTransactionError retry loops in `orderController.ts` (`createOrder`) and `paymentController.ts` (`checkout`).
-- Standardized COD collection on `paymentController.codCollect` and updated `verifyLedger.ts`.
-- Created regression suite `src/verifyAuthConcurrency.ts` verifying all P0 security matrix rules, P1 concurrency stock isolation, payment idempotency, and fail-fast JWT startup (all 15 regression assertions passed: 15/15).
-- Documented transaction rollback fault-injection test as TODO (not yet tested).
+## [2026-09-26] (Feature Freeze / Outcome 1 Preparation)
+### Added & Audited
+- Audited the entire `backend` branch and confirmed the existence of **11 full backend models**, including `Ledger.ts`, `PlatformFeeConfig.ts`, and `Review.ts`.
+- Re-ran the Financial Engine Smoke Test via `verifyLedger.ts` verifying idempotency of both COD and Online Checkout collection. (5/5 PASS)
+- Introduced safe deployment and reset tooling to strictly separate application architecture from volatile presentation data.
 
-
-
+### Database Tooling (Safe Archiving & Reset Strategy)
+- Created `backend/scripts/backup-db.ts` to export MongoDB JSON snapshots via Mongoose cursors instead of raw `mongodump` binaries.
+- Created `backend/scripts/reset-demo-db.ts` to act as a **Safe State Reset**. Instead of utilizing `.deleteMany()`, it leverages an `updateMany({ status: 'archived' })` architecture. This prevents the creation of orphan object references for `orders` and `reviews`.
+- Created `backend/scripts/seed-demo-products.ts` with execution guards (`--execute --confirm-seed`) to populate the `products` collection with 25 highly curated presentation datasets without mutating `users`, `categories`, or the `Financial Subsystem`.
+- Added `.gitignore` configurations isolating local `.json` backups from the Git index.
+- Finalized local **E2E Buyer/Seller flow tests** verifying real-world viability of Seller Add Product, Buyer Cart, COD Orders, Shipping transitions, and Ledger consistency without mock fallback code.

@@ -7,17 +7,23 @@
 
 ## Backend Structure (`backend/`)
 - `src/models/`:
-  - `User.ts`: Users, roles (buyer, seller, admin), embedded sellerProfile
+  - `User.ts`: Users, roles (buyer, seller, admin), embedded sellerProfile. Includes `sellerStatus`: `"NONE" | "PENDING" | "APPROVED" | "REJECTED"`.
   - `Category.ts`: Product categories
   - `Product.ts`: Products with status (`pending`, `active`, `reserved`, `sold`, `archived`)
   - `Cart.ts`, `CartItem.ts`: Shopping cart & checked items
   - `Order.ts`: 11-step finite state machine order processing & status audit history
   - `Notification.ts`: User notifications
+  - `Review.ts`: Reviews for products
+  - `Ledger.ts`: Double-entry accounting system for financial transactions (PLATFORM_CASH, PLATFORM_REVENUE, SELLER_PAYABLE, etc.)
+  - `PlatformFeeConfig.ts`: Marketplace commission rates
 - `src/controllers/`: `authController`, `productController`, `sellerController`, `cartController`, `orderController`, `paymentController`, `notificationController`, `adminController`
 - `src/routes/`: `auth`, `products`, `sellers`, `cart`, `orders`, `payments`, `notifications`, `admin`
 - `src/middleware/auth.ts`: JWT verification (`requireAuth`, `requireAdmin`, `optionalAuth`)
-- `src/seed.ts`: Mock data seed script to populate Atlas
 - `src/server.ts`: Connects to MongoDB Atlas & starts Express on port 4000
+- `scripts/`:
+  - `backup-db.ts`: Local JSON snapshot generator via mongoose driver (`npm run db:backup`).
+  - `reset-demo-db.ts`: Safely clears carts/notifications and archives active products without mutating financial or historical data.
+  - `seed-demo-products.ts`: Safely generates 25 high-quality demo products distributed among existing sellers.
 
 ## Configuration (`backend/.env`)
 - `MONGODB_URI`: `mongodb+srv://nguyentangminhthong1_db_user:to12345@cluster0.jkkqqk7.mongodb.net/thriftit?retryWrites=true&w=majority&appName=Cluster0&tlsAllowInvalidCertificates=true`
@@ -55,10 +61,9 @@
 - `POST /api/payments/checkout`:
   - Advances order `PENDING_PAYMENT` -> `PAID` -> `CONFIRMED`.
   - Finalizes inventory decrement (marks remaining stock `active` or `sold`), clears reservation holds, and sends notifications to buyer and seller.
-- `PATCH /api/orders/:code/status`:
-  - Enforces `VALID_TRANSITIONS` state machine.
-  - **Cancellation (`CANCELLED`)**: Restores inventory and holds back to active stock (`quantity += item.quantity`, `status = 'active'`).
-  - **Delivery updates (`DELIVERING`, `DELIVERED`, `COMPLETED`)**: Appends live delivery events to tracking timeline and notifies parties.
+  - Writes to `Ledger` to debit `PLATFORM_CASH` and credit `PLATFORM_REVENUE` (based on `PlatformFeeConfig`) and `SELLER_PAYABLE`.
+- `POST /api/orders/:code/cod-collect` or `/api/payments/:code/cod-collect`:
+  - Idempotent COD collection logic utilizing `Ledger` to ensure double-collection never occurs.
 
 ### 3. Shipment & Live Tracking Flow (`orderController.ts`, `routes/orders.ts`)
 - `GET /api/orders/seller`: Retrieves all orders containing products sold by the authenticated seller (properly registered before `/:id` to avoid route collisions).
@@ -66,6 +71,8 @@
 - `GET /api/orders/:code/shipment`: Returns live shipping details and timeline events matching frontend `Shipment` interface.
 
 ### 4. Seller & Shop Flow (`sellerController.ts`, `productController.ts`, `routes/sellers.ts`)
+- **Seller Application Workflow**: Users start with `sellerStatus: "NONE"`. They can apply via `POST /api/auth/seller/apply` which sets status to `"PENDING"`. Admins approve/reject via `PATCH /api/admin/sellers/:id/approve` and `PATCH /api/admin/sellers/:id/reject` (in `adminController.ts`).
+- **Product Creation Guardrails**: `POST /api/products` explicitly requires `user.sellerStatus === "APPROVED"` to enforce authorization.
 - `GET /api/sellers`: Returns list of all active sellers mapped with dual frontend property aliases (`name` & `shopName`, `avatar` & `avatarUrl`, `thumbs` & `coverImages`, `transactions` & `totalTransactions`, `_id` & `id`).
 - `GET /api/sellers/me`: Returns profile of the currently authenticated seller.
 - `GET /api/sellers/:idOrHandle`: Case-insensitive seller lookup supporting handle with/without `@` prefix (e.g. `@minhtu.vintage` or `minhtu.vintage`), email, shopName, or MongoDB ObjectId.
@@ -73,79 +80,14 @@
 - `GET /api/products/mine` / `GET /api/products/seller`: Returns all products belonging to the authenticated seller (including `pending`, `active`, `sold`) and computes real-time seller statistics (`totalProducts`, `activeProducts`, `pendingProducts`, `soldProducts`, `totalViews`, `totalLikes`, `estimatedRevenue`).
 - `mapProduct` in `productController.ts`: Returns `seller` (string handle), `sellerName`, `sellerAvatar`, `name` (alias for `title`), and `image` (alias for `coverImage`) alongside populated `sellerId` so frontend `products.filter(p => p.seller === seller.handle)` and `ProductCard` render cleanly.
 
+## Database Management Best Practices (Feature Freeze & Outcome 1)
+1. **Never delete historical data:** Products should be `archived` instead of deleted if they have dependent orders or reviews to avoid orphan references. Financial collections (`ledgers`, `platformfeeconfigs`, `orders`) should NEVER be truncated via scripts.
+2. **Safe DB Reset**: Use `npx ts-node --transpile-only scripts/reset-demo-db.ts --execute --confirm-reset` to safely clean the active catalog while preserving history.
+3. **Safe DB Seed**: Use `npx ts-node --transpile-only scripts/seed-demo-products.ts --execute --confirm-seed` to create fresh demo products for testing. Avoid using the old `seed.ts`.
+
 ## Notes & Recommendations for Frontend (No Frontend Code Changed)
 1. **COD Orders**: Backend sets COD orders directly to `CONFIRMED` upon creation.
 2. **Online Payments**: `POST /payments/checkout` advances online orders to `CONFIRMED` and returns full `ApiOrder` object.
 3. **Cart Cleanup**: Creating an order automatically cleans checked items from the server database cart.
 4. **Shipment Modal**: The seller shipment creation endpoint `POST /api/orders/:id/shipment` accepts `{ pickup: { name, phone, address, province, district, ward, note } }` and responds with `{ shipment: Shipment }`.
 5. **Seller Screen & Cards**: Both property naming conventions (`name`/`avatar`/`thumbs`/`transactions` and `shopName`/`avatarUrl`/`coverImages`/`totalTransactions`) are supplied in responses for 100% frontend compatibility. Products also include the top-level string `seller: "handle"` matching `seller.handle`.
-6. **Order fields renamed**: `platformFee` → `platformFeeRate` + `platformFeeAmount` + `sellerAmount` (snapshot at checkout time). `mapOrder` returns these new field names.
-
-### 5. Financial Architecture (PlatformFeeConfig, Ledger)
-- **Architecture**: Modular monolith (NOT microservices). Clean domain boundaries: Payment / Order / Ledger.
-- `PlatformFeeConfig` model (`rate`, `effectiveFrom`, `active`, `createdBy`): Admin-configurable platform fee. Only the `active: true` config is used at checkout time.
-- **Fee Snapshot**: At `POST /api/orders`, the current fee rate is fetched and snapshotted into Order (`platformFeeRate`, `platformFeeAmount`, `sellerAmount`). Changing admin fee config does NOT affect historical orders.
-- **No fallback**: If no `PlatformFeeConfig` exists, `POST /api/orders` returns 500 — admin MUST configure fee before platform accepts orders.
-- `Ledger` model (double-entry accounting): Each transaction has balanced DR/CR entries.
-- **Chart of Accounts**: `PLATFORM_CASH`, `BUYER_CLEARING`, `PLATFORM_REVENUE`, `SELLER_PAYABLE` (4 accounts, no others).
-- **Online Payment ledger** (created in `paymentController.checkout`): DR PLATFORM_CASH / CR BUYER_CLEARING → DR BUYER_CLEARING / CR PLATFORM_REVENUE → DR BUYER_CLEARING / CR SELLER_PAYABLE.
-- **COD ledger** (created in `orderController.collectCOD`): Same entries but only triggered when `POST /api/orders/:code/cod-collect` is called (after DELIVERED/COMPLETED). COD does NOT create ledger entries at order creation time.
-- **Idempotency**: Both payment checkout and COD collect are idempotent — calling twice produces only one set of ledger entries.
-- Admin APIs: `GET /api/admin/platform-fee` (history), `POST /api/admin/platform-fee` (set new rate).
-- **Verified**: 5 financial test cases all pass (`verifyLedger.ts`).
-
-### 6. Review System (`Review` model, `reviewController.ts`) — 🔒 LOCKED
-- `Review` model: `userId`, `productId`, `orderId`, `rating` (1-5), `comment`, timestamps.
-- **Unique constraint**: `(userId, orderId, productId)` — one review per product per order per buyer. Confirmed exists in MongoDB Atlas.
-- `POST /api/products/:productId/reviews` (requireAuth): Creates review with 5 server-side checks:
-  1. User is the buyer of the referenced order
-  2. Order status is `COMPLETED`
-  3. Product exists in the order's items (uses OrderItem snapshot, NOT live Product query)
-  4. No duplicate review exists
-  5. Rating is 1-5
-- **Race condition guard**: `catch(err.code === 11000)` on `Review.create` — unique index is the real guard, `findOne` is UX only.
-- `GET /api/products/:productId/reviews` (public): Paginated (`page`, `limit`, `totalPages`). No email leak. `avgRating` via `$avg` aggregation.
-- **Verified**: 6 review test cases + 5-point audit all pass (`verifyReview.ts`, `auditReview.ts`).
-
-### 7. Product CRUD (`productController.ts`)
-- `POST /api/products`: Create product (status = `pending`, awaits admin approval).
-- `PATCH /api/products/:id`: Update product. Owner-only. Only editable when `pending` or `active`. Whitelist fields.
-- `PATCH /api/products/:id/archive`: Archive/hide product. Owner-only. Blocked for `sold` and `reserved` products.
-- **Verified**: Seller MVP E2E scenario test passes (`verifySellerMVP.ts`).
-
-### 8. Concurrency, Security Matrix & Regression Verification (✅ VERIFIED)
-- **Actor Authorization Matrix (`orderController.ts`)**: Evaluated strictly *before* state-transition validity to guarantee unauthorized actors always receive `403 Forbidden` (not `422`).
-  - Buyer -> `PACKING`: `403`
-  - Unauthorized third-party -> `PACKING`: `403`
-  - Authorized Seller -> `PACKING`: `200`
-  - Buyer -> `DELIVERING`: `403`
-  - Seller -> `DELIVERED`: `403`
-  - Seller -> `COMPLETED`: `403`
-  - Authorized Buyer -> `COMPLETED`: `200`
-  - Third-party -> `GET /api/orders/:code/shipment`: `403`
-  - Authorized Buyer -> `GET /api/orders/:code/shipment`: `200`
-  - Buyer -> `POST /api/payments/:code/cod-collect`: `403`
-  - Admin -> `POST /api/payments/:code/cod-collect`: `200`
-- **Concurrency & WriteConflict Handling**:
-  - `createOrder` and `paymentController.checkout` wrapped in retry loops for `TransientTransactionError` / `WriteConflict` (code `112`).
-  - Concurrent checkout of single-quantity inventory verified: exactly 1 order succeeds (`201`), 1 order fails (`400 OUT_OF_STOCK`), stock remains accurately at `0`.
-- **Payment & Ledger Idempotency**:
-  - Idempotency key supported on checkout and COD collection.
-  - Repeated simultaneous payment requests produce exactly 1 ledger record.
-- **Fail-Fast Security Startup**:
-  - `auth.ts` verifies `JWT_SECRET` presence immediately on module initialization and refuses to boot without it (zero fallback secrets).
-- **Regression Suite**: `src/verifyAuthConcurrency.ts` (All 15 regression assertions passed: 15/15) and `src/verifyLedger.ts` (5/5 financial ledger tests passed).
-- **Transaction Rollback**: Fault-injection test under forced failure is not yet tested (TODO).
-
-## Buyer Funnel Status (MVP) — ✅ LOCKED
-> Tìm kiếm → Xem sản phẩm → Mua → Thanh toán → Theo dõi giao hàng → Nhận hàng → Hoàn tất → Đánh giá ✅
-
-## Seller Funnel Status (MVP) — ✅ LOCKED
-> Đăng sản phẩm → Sửa SP → Admin duyệt → Buyer mua → Seller thấy Order → PACKING → SHIPPING → DELIVERING → DELIVERED → COMPLETED → Buyer Review ✅
-
-**Verified via `verifySellerMVP.ts`, `verifyAuthConcurrency.ts`, and `verifyLedger.ts`.**
-
-## Next Steps
-1. Public Deploy (Render.com)
-2. Frontend integration verification with running backend
-3. Real-device testing

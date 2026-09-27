@@ -213,3 +213,37 @@ export const getSellerReviews = async (req: Request, res: Response): Promise<voi
   }
 };
 
+// ── GET /api/sellers/me/reviews ───────────────────────────────────────────────
+export const getMySellerReviews = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+
+    const { Review } = await import("../models/Review");
+    const sellerProducts = await Product.find({ sellerId: userId }).select("_id").lean();
+    const productIds = sellerProducts.map((p) => p._id);
+
+    const reviews = await Review.find({ productId: { $in: productIds } })
+      .populate({ path: "userId", select: "name" })
+      .populate({ path: "productId", select: "title coverImage" })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const mapped = reviews.map((r: any) => ({
+      id: r._id.toString(),
+      userId: r.userId?._id?.toString() || r.userId?.toString() || "",
+      userName: r.userId?.name || "Ẩn danh",
+      productId: r.productId?._id?.toString() || "",
+      productName: r.productId?.title || "Sản phẩm",
+      productImage: r.productId?.coverImage || "",
+      orderId: r.orderId.toString(),
+      rating: r.rating,
+      comment: r.comment,
+      createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : "",
+    }));
+
+    res.json({ reviews: mapped, total: mapped.length });
+  } catch (err) {
+    console.error("[sellers] getMySellerReviews error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
