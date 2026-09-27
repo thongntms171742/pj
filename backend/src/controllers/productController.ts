@@ -154,7 +154,33 @@ export const getMyProducts = async (req: Request, res: Response): Promise<void> 
       .sort({ createdAt: -1 })
       .lean();
 
-    const mapped = products.map(mapProduct);
+    const { Review } = await import("../models/Review");
+    const productIds = products.map((p) => p._id);
+    const reviewStats = await Review.aggregate([
+      { $match: { productId: { $in: productIds } } },
+      {
+        $group: {
+          _id: "$productId",
+          avgRating: { $avg: "$rating" },
+          reviewCount: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const reviewMap = reviewStats.reduce((acc, stat) => {
+      acc[stat._id.toString()] = { avgRating: stat.avgRating, reviewCount: stat.reviewCount };
+      return acc;
+    }, {} as Record<string, any>);
+
+    const mapped = products.map((p) => {
+      const pMapped = mapProduct(p);
+      const stat = reviewMap[p._id.toString()];
+      if (stat) {
+        (pMapped as any).avgRating = Math.round(stat.avgRating * 10) / 10;
+        (pMapped as any).reviewCount = stat.reviewCount;
+      }
+      return pMapped;
+    });
 
     // Compute seller summary stats
     const allMy = await Product.find({ sellerId: userId }).lean();
