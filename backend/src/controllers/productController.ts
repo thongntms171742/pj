@@ -115,27 +115,6 @@ export const getProducts = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
-// ── GET /api/products/:id ──────────────────────────────────────────────────────
-export const getProductById = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const product = await Product.findById(id)
-      .populate({ path: "sellerId", select: "name email sellerProfile" })
-      .populate({ path: "categoryId", select: "name slug" })
-      .lean();
-
-    if (!product) {
-      res.status(404).json({ error: "Không tìm thấy sản phẩm" });
-      return;
-    }
-
-    res.json({ product: mapProduct(product) });
-  } catch (err) {
-    console.error("[products] getProductById error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
-};
-
 // ── GET /api/products/mine (or /api/products/seller) ─────────────────────────
 // Returns all listings belonging to currently authenticated seller + dashboard statistics.
 export const getMyProducts = async (req: Request, res: Response): Promise<void> => {
@@ -154,33 +133,7 @@ export const getMyProducts = async (req: Request, res: Response): Promise<void> 
       .sort({ createdAt: -1 })
       .lean();
 
-    const { Review } = await import("../models/Review");
-    const productIds = products.map((p) => p._id);
-    const reviewStats = await Review.aggregate([
-      { $match: { productId: { $in: productIds } } },
-      {
-        $group: {
-          _id: "$productId",
-          avgRating: { $avg: "$rating" },
-          reviewCount: { $sum: 1 },
-        },
-      },
-    ]);
-
-    const reviewMap = reviewStats.reduce((acc, stat) => {
-      acc[stat._id.toString()] = { avgRating: stat.avgRating, reviewCount: stat.reviewCount };
-      return acc;
-    }, {} as Record<string, any>);
-
-    const mapped = products.map((p) => {
-      const pMapped = mapProduct(p);
-      const stat = reviewMap[p._id.toString()];
-      if (stat) {
-        (pMapped as any).avgRating = Math.round(stat.avgRating * 10) / 10;
-        (pMapped as any).reviewCount = stat.reviewCount;
-      }
-      return pMapped;
-    });
+    const mapped = products.map(mapProduct);
 
     // Compute seller summary stats
     const allMy = await Product.find({ sellerId: userId }).lean();
@@ -245,61 +198,6 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     res.status(201).json({ product: mapProduct(populated) });
   } catch (err) {
     console.error("[products] createProduct error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
-};
-
-// ── PATCH /api/products/:id ───────────────────────────────────────────────────
-export const updateProduct = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const userId = req.user!.id;
-    const updateData = req.body;
-
-    const product = await Product.findOneAndUpdate(
-      { _id: id, sellerId: userId },
-      updateData,
-      { new: true }
-    )
-      .populate({ path: "sellerId", select: "name email sellerProfile" })
-      .populate({ path: "categoryId", select: "name slug" })
-      .lean();
-
-    if (!product) {
-      res.status(404).json({ error: "Sản phẩm không tồn tại hoặc không có quyền sửa" });
-      return;
-    }
-
-    res.json({ product: mapProduct(product) });
-  } catch (err) {
-    console.error("[products] updateProduct error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
-};
-
-// ── PATCH /api/products/:id/archive ───────────────────────────────────────────
-export const archiveProduct = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const userId = req.user!.id;
-
-    const product = await Product.findOneAndUpdate(
-      { _id: id, sellerId: userId },
-      { status: "archived" },
-      { new: true }
-    )
-      .populate({ path: "sellerId", select: "name email sellerProfile" })
-      .populate({ path: "categoryId", select: "name slug" })
-      .lean();
-
-    if (!product) {
-      res.status(404).json({ error: "Sản phẩm không tồn tại hoặc không có quyền lưu trữ" });
-      return;
-    }
-
-    res.json({ product: mapProduct(product) });
-  } catch (err) {
-    console.error("[products] archiveProduct error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };

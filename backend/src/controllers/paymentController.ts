@@ -45,59 +45,27 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Verify reservations are still valid
-    const now = new Date();
-    for (const item of order.items) {
-      const product = await Product.findById(item.productId);
-      if (!product) {
-        res.status(400).json({ error: `Sản phẩm ${item.productName} không tồn tại` });
-        return;
-      }
-      
-      // If product is no longer reserved by this order, or reservation expired
-      const isReservedByThisOrder = product.reservedByOrderId?.toString() === order._id.toString();
-      const isReservationValid = product.reservedUntil && product.reservedUntil > now;
-      
-      if (!isReservedByThisOrder || !isReservationValid) {
-        res.status(409).json({ 
-          error: `Phiên giữ chỗ cho sản phẩm ${product.title} đã hết hạn. Vui lòng đặt hàng lại.` 
-        });
-        return;
-      }
-    }
-
     // Process payment simulation
     order.paymentMethod = method || "card";
-    
-    if (method === "COD") {
-      order.status = "CONFIRMED";
-      order.statusHistory.push({
-        status: "CONFIRMED",
-        by: "system",
-        at: new Date(),
-        reason: "Xác nhận đơn hàng thanh toán khi nhận hàng (COD)",
-      });
-    } else {
-      order.paymentId = `PAY-${Date.now()}`;
-      order.paidAt = new Date();
+    order.paymentId = `PAY-${Date.now()}`;
+    order.paidAt = new Date();
 
-      order.status = "PAID";
-      order.statusHistory.push({
-        status: "PAID",
-        by: "payment_gateway",
-        at: new Date(),
-        reason: `Thanh toán thành công qua ${method} (thẻ *${cardLast4})`,
-      });
+    order.status = "PAID";
+    order.statusHistory.push({
+      status: "PAID",
+      by: "payment_gateway",
+      at: new Date(),
+      reason: `Thanh toán thành công qua ${method} (thẻ *${cardLast4})`,
+    });
 
-      // Advance to CONFIRMED
-      order.status = "CONFIRMED";
-      order.statusHistory.push({
-        status: "CONFIRMED",
-        by: "system",
-        at: new Date(),
-        reason: "Hệ thống tự động xác nhận đơn hàng sau khi thanh toán",
-      });
-    }
+    // Advance to CONFIRMED
+    order.status = "CONFIRMED";
+    order.statusHistory.push({
+      status: "CONFIRMED",
+      by: "system",
+      at: new Date(),
+      reason: "Hệ thống tự động xác nhận đơn hàng sau khi thanh toán",
+    });
 
     await order.save();
 

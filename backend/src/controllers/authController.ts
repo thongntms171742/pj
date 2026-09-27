@@ -45,8 +45,6 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         name: user.name,
         email: user.email,
         roles: user.roles,
-        avatarUrl: user.avatarUrl,
-        sellerStatus: user.sellerProfile?.status || "none",
       },
     });
   } catch (err) {
@@ -89,60 +87,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         name: user.name,
         email: user.email,
         roles: user.roles,
-        avatarUrl: user.avatarUrl,
-        sellerStatus: user.sellerProfile?.status || "none",
       },
     });
   } catch (err) {
     console.error("[auth] login error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
-};
-
-// ── POST /api/auth/seller/apply ───────────────────────────────────────────────
-export const applySeller = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userId = req.user!.id;
-    const { shopName, description } = req.body;
-
-    if (!shopName) {
-      res.status(400).json({ error: "Vui lòng nhập tên Shop" });
-      return;
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      res.status(404).json({ error: "Không tìm thấy user" });
-      return;
-    }
-
-    if (user.roles.includes("seller")) {
-      res.status(400).json({ error: "Bạn đã là người bán" });
-      return;
-    }
-
-    if (user.sellerProfile?.status === "pending_approval") {
-      res.status(400).json({ error: "Đơn đăng ký của bạn đang chờ duyệt" });
-      return;
-    }
-
-    user.sellerProfile = {
-      handle: user.email.split("@")[0],
-      shopName,
-      description: description || "",
-      avatarUrl: "",
-      coverImages: [],
-      rating: 5,
-      totalTransactions: 0,
-      totalRevenue: 0,
-      commissionRate: 0.1,
-      status: "pending_approval"
-    };
-
-    await user.save();
-    res.json({ success: true, message: "Đã gửi đơn đăng ký thành công" });
-  } catch (err) {
-    console.error("[auth] applySeller error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };
@@ -233,20 +181,3 @@ export function mapCartItem(ci: any): any {
     checked: ci.checked,
   };
 }
-
-// ── PUT /api/auth/me/avatar ──────────────────────────────────────────────────
-export const updateAvatar = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userId = req.user!.id;
-    const { avatarUrl } = req.body;
-    const user = await User.findByIdAndUpdate(userId, { avatarUrl }, { new: true });
-    if (!user) {
-      res.status(404).json({ error: "Không tìm thấy user" });
-      return;
-    }
-    res.json({ success: true, avatarUrl: user.avatarUrl });
-  } catch (err) {
-    console.error("[auth] updateAvatar error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
-};
