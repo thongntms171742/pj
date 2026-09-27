@@ -59,8 +59,9 @@ export function AccountScreen({
 
   // ── Quản lý địa chỉ ───────────────────────────────────────────────────────
   const [addresses, setAddresses] = useState([
-    { id: 1, label: "Nhà riêng", name: "Nguyễn Thanh Linh", phone: "0909XXX123", province: "TP. Hồ Chí Minh", district: "Quận 10", detail: "123 Đường Nguyễn Trãi", isDefault: true },
-    { id: 2, label: "Văn phòng", name: "Nguyễn Thanh Linh", phone: "0909XXX123", province: "TP. Hồ Chí Minh", district: "Quận 3", detail: "456 Đường Lý Thường Kiệt", isDefault: false },
+    { id: 1, label: "Nhà riêng", name: "Nguyễn Thanh Linh", phone: "0909XXX123", province: "TP. Hồ Chí Minh", district: "Quận 10", detail: "123 Đường Nguyễn Trãi", isDefault: true, type: "delivery" },
+    { id: 2, label: "Văn phòng", name: "Nguyễn Thanh Linh", phone: "0909XXX123", province: "TP. Hồ Chí Minh", district: "Quận 3", detail: "456 Đường Lý Thường Kiệt", isDefault: false, type: "delivery" },
+    { id: 3, label: "Kho chính", name: "Kho Của Linh", phone: "0909000000", province: "TP. Hồ Chí Minh", district: "Quận 1", detail: "12 Lê Lợi", isDefault: true, type: "warehouse" },
   ]);
 
   // ── Seller orders (fetched when user switches to "selling" tab) ──
@@ -876,7 +877,21 @@ export function AccountScreen({
                               )}
                               {isPacking && (
                                 <button
-                                  onClick={() => setShipDialogOrder(order)}
+                                  onClick={() => {
+                                    const wh = addresses.find(a => a.type === "warehouse" && a.isDefault) || addresses.find(a => a.type === "warehouse");
+                                    if (wh) {
+                                      setShipDialogPickup({
+                                        name: wh.name,
+                                        phone: wh.phone,
+                                        address: wh.detail,
+                                        province: wh.province,
+                                        district: wh.district,
+                                        ward: "",
+                                        email: "",
+                                      });
+                                    }
+                                    setShipDialogOrder(order);
+                                  }}
                                   className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-90"
                                   style={{ backgroundColor: T, color: LINEN, ...ff }}
                                 >
@@ -1066,8 +1081,8 @@ export function AccountScreen({
                   Thêm địa chỉ mới
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                {addresses.map((addr) => (
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                {addresses.filter(a => a.type === "delivery").map((addr) => (
                   <div key={addr.id} className="p-5 rounded-2xl" style={{ backgroundColor: CARD, border: `1px solid ${addr.isDefault ? T : MUTED}` }}>
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
@@ -1084,6 +1099,39 @@ export function AccountScreen({
                   </div>
                 ))}
               </div>
+
+              {userRole === "seller" && (
+                <>
+                  <div className="flex items-center justify-between mb-5 border-t pt-8" style={{ borderColor: MUTED }}>
+                    <h2 className="text-xl font-bold" style={{ ...serif, color: ESPRESSO }}>Địa chỉ kho lấy hàng</h2>
+                    <button
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all hover:opacity-80 border"
+                      style={{ borderColor: T, color: T, ...ff }}
+                    >
+                      <PlusCircle size={15} />
+                      Thêm kho mới
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {addresses.filter(a => a.type === "warehouse").map((addr) => (
+                      <div key={addr.id} className="p-5 rounded-2xl" style={{ backgroundColor: CARD, border: `1px solid ${addr.isDefault ? T : MUTED}` }}>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm" style={{ color: ESPRESSO, ...ff }}>{addr.label}</span>
+                            {addr.isDefault && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: T + "18", color: T, ...ff }}>Mặc định</span>}
+                          </div>
+                          <div className="flex gap-2">
+                            <button className="text-xs font-semibold" style={{ color: COFFEE, ...ff }}>Sửa</button>
+                            {!addr.isDefault && <button className="text-xs font-semibold" style={{ color: "#E74C3C", ...ff }}>Xóa</button>}
+                          </div>
+                        </div>
+                        <p className="font-semibold text-sm" style={{ color: ESPRESSO, ...ff }}>{addr.name} · {addr.phone}</p>
+                        <p className="text-xs mt-1" style={{ color: COFFEE, ...ff }}>{addr.detail}, {addr.district}, {addr.province}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
