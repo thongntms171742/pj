@@ -44,6 +44,7 @@ export function AccountScreen({
   sellerStatus?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
   roles?: string[];
   isAdmin?: boolean;
+  onUpdateAvatar?: (url: string) => void;
 }) {
   const isUserAdmin = Boolean(isAdmin || roles?.includes("admin") || userEmail === "admin@thriftit.vn");
   // ── State quản lý ──────────────────────────────────────────────────────────
@@ -114,6 +115,58 @@ export function AccountScreen({
       loadAddresses();
     } catch (e: any) {
       showToast?.(e.message || "Lỗi lưu địa chỉ");
+    }
+  };
+
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 400;
+          const MAX_HEIGHT = 400;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
+        };
+        img.onerror = (err) => reject(err);
+      };
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    try {
+      showToast?.("Đang tải ảnh lên...");
+      const compressed = await compressImage(file);
+      const res = await api.put<{ avatarUrl: string }>("/auth/me/avatar", { avatarUrl: compressed });
+      onUpdateAvatar?.(res.avatarUrl);
+      showToast?.("Đã cập nhật ảnh đại diện!");
+    } catch (err: any) {
+      showToast?.(err.message || "Lỗi cập nhật ảnh");
     }
   };
 
@@ -488,19 +541,31 @@ export function AccountScreen({
       {/* Profile header */}
       <div style={{ background: `linear-gradient(135deg, ${ESPRESSO} 0%, ${COFFEE} 100%)` }}>
         <div className="max-w-[1440px] mx-auto px-8 py-8 flex items-center gap-6">
-          <div className="relative">
-            <img
-              src={userAvatar ? userAvatar : isUserAdmin
-                ? "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=160&h=160&fit=crop&auto=format"
-                : "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=160&h=160&fit=crop&auto=format"}
-              alt="Avatar"
-              className="w-24 h-24 rounded-full object-cover border-4 shadow-lg"
-              style={{ borderColor: T }}
-            />
+          <div className="relative group cursor-pointer">
+            <label htmlFor="avatar-upload" className="cursor-pointer block">
+              <img
+                src={userAvatar || (isUserAdmin
+                  ? "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=160&h=160&fit=crop&auto=format"
+                  : "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=160&h=160&fit=crop&auto=format")}
+                alt="Avatar"
+                className="w-24 h-24 rounded-full object-cover border-4 shadow-lg transition-all group-hover:opacity-80"
+                style={{ borderColor: T }}
+              />
+              {!isUserAdmin && (
+                <div className="absolute inset-0 bg-black/40 rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Edit3 size={20} style={{ color: LINEN }} />
+                  <span className="text-[10px] text-white mt-1">Đổi ảnh</span>
+                </div>
+              )}
+            </label>
             {!isUserAdmin && (
-              <button className="absolute bottom-0 right-0 w-8 h-8 rounded-full flex items-center justify-center shadow-md" style={{ backgroundColor: T }}>
-                <Edit3 size={13} style={{ color: LINEN }} />
-              </button>
+              <input
+                type="file"
+                id="avatar-upload"
+                className="hidden"
+                accept="image/*"
+                onChange={handleAvatarChange}
+              />
             )}
           </div>
           <div>

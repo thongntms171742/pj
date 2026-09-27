@@ -1,15 +1,27 @@
 import React, { useState, useRef } from "react";
 import { CheckCircle, Check, Shield } from "lucide-react";
 import { T, ESPRESSO, COFFEE, LINEN, CARD, MUTED, SOFT, serif, ff, fmt } from "../../lib/theme";
-import type { Screen, CartGroup, OrderItem } from "../../types";
+import { api } from "../../lib/api";
+import type { Screen, CartGroup, OrderItem, Address } from "../../types";
 
 // ── Payment Screen ──────────────────────────────────────────────────────────────
 export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Screen) => void; cartGroups: CartGroup[]; updateCart: (cart: CartGroup[]) => void; addOrder: (items: OrderItem[], total: number, payment: string, name?: string, phone?: string, address?: string) => Promise<string | boolean>; }) {
   const [step, setStep] = useState<"address" | "card" | "otp">("address");
-  const [fullName, setFullName] = useState("Nguyễn Thanh Linh");
-  const [phone, setPhone] = useState("0987654321");
-  const [address, setAddress] = useState("123 Đường Lê Lợi, Quận 1, TP. Hồ Chí Minh");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
   const [addressError, setAddressError] = useState("");
+
+  React.useEffect(() => {
+    api.get<{ addresses: Address[] }>("/addresses").then(res => {
+      if (res.addresses && res.addresses.length > 0) {
+        const defaultAddr = res.addresses.find(a => a.type === "delivery" && a.isDefault) || res.addresses.find(a => a.type === "delivery") || res.addresses[0];
+        setFullName(defaultAddr.name || "");
+        setPhone(defaultAddr.phone || "");
+        setAddress(`${defaultAddr.detail}, ${defaultAddr.district}, ${defaultAddr.province}`);
+      }
+    }).catch(() => {});
+  }, []);
 
   const [paymentMethod, setPaymentMethod] = useState<"card" | "cod">("card");
   const [selectedCard, setSelectedCard] = useState<string>("card-1");
