@@ -4,7 +4,7 @@ import { Category } from "../models/Category";
 import { Product } from "../models/Product";
 import { mapProduct } from "./productController";
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 async function askGemini(prompt: string, image?: { mimeType: string; data: string }): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
