@@ -45,6 +45,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         name: user.name,
         email: user.email,
         roles: user.roles,
+        avatarUrl: user.avatarUrl,
         sellerStatus: user.sellerProfile?.status || "none",
       },
     });
@@ -88,6 +89,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         name: user.name,
         email: user.email,
         roles: user.roles,
+        avatarUrl: user.avatarUrl,
         sellerStatus: user.sellerProfile?.status || "none",
       },
     });
@@ -231,3 +233,20 @@ export function mapCartItem(ci: any): any {
     checked: ci.checked,
   };
 }
+
+// ── PUT /api/auth/me/avatar ──────────────────────────────────────────────────
+export const updateAvatar = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { avatarUrl } = req.body;
+    const user = await User.findByIdAndUpdate(userId, { avatarUrl }, { new: true });
+    if (!user) {
+      res.status(404).json({ error: "Không tìm thấy user" });
+      return;
+    }
+    res.json({ success: true, avatarUrl: user.avatarUrl });
+  } catch (err) {
+    console.error("[auth] updateAvatar error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};

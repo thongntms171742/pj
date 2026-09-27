@@ -22,11 +22,41 @@ const SellerProfileSchema = new Schema(
   { _id: false }
 );
 
+// ── Address (embedded sub-document) ──────────────────────────────────────────
+export interface IAddress {
+  _id?: mongoose.Types.ObjectId | string;
+  label: string;
+  name: string;
+  phone: string;
+  province: string;
+  district: string;
+  ward: string;
+  detail: string;
+  isDefault: boolean;
+  type: "delivery" | "warehouse";
+}
+
+const AddressSchema = new Schema(
+  {
+    label: { type: String, required: true },
+    name: { type: String, required: true },
+    phone: { type: String, required: true },
+    province: { type: String, required: true },
+    district: { type: String, required: true },
+    ward: { type: String, default: "" },
+    detail: { type: String, required: true },
+    isDefault: { type: Boolean, default: false },
+    type: { type: String, enum: ["delivery", "warehouse"], default: "delivery" },
+  },
+  { timestamps: true }
+);
+
 // ── User ──────────────────────────────────────────────────────────────────────
 export interface IUser extends Document {
   name: string;
   email: string;
   passwordHash: string;
+  avatarUrl?: string;
   roles: ("buyer" | "seller" | "admin")[];
   sellerProfile?: {
     handle: string;
@@ -40,6 +70,7 @@ export interface IUser extends Document {
     commissionRate: number;
     status: "active" | "pending_approval" | "suspended";
   };
+  addresses: IAddress[];
   comparePassword(plain: string): Promise<boolean>;
 }
 
@@ -48,11 +79,13 @@ const UserSchema = new Schema<IUser>(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
+    avatarUrl: { type: String, default: "" },
     roles: {
       type: [{ type: String, enum: ["buyer", "seller", "admin"] }],
       default: ["buyer"],
     },
     sellerProfile: { type: SellerProfileSchema, default: undefined },
+    addresses: { type: [AddressSchema], default: [] },
   },
   { timestamps: true }
 );

@@ -41,6 +41,7 @@ interface AuthUser {
   email: string;
   token: string;
   roles: string[];
+  avatarUrl?: string;
   sellerStatus: string;
 }
 
@@ -96,6 +97,7 @@ export default function App() {
 
   const [currentUser, setCurrentUser] = useState<string>(session?.name || storedUser.name || "");
   const [currentEmail, setCurrentEmail] = useState<string>(session?.email || storedUser.email || "");
+  const [currentUserAvatar, setCurrentUserAvatar] = useState<string>(session?.avatarUrl || "");
   const [currentRoles, setCurrentRoles] = useState<string[]>(session?.roles || []);
   const [sellerStatus, setSellerStatus] = useState<string>(session?.sellerStatus || "NONE");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -348,31 +350,47 @@ export default function App() {
   };
 
   // ── addToCart: optimistic local + backend POST if logged in ──
-  const addToCart = (product: Product, qty: number = 1) => {
-    // Optimistic local update
+  const addToCart = async (product: Product, qty: number = 1) => {
+    let finalApiId = product.apiId; // fallback for guests
+    const productApiId = product.apiId;
+
+    if (product.apiId && session?.token) {
+      try {
+        const res = await api.post<{ item: import("../lib/api").ApiCartItem }>("/cart/items", { productId: product.apiId, quantity: qty });
+        finalApiId = res.item._id;
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : "Thêm vào giỏ hàng thất bại";
+        showToast(`⚠️ ${msg}`);
+        return; // Stop if backend rejects
+      }
+    }
+
+    // Local update
     setCartGroups((prev) => {
       const existingGroup = prev.find((g) => g.seller === product.seller);
       if (existingGroup) {
         const existingItem = existingGroup.items.find((i) => i.id === product.id);
         if (existingItem) {
           if (existingItem.qty + qty > product.quantity) {
-            showToast(`⚠️ Sản phẩm này chỉ còn ${product.quantity} cái`);
+            if (!session?.token) showToast(`⚠️ Sản phẩm này chỉ còn ${product.quantity} cái`);
             return prev;
           }
-          showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
+          if (!session?.token) showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
+          else showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
+
           return prev.map((g) =>
             g.seller === product.seller
               ? {
                   ...g,
                   items: g.items.map((i) =>
-                    i.id === product.id ? { ...i, qty: i.qty + qty } : i
+                    i.id === product.id ? { ...i, qty: i.qty + qty, apiId: finalApiId, productApiId } : i
                   ),
                 }
               : g
           );
         }
         if (qty > product.quantity) {
-          showToast(`⚠️ Sản phẩm này chỉ còn ${product.quantity} cái`);
+          if (!session?.token) showToast(`⚠️ Sản phẩm này chỉ còn ${product.quantity} cái`);
           return prev;
         }
         showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
@@ -391,7 +409,8 @@ export default function App() {
                     image: product.image,
                     checked: false,
                     condition: product.condition,
-                    apiId: product.apiId,
+                    apiId: finalApiId,
+                    productApiId,
                     stock: product.quantity,
                   },
                 ],
@@ -400,7 +419,7 @@ export default function App() {
         );
       }
       if (qty > product.quantity) {
-        showToast(`⚠️ Sản phẩm này chỉ còn ${product.quantity} cái`);
+        if (!session?.token) showToast(`⚠️ Sản phẩm này chỉ còn ${product.quantity} cái`);
         return prev;
       }
       showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
@@ -418,20 +437,14 @@ export default function App() {
               image: product.image,
               checked: false,
               condition: product.condition,
-              apiId: product.apiId,
+              apiId: finalApiId,
+              productApiId,
               stock: product.quantity,
             },
           ],
         },
       ];
     });
-
-    // Backend call if logged in
-    if (product.apiId && session?.token) {
-      api
-        .post<{ item: unknown }>("/cart/items", { productId: product.apiId, quantity: qty })
-        .catch(() => {/* offline → keep local */});
-    }
   };
 
   const cartCount = cartGroups.flatMap((g) => g.items).filter((i) => i.checked).length;
@@ -441,7 +454,7 @@ export default function App() {
     // First try real backend login if a password is provided.
     if (password) {
       try {
-        const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[], sellerStatus?: string } }>(
+        const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[], avatarUrl?: string, sellerStatus?: string } }>(
           "/auth/login",
           { email: userEmail, password }
         );
@@ -450,11 +463,13 @@ export default function App() {
           email: res.user.email,
           token: res.token,
           roles: res.user.roles,
+          avatarUrl: res.user.avatarUrl,
           sellerStatus: res.user.sellerStatus || "none",
         };
         setStoredSession(next);
         setCurrentUser(next.name);
         setCurrentEmail(next.email);
+        setCurrentUserAvatar(next.avatarUrl || "");
         setCurrentRoles(next.roles);
         setSellerStatus(next.sellerStatus);
         setStoredUser(next.name, next.email);
@@ -515,7 +530,7 @@ export default function App() {
   // ── REGISTER ──
   const handleRegister = async (name: string, email: string, password: string) => {
     try {
-      const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[], sellerStatus?: string } }>(
+      const res = await api.post<{ token: string; user: { name: string; email: string; roles: string[], avatarUrl?: string, sellerStatus?: string } }>(
         "/auth/register",
         { name, email, password }
       );
@@ -524,11 +539,13 @@ export default function App() {
         email: res.user.email,
         token: res.token,
         roles: res.user.roles,
+        avatarUrl: res.user.avatarUrl,
         sellerStatus: res.user.sellerStatus || "none",
       };
       setStoredSession(next);
       setCurrentUser(next.name);
       setCurrentEmail(next.email);
+      setCurrentUserAvatar(next.avatarUrl || "");
       setCurrentRoles(next.roles);
       setSellerStatus(next.sellerStatus);
       setStoredUser(next.name, next.email);
@@ -544,6 +561,7 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser("");
     setCurrentEmail("");
+    setCurrentUserAvatar("");
     setCurrentRoles([]);
     setSellerStatus("NONE");
     setUserRole("buyer");
@@ -767,7 +785,7 @@ export default function App() {
                 go={go}
                 onLogout={handleLogout}
                 userName={userRole === "seller" && currentShopName ? currentShopName : currentUser}
-                userAvatar={userRole === "seller" && currentShopAvatar ? currentShopAvatar : undefined}
+                userAvatar={userRole === "seller" && currentShopAvatar ? currentShopAvatar : currentUserAvatar}
                 userRating={userRole === "seller" ? currentShopRating : undefined}
                 userEmail={currentEmail}
                 orders={orders}
@@ -779,6 +797,12 @@ export default function App() {
                 onUpdateOrderStatus={handleUpdateOrderStatus}
                 sellerStatus={currentRoles.includes("seller") ? "APPROVED" : sellerStatus === "pending_approval" ? "PENDING" : "NONE"}
                 roles={currentRoles}
+                onUpdateAvatar={(url) => {
+                  setCurrentUserAvatar(url);
+                  if (session) {
+                    setStoredSession({ ...session, avatarUrl: url });
+                  }
+                }}
               />
             )}
             {screen === "post" && <PostScreen go={go} onAddProduct={handleAddProduct} />}
