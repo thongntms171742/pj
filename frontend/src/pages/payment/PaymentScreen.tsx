@@ -85,9 +85,10 @@ export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s
     }
     setIsProcessing(true);
 
-    // Create order items from checked cart items
     const orderItems: OrderItem[] = checkedItems.map(item => ({
       id: item.id.toString(),
+      apiId: item.apiId,
+      productApiId: item.productApiId,
       name: item.name,
       price: item.price,
       size: item.size,
@@ -123,9 +124,10 @@ export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s
   const handlePlaceCodOrder = async () => {
     setIsProcessing(true);
 
-    // Create order items from checked cart items
     const orderItems: OrderItem[] = checkedItems.map(item => ({
       id: item.id.toString(),
+      apiId: item.apiId,
+      productApiId: item.productApiId,
       name: item.name,
       price: item.price,
       size: item.size,

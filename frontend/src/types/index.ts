@@ -66,6 +66,8 @@ export interface CartGroup {
 // ── Order ───────────────────────────────────────────────────────────────────────
 export interface OrderItem {
   id: string;
+  apiId?: string;
+  productApiId?: string;
   name: string;
   price: number;
   size: string;

@@ -574,7 +574,7 @@ export default function App() {
           paymentMethod,
           idempotencyKey,
           items: orderItems.map(item => ({
-            productId: item.apiId || item.id,
+            productId: item.productApiId || item.apiId || item.id,
             quantity: item.qty || 1
           })),
         });
