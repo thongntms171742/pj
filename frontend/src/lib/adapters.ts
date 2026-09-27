@@ -20,6 +20,7 @@ export function adaptProduct(p: ApiProduct, likedIds: Set<string>): Product {
     image: p.coverImage,
     liked: likedIds.has(p._id),
     status: p.status,
+    quantity: p.quantity ?? 1,
   };
 }
 
@@ -65,6 +66,7 @@ export function adaptCartItems(items: ApiCartItem[]): { groups: CartGroup; liked
       image: prod.coverImage,
       checked: ci.checked,
       condition: prod.condition,
+      stock: prod.quantity ?? 1,
     };
     const existing = groupMap.get(sellerHandle);
     if (existing) {

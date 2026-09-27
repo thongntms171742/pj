@@ -221,7 +221,7 @@ export default function App() {
 
   // ── Post a new listing ──
   const handleAddProduct = async (newProd: {
-    name: string; price: number; category: string; desc: string; size: string; condition: number; image: string;
+    name: string; price: number; category: string; desc: string; size: string; condition: number; image: string; quantity: number;
   }) => {
     try {
       const res = await api.post<{ product: import("../lib/api").ApiProduct }>("/products", {
@@ -229,7 +229,7 @@ export default function App() {
         price: newProd.price,
         condition: newProd.condition,
         size: newProd.size,
-        quantity: 1,
+        quantity: newProd.quantity,
         description: newProd.desc,
         coverImage: newProd.image,
       });
@@ -322,14 +322,17 @@ export default function App() {
 
   // ── addToCart: optimistic local + backend POST if logged in ──
   const addToCart = (product: Product, qty: number = 1) => {
-    showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
-
     // Optimistic local update
     setCartGroups((prev) => {
       const existingGroup = prev.find((g) => g.seller === product.seller);
       if (existingGroup) {
         const existingItem = existingGroup.items.find((i) => i.id === product.id);
         if (existingItem) {
+          if (existingItem.qty + qty > product.quantity) {
+            showToast(`⚠️ Sản phẩm này chỉ còn ${product.quantity} cái`);
+            return prev;
+          }
+          showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
           return prev.map((g) =>
             g.seller === product.seller
               ? {
@@ -341,6 +344,11 @@ export default function App() {
               : g
           );
         }
+        if (qty > product.quantity) {
+          showToast(`⚠️ Sản phẩm này chỉ còn ${product.quantity} cái`);
+          return prev;
+        }
+        showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
         return prev.map((g) =>
           g.seller === product.seller
             ? {
@@ -357,12 +365,18 @@ export default function App() {
                     checked: false,
                     condition: product.condition,
                     apiId: product.apiId,
+                    stock: product.quantity,
                   },
                 ],
               }
             : g
         );
       }
+      if (qty > product.quantity) {
+        showToast(`⚠️ Sản phẩm này chỉ còn ${product.quantity} cái`);
+        return prev;
+      }
+      showToast(`Đã thêm ${qty} x "${product.name}" vào giỏ hàng!`);
       return [
         ...prev,
         {
@@ -378,6 +392,7 @@ export default function App() {
               checked: false,
               condition: product.condition,
               apiId: product.apiId,
+              stock: product.quantity,
             },
           ],
         },

@@ -72,7 +72,7 @@ export function CartScreen({
   };
   const adjustQty = (seller: string, id: number, d: number) => {
     const target = cartGroups.find((g) => g.seller === seller)?.items.find((i) => i.id === id);
-    const newQty = target ? Math.max(1, target.qty + d) : 1;
+    const newQty = target ? Math.max(1, Math.min(target.qty + d, target.stock || 1)) : 1;
     const newCart = cartGroups.map((g) =>
       g.seller !== seller
         ? g
@@ -328,8 +328,9 @@ export function CartScreen({
                           </span>
                           <button
                             onClick={() => adjustQty(group.seller, item.id, 1)}
-                            className="flex items-center justify-center transition-all hover:opacity-90"
-                            style={{ width: 34, height: 34, backgroundColor: T, color: LINEN }}
+                            disabled={item.qty >= (item.stock || 1)}
+                            className="flex items-center justify-center transition-all hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                            style={{ width: 34, height: 34, backgroundColor: item.qty >= (item.stock || 1) ? MUTED : T, color: item.qty >= (item.stock || 1) ? COFFEE : LINEN }}
                           >
                             <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                               <path

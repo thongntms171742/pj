@@ -4,7 +4,7 @@ import { T, ESPRESSO, COFFEE, LINEN, CARD, MUTED, SOFT, serif, ff, fmt } from ".
 import type { Screen } from "../../types";
 
 // ── Post Listing Screen ────────────────────────────────────────────────────────
-export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAddProduct: (newProd: { name: string; price: number; category: string; desc: string; size: string; condition: number; image: string }) => void }) {
+export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAddProduct: (newProd: { name: string; price: number; category: string; desc: string; size: string; condition: number; image: string; quantity: number; }) => void }) {
   const [dragging, setDragging] = useState(false);
   const [photoCount, setPhotoCount] = useState(0);
   const [name, setName] = useState("");
@@ -13,6 +13,7 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
   const [size, setSize] = useState("M");
   const [condition, setCondition] = useState(80);
   const [category, setCategory] = useState("Áo");
+  const [quantity, setQuantity] = useState(1);
 
   const condLabel = condition >= 95 ? "Như mới" : condition >= 85 ? "Rất tốt" : condition >= 70 ? "Tốt" : condition >= 55 ? "Khá" : "Trung bình";
 
@@ -198,17 +199,30 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-bold block mb-1.5" style={{ color: COFFEE, ...ff }}>Kích cỡ (Size)</label>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {["XS","S","M","L","XL","XXL"].map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => setSize(s)}
-                        className="flex-1 py-2.5 rounded-lg text-xs font-bold border-2 transition-all min-w-[32px]"
-                        style={{ backgroundColor: size === s ? T : "transparent", color: size === s ? LINEN : COFFEE, borderColor: size === s ? T : MUTED, ...ff }}
-                      >{s}</button>
-                    ))}
-                  </div>
+                  <label className="text-xs font-bold block mb-1.5" style={{ color: COFFEE, ...ff }}>Số lượng *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={quantity}
+                    onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full px-4 py-3 rounded-xl text-sm outline-none border-2 transition-all"
+                    style={{ backgroundColor: SOFT, border: `2px solid ${MUTED}`, color: ESPRESSO, ...ff }}
+                  />
+                </div>
+              </div>
+
+              {/* Size */}
+              <div>
+                <label className="text-xs font-bold block mb-1.5" style={{ color: COFFEE, ...ff }}>Kích cỡ (Size)</label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {["XS","S","M","L","XL","XXL"].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setSize(s)}
+                      className="flex-1 py-2.5 rounded-lg text-xs font-bold border-2 transition-all min-w-[32px]"
+                      style={{ backgroundColor: size === s ? T : "transparent", color: size === s ? LINEN : COFFEE, borderColor: size === s ? T : MUTED, ...ff }}
+                    >{s}</button>
+                  ))}
                 </div>
               </div>
 
@@ -263,7 +277,8 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
                       desc,
                       size,
                       condition,
-                      image: selectedImage
+                      image: selectedImage,
+                      quantity,
                     });
                     go("account");
                   }}

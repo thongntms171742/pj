@@ -186,7 +186,7 @@ export function ProductDetailScreen({
                   <Minus size={16} style={{ color: COFFEE }} />
                 </button>
                 <span className="px-4 py-3 font-bold" style={{ backgroundColor: CARD, color: ESPRESSO }}>{qty}</span>
-                <button disabled={product.status === "sold"} onClick={() => setQty(qty + 1)} className="px-4 py-3 transition-all hover:bg-gray-100 disabled:cursor-not-allowed" style={{ backgroundColor: T, color: LINEN }}>
+                <button disabled={product.status === "sold" || qty >= product.quantity} onClick={() => setQty(qty + 1)} className="px-4 py-3 transition-all hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50" style={{ backgroundColor: T, color: LINEN }}>
                   <Plus size={16} />
                 </button>
               </div>
@@ -203,15 +203,23 @@ export function ProductDetailScreen({
             ) : (
               <>
                 <button
-                  onClick={() => { onAddToCart(product, qty); setAddedToCart(true); setTimeout(() => setAddedToCart(false), 2000); }}
-                  className="w-full py-4 rounded-2xl text-base font-bold shadow-lg transition-all hover:opacity-90 active:scale-[0.98]"
+                  onClick={() => { 
+                    if (qty > product.quantity) return;
+                    onAddToCart(product, qty); setAddedToCart(true); setTimeout(() => setAddedToCart(false), 2000); 
+                  }}
+                  disabled={qty > product.quantity}
+                  className="w-full py-4 rounded-2xl text-base font-bold shadow-lg transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ backgroundColor: addedToCart ? "#27AE60" : T, color: LINEN, ...ff }}
                 >
                   {addedToCart ? "✓ Đã thêm vào giỏ hàng" : "Thêm vào giỏ hàng"}
                 </button>
                 <button
-                  onClick={() => { onAddToCart(product, qty); go("cart"); }}
-                  className="w-full py-4 rounded-2xl text-base font-bold transition-all hover:opacity-90"
+                  onClick={() => { 
+                    if (qty > product.quantity) return;
+                    onAddToCart(product, qty); go("cart"); 
+                  }}
+                  disabled={qty > product.quantity}
+                  className="w-full py-4 rounded-2xl text-base font-bold transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ backgroundColor: ESPRESSO, color: LINEN, ...ff }}
                 >
                   Mua ngay

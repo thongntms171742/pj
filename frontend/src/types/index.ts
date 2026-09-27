@@ -29,6 +29,7 @@ export interface Product {
   liked: boolean;
   status?: "active" | "pending" | "sold";
   apiId?: string;
+  quantity: number;
 }
 
 // ── Seller ──────────────────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ export interface CartItem {
   image: string;
   checked: boolean;
   condition: number;
+  stock: number;
 }
 
 export interface CartGroup {
