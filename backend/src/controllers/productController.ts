@@ -192,13 +192,19 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    const finalQuantity = quantity != null ? Number(quantity) : 1;
+    if (isNaN(finalQuantity) || finalQuantity < 1) {
+      res.status(400).json({ error: "Số lượng sản phẩm phải lớn hơn hoặc bằng 1" });
+      return;
+    }
+
     const product = await Product.create({
       title: productTitle,
       description: description || "",
       price,
       condition,
       size,
-      quantity: quantity || 1,
+      quantity: finalQuantity,
       status: "pending",
       coverImage: productImage,
       sellerId: userId,
