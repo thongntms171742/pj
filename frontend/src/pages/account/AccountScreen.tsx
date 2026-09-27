@@ -51,7 +51,7 @@ export function AccountScreen({
     userRole === "seller" ? "selling" : "purchases"
   );
   const [orderTab, setOrderTab] = useState<"pending" | "shipping" | "delivering" | "review" | "cancelled">("shipping");
-  const [sellingTab, setSellingTab] = useState<"all" | "active" | "pending" | "sold">("all");
+  const [sellingTab, setSellingTab] = useState<"all" | "active" | "pending" | "sold" | "reviews">("all");
 
   useEffect(() => {
     setAccountTab(userRole === "seller" ? "selling" : "purchases");
@@ -99,9 +99,14 @@ export function AccountScreen({
     }
   }, []);
 
+  const [sellerReviews, setSellerReviews] = useState<any[]>([]);
+
   useEffect(() => {
     if (accountTab === "selling") {
       loadSellerOrders();
+      api.get<{ reviews: any[] }>("/sellers/me/reviews")
+        .then((res) => setSellerReviews(res.reviews || []))
+        .catch(() => {});
     }
   }, [accountTab, loadSellerOrders]);
 
@@ -915,6 +920,7 @@ export function AccountScreen({
                   { id: "active" as const, label: "Đang bán", count: sellerStats.activeProducts },
                   { id: "pending" as const, label: "Chờ duyệt", count: sellerStats.pendingProducts },
                   { id: "sold" as const, label: "Đã bán", count: sellerStats.soldProducts },
+                  { id: "reviews" as const, label: "Đánh giá", count: sellerReviews.length },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -927,9 +933,47 @@ export function AccountScreen({
                 ))}
               </div>
 
-              <div className="space-y-3">
-                {filteredProducts.map((product) => {
-                  const badge = getStatusBadge(product.status);
+              {sellingTab === "reviews" ? (
+                <div className="space-y-4">
+                  {sellerReviews.length === 0 ? (
+                    <div className="p-8 text-center" style={{ color: COFFEE, ...ff }}>
+                      Chưa có đánh giá nào từ khách hàng
+                    </div>
+                  ) : (
+                    sellerReviews.map((review: any) => (
+                      <div key={review.id} className="p-4 rounded-2xl flex gap-4" style={{ backgroundColor: CARD, border: `1px solid ${MUTED}` }}>
+                        <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center font-bold" style={{ color: COFFEE }}>
+                          {review.userName?.[0]?.toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h4 className="font-bold text-sm" style={{ color: ESPRESSO }}>{review.userName}</h4>
+                              <p className="text-xs" style={{ color: COFFEE }}>{new Date(review.createdAt).toLocaleDateString("vi-VN")}</p>
+                            </div>
+                            <div className="flex text-amber-500">
+                              {[...Array(5)].map((_, i) => (
+                                <Star key={i} size={14} fill={i < review.rating ? "currentColor" : "none"} stroke="currentColor" />
+                              ))}
+                            </div>
+                          </div>
+                          <p className="text-sm mt-2" style={{ color: ESPRESSO }}>{review.comment || "Không có bình luận"}</p>
+                          <div className="mt-3 p-3 rounded-lg flex gap-3 items-center" style={{ backgroundColor: SOFT }}>
+                            <img src={review.productImage} alt={review.productName} className="w-10 h-10 rounded-md object-cover" />
+                            <div>
+                              <p className="text-xs font-semibold" style={{ color: ESPRESSO }}>{review.productName}</p>
+                              <p className="text-[10px]" style={{ color: COFFEE }}>Đơn hàng: #{review.orderId.substring(review.orderId.length - 6)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredProducts.map((product) => {
+                    const badge = getStatusBadge(product.status);
                   return (
                     <div key={product.id} className="flex gap-4 p-4 rounded-2xl transition-all hover:shadow-md" style={{ backgroundColor: CARD, border: `1px solid ${MUTED}` }}>
                       <img src={product.image} alt={product.name} className="w-20 h-20 rounded-xl object-cover flex-shrink-0" />
@@ -968,6 +1012,7 @@ export function AccountScreen({
                   </div>
                 )}
               </div>
+              )}
             </div>
           )}
 
