@@ -6,7 +6,9 @@ import type { Screen } from "../../types";
 // ── Post Listing Screen ────────────────────────────────────────────────────────
 export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAddProduct: (newProd: { name: string; price: number; category: string; desc: string; size: string; condition: number; image: string; quantity: number; }) => void }) {
   const [dragging, setDragging] = useState(false);
-  const [photoCount, setPhotoCount] = useState(0);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [price, setPrice] = useState("");
@@ -17,10 +19,69 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
 
   const condLabel = condition >= 95 ? "Như mới" : condition >= 85 ? "Rất tốt" : condition >= 70 ? "Tốt" : condition >= 55 ? "Khá" : "Trung bình";
 
-  const previewImages = [
-    "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=120&h=120&fit=crop&auto=format",
-    "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=120&h=120&fit=crop&auto=format",
-  ];
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 800;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
+        };
+        img.onerror = (err) => reject(err);
+      };
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
+  const handleFiles = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter(f => f.type.startsWith("image/"));
+    if (fileArray.length === 0) return;
+
+    for (const file of fileArray) {
+      if (photos.length >= 6) break; // Will check in setState for exact limit
+      try {
+        const compressed = await compressImage(file);
+        setPhotos(prev => {
+          if (prev.length >= 6) return prev;
+          return [...prev, compressed];
+        });
+      } catch (err) {
+        console.error("Error compressing image", err);
+      }
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
+    }
+  };
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: LINEN }}>
@@ -58,15 +119,26 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
             <div
               onDragOver={(e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragging(true); }}
               onDragLeave={() => setDragging(false)}
-              onDrop={(e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragging(false); setPhotoCount((p) => Math.min(p + 1, 6)); }}
+              onDrop={handleDrop}
               className="w-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center transition-all cursor-pointer"
               style={{
                 height: "260px",
                 borderColor: dragging ? T : MUTED,
                 backgroundColor: dragging ? T + "08" : SOFT,
               }}
-              onClick={() => setPhotoCount((p) => Math.min(p + 1, 6))}
+              onClick={() => fileInputRef.current?.click()}
             >
+              <input 
+                type="file" 
+                multiple 
+                accept="image/*" 
+                className="hidden" 
+                ref={fileInputRef} 
+                onChange={(e) => {
+                  if (e.target.files) handleFiles(e.target.files);
+                  e.target.value = ""; // reset
+                }}
+              />
               <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: dragging ? T + "22" : MUTED }}>
                 <Upload size={28} style={{ color: dragging ? T : COFFEE }} />
               </div>
@@ -77,14 +149,14 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
             </div>
 
             {/* Uploaded preview grid */}
-            {photoCount > 0 && (
+            {photos.length > 0 && (
               <div className="mt-4">
-                <p className="text-xs font-semibold mb-3" style={{ color: COFFEE, ...ff }}>Ảnh đã tải lên ({photoCount}/6)</p>
+                <p className="text-xs font-semibold mb-3" style={{ color: COFFEE, ...ff }}>Ảnh đã tải lên ({photos.length}/6)</p>
                 <div className="grid grid-cols-6 gap-2">
-                  {Array.from({ length: photoCount }).map((_, i) => (
+                  {photos.map((photoStr, i) => (
                     <div key={i} className="relative rounded-xl overflow-hidden group" style={{ paddingBottom: "100%", backgroundColor: MUTED }}>
                       <img
-                        src={previewImages[i % previewImages.length]}
+                        src={photoStr}
                         alt=""
                         className="absolute inset-0 w-full h-full object-cover"
                       />
@@ -93,7 +165,7 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
                           style={{ backgroundColor: T + "cc", color: LINEN, ...ff }}>Ảnh bìa</span>
                       )}
                       <button
-                        onClick={() => setPhotoCount((p) => p - 1)}
+                        onClick={() => setPhotos((p) => p.filter((_, idx) => idx !== i))}
                         className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                         style={{ backgroundColor: "rgba(58,35,18,0.7)" }}
                       >
@@ -101,9 +173,9 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
                       </button>
                     </div>
                   ))}
-                  {photoCount < 6 && (
+                  {photos.length < 6 && (
                     <button
-                      onClick={() => setPhotoCount((p) => Math.min(p + 1, 6))}
+                      onClick={() => fileInputRef.current?.click()}
                       className="rounded-xl flex items-center justify-center border-2 border-dashed transition-all hover:opacity-80"
                       style={{ paddingBottom: "100%", position: "relative", borderColor: MUTED, backgroundColor: SOFT }}
                     >
@@ -251,7 +323,7 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
               <div className="pt-2 flex gap-3">
                 <button
                   onClick={() => {
-                    if (photoCount === 0) {
+                    if (photos.length === 0) {
                       alert("Vui lòng tải lên ít nhất 1 ảnh sản phẩm để tiếp tục!");
                       return;
                     }
@@ -264,16 +336,7 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
                       return;
                     }
 
-                    const categoryImages: Record<string, string> = {
-                      "Áo": "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=400&h=520&fit=crop",
-                      "Quần": "https://images.unsplash.com/photo-1542272604-787c3835535d?w=400&h=520&fit=crop",
-                      "Váy": "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=400&h=520&fit=crop",
-                      "Áo khoác": "https://images.unsplash.com/photo-1495105787522-5334e3ffa0ef?w=400&h=520&fit=crop",
-                      "Phụ kiện": "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&h=520&fit=crop",
-                    };
-                    const selectedImage = photoCount > 0
-                      ? previewImages[0]
-                      : (categoryImages[category] || "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=520&fit=crop");
+                    const selectedImage = photos[0];
 
                     onAddProduct({
                       name,
