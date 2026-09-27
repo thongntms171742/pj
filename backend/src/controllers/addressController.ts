@@ -63,7 +63,7 @@ export const updateAddress = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const address = user.addresses.id(addressId) as any;
+    const address = user.addresses.find((a: any) => a._id?.toString() === addressId);
     if (!address) {
       res.status(404).json({ error: "Địa chỉ không tồn tại" });
       return;
@@ -109,7 +109,7 @@ export const deleteAddress = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    user.addresses.pull({ _id: addressId });
+    user.addresses = user.addresses.filter((a: any) => a._id?.toString() !== addressId);
     await user.save();
 
     res.json({ addresses: user.addresses });
