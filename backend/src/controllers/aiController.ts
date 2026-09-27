@@ -19,7 +19,10 @@ async function askGemini(prompt: string, image?: { mimeType: string; data: strin
     headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: "application/json" } }),
   });
-  if (!response.ok) throw new Error(`AI API trả về HTTP ${response.status}`);
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`AI API trả về HTTP ${response.status}: ${errorText.substring(0, 150)}`);
+  }
   const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("");
   if (!text) throw new Error("AI không trả về kết quả");
