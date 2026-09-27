@@ -1,32 +1,7 @@
 import { Request, Response } from "express";
 import { Product } from "../models/Product";
-import { PlatformFeeConfig } from "../models/PlatformFeeConfig";
+import { User } from "../models/User";
 import { Order } from "../models/Order";
-
-// ── GET /api/admin/stats ─────────────────────────────────────────────────────
-export const getStats = async (_req: Request, res: Response): Promise<void> => {
-  try {
-    const pendingSellersCount = await import("../models/User").then(m => m.User.countDocuments({ sellerStatus: "PENDING" }));
-    const pendingListingsCount = await Product.countDocuments({ status: "pending" });
-    const totalOrders = await Order.countDocuments();
-    
-    // Revenue from COMPLETED orders
-    const completedOrders = await Order.find({ status: "COMPLETED" }).lean();
-    const totalRevenue = completedOrders.reduce((sum, o) => sum + (o.platformFeeAmount || 0), 0);
-    const totalTransactionValue = completedOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-
-    res.json({
-      pendingSellers: pendingSellersCount,
-      pendingListings: pendingListingsCount,
-      totalOrders,
-      totalRevenue,
-      totalTransactionValue
-    });
-  } catch (err) {
-    console.error("[admin] getStats error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
-};
 
 // ── GET /api/admin/pending-listings ───────────────────────────────────────────
 export const getPendingListings = async (_req: Request, res: Response): Promise<void> => {
@@ -110,76 +85,48 @@ export const rejectListing = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-// ── GET /api/admin/platform-fee ──────────────────────────────────────────────
-export const getPlatformFee = async (_req: Request, res: Response): Promise<void> => {
-  try {
-    const configs = await PlatformFeeConfig.find().sort({ effectiveFrom: -1 }).lean();
-    res.json({ configs });
-  } catch (err) {
-    console.error("[admin] getPlatformFee error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
-};
 // ── GET /api/admin/pending-sellers ───────────────────────────────────────────
 export const getPendingSellers = async (_req: Request, res: Response): Promise<void> => {
   try {
-    const users = await import("../models/User").then(m => m.User).then(User => User.find({ sellerStatus: "PENDING" }).lean());
-    res.json({ users: users.map(u => ({
+    const users = await User.find({ "sellerProfile.status": "pending_approval" }).lean();
+    
+    const mapped = users.map((u: any) => ({
       id: u._id.toString(),
       name: u.name,
       email: u.email,
-      shopName: u.sellerProfile?.shopName || "",
+      shopName: u.sellerProfile?.shopName || u.name,
       description: u.sellerProfile?.description || "",
-      createdAt: u.createdAt,
-      status: u.sellerStatus,
-    }))});
+      status: u.sellerProfile?.status,
+    }));
+
+    res.json({ users: mapped });
   } catch (err) {
     console.error("[admin] getPendingSellers error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };
 
-// ── POST /api/admin/platform-fee ─────────────────────────────────────────────
-export const setPlatformFee = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { rate, effectiveFrom } = req.body;
-    
-    // Deactivate current active config
-    await PlatformFeeConfig.updateMany({ active: true }, { active: false });
-    
-    // Create new config
-    const newConfig = await PlatformFeeConfig.create({
-      rate,
-      effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : new Date(),
-      active: true,
-      createdBy: req.user?.id,
-    });
-    
-    res.json({ config: newConfig });
-  } catch (err) {
-    console.error("[admin] setPlatformFee error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
-};
 // ── PATCH /api/admin/sellers/:id/approve ─────────────────────────────────────
 export const approveSeller = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const User = await import("../models/User").then(m => m.User);
     const user = await User.findById(id);
+
     if (!user) {
       res.status(404).json({ error: "Người dùng không tồn tại" });
       return;
     }
-    user.sellerStatus = "APPROVED";
-    if (user.sellerProfile) {
-      user.sellerProfile.status = "active";
-    }
+
     if (!user.roles.includes("seller")) {
       user.roles.push("seller");
     }
+    
+    if (user.sellerProfile) {
+      user.sellerProfile.status = "active";
+    }
+
     await user.save();
-    res.json({ user });
+    res.json({ success: true, message: "Đã duyệt người bán" });
   } catch (err) {
     console.error("[admin] approveSeller error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
@@ -190,17 +137,49 @@ export const approveSeller = async (req: Request, res: Response): Promise<void> 
 export const rejectSeller = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const User = await import("../models/User").then(m => m.User);
     const user = await User.findById(id);
+
     if (!user) {
       res.status(404).json({ error: "Người dùng không tồn tại" });
       return;
     }
-    user.sellerStatus = "REJECTED";
+
+    if (user.sellerProfile) {
+      user.sellerProfile.status = "suspended";
+    }
+
     await user.save();
-    res.json({ user });
+    res.json({ success: true, message: "Đã từ chối người bán" });
   } catch (err) {
     console.error("[admin] rejectSeller error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
+// ── GET /api/admin/stats ─────────────────────────────────────────────────────
+export const getStats = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pendingListings = await Product.countDocuments({ status: "pending" });
+    const pendingSellers = await User.countDocuments({ "sellerProfile.status": "pending_approval" });
+    const orders = await Order.find({ status: { $in: ["CONFIRMED", "SHIPPING", "DELIVERING", "DELIVERED", "COMPLETED"] } }).lean();
+    
+    let totalC2CRevenue = 0;
+    for (const order of orders) {
+      totalC2CRevenue += order.total;
+    }
+    
+    // Estimate 10% commission
+    const platformProfit = Math.round(totalC2CRevenue * 0.1);
+
+    res.json({
+      stats: {
+        pendingListings,
+        pendingSellers,
+        platformProfit,
+      }
+    });
+  } catch (err) {
+    console.error("[admin] getStats error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };

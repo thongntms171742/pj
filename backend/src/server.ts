@@ -3,7 +3,6 @@ dotenv.config();
 
 import mongoose from "mongoose";
 import app from "./app";
-import { startReservationCleanupJob } from "./jobs/reservationCleanup";
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 const MONGODB_URI = process.env.MONGODB_URI || "";
@@ -18,9 +17,6 @@ async function start() {
     console.log("⏳ Connecting to MongoDB Atlas...");
     await mongoose.connect(MONGODB_URI);
     console.log("✅ Connected to MongoDB Atlas");
-
-    // Start background jobs
-    startReservationCleanupJob();
 
     app.listen(PORT, () => {
       console.log(`🚀 Backend server running on http://localhost:${PORT}`);

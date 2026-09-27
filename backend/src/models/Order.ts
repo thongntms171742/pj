@@ -46,11 +46,11 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 // Valid transitions from each status
 export const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   PENDING_PAYMENT: ["PAID", "CONFIRMED", "CANCELLED"],
-  PAID: ["CONFIRMED", "CANCELLED", "REFUNDED"],
+  PAID: ["CONFIRMED", "PACKING", "CANCELLED", "REFUNDED"],
   CONFIRMED: ["PACKING", "SHIPPING", "CANCELLED"],
   PACKING: ["SHIPPING", "CANCELLED"],
-  SHIPPING: ["DELIVERING", "CANCELLED"],
-  DELIVERING: ["DELIVERED"],
+  SHIPPING: ["DELIVERING", "DELIVERED", "CANCELLED"],
+  DELIVERING: ["DELIVERED", "COMPLETED"],
   DELIVERED: ["COMPLETED", "DISPUTED"],
   COMPLETED: [],
   CANCELLED: [],
@@ -120,9 +120,7 @@ export interface IOrder extends Document {
   items: IOrderItem[];
   subtotal: number;
   shippingFee: number;
-  platformFeeRate: number;
-  platformFeeAmount: number;
-  sellerAmount: number;
+  platformFee: number;
   discount: number;
   totalAmount: number;
   status: OrderStatus;
@@ -151,9 +149,7 @@ const OrderSchema = new Schema<IOrder>(
     items: { type: [OrderItemSchema], required: true },
     subtotal: { type: Number, default: 0 },
     shippingFee: { type: Number, default: 30000 },
-    platformFeeRate: { type: Number, default: 0.1 },
-    platformFeeAmount: { type: Number, default: 0 },
-    sellerAmount: { type: Number, default: 0 },
+    platformFee: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
     status: {

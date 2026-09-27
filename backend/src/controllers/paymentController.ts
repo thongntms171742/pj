@@ -1,19 +1,8 @@
 import { Request, Response } from "express";
-import mongoose from "mongoose";
 import { Order } from "../models/Order";
 import { Product } from "../models/Product";
 import { Notification } from "../models/Notification";
-import { Ledger } from "../models/Ledger";
 import { mapOrder } from "./orderController";
-
-function isWriteConflict(err: any): boolean {
-  return (
-    err?.code === 112 ||
-    err?.codeName === "WriteConflict" ||
-    Boolean(err?.errorLabels?.includes?.("TransientTransactionError")) ||
-    Boolean(err?.errorLabelSet?.has?.("TransientTransactionError"))
-  );
-}
 
 // ── POST /api/payments/checkout ───────────────────────────────────────────────
 // Mock payment: advances order from PENDING_PAYMENT → PAID → CONFIRMED,
@@ -21,7 +10,7 @@ function isWriteConflict(err: any): boolean {
 export const checkout = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
-    const { orderId, method = "card", cardLast4 = "1234", idempotencyKey } = req.body;
+    const { orderId, method = "card", cardLast4 = "1234" } = req.body;
 
     if (!orderId) {
       res.status(400).json({ error: "orderId is required" });
@@ -33,260 +22,123 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
     const orFilter: any[] = [{ orderCode: idStr }];
     if (isObjectId) orFilter.push({ _id: idStr });
 
-    const maxRetries = 3;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const session = await mongoose.startSession();
-      session.startTransaction();
+    const order = await Order.findOne({
+      $or: orFilter,
+      buyerId: userId,
+    });
 
-      try {
-      // Find order without locking just to check existence/already paid
-      let order = await Order.findOne({ $or: orFilter, buyerId: userId }).session(session);
-      
-      if (!order) {
-        res.status(404).json({ error: "Không tìm thấy đơn hàng" });
-        await session.abortTransaction();
-        session.endSession();
-        return;
-      }
-
-      if (order.status === "PAID" || order.status === "CONFIRMED") {
-        res.json({ order: mapOrder(order) });
-        await session.abortTransaction();
-        session.endSession();
-        return;
-      }
-
-      if (order.status !== "PENDING_PAYMENT") {
-        res.status(422).json({
-          error: `Đơn hàng đang ở trạng thái ${order.status}, không thể thanh toán`,
-        });
-        await session.abortTransaction();
-        session.endSession();
-        return;
-      }
-
-      // Check reservation expiry before proceeding
-      for (const item of order.items) {
-        const product = await Product.findById(item.productId).session(session);
-        if (
-          !product || 
-          product.status !== "reserved" || 
-          product.reservedByOrderId?.toString() !== order._id.toString() ||
-          (product.reservedUntil && new Date(product.reservedUntil).getTime() < Date.now())
-        ) {
-          order.status = "CANCELLED";
-          order.statusHistory.push({
-            status: "CANCELLED",
-            by: "system",
-            at: new Date(),
-            reason: "Hết thời gian giữ hàng, đơn hàng đã bị hủy",
-          });
-          await order.save({ session });
-          res.status(400).json({ error: "Đơn hàng đã hết hạn thanh toán (quá 30 phút). Vui lòng đặt hàng lại." });
-          await session.commitTransaction();
-          session.endSession();
-          return;
-        }
-      }
-
-      // Atomic update to prevent race conditions
-      const paymentId = idempotencyKey || `PAY-${order.orderCode}-${Date.now()}`;
-      
-      order = await Order.findOneAndUpdate(
-        { _id: order._id, status: "PENDING_PAYMENT" },
-        {
-          $set: {
-            status: "CONFIRMED",
-            paymentMethod: method || "card",
-            paymentId,
-            paidAt: new Date()
-          },
-          $push: {
-            statusHistory: {
-              $each: [
-                {
-                  status: "PAID",
-                  by: "payment_gateway",
-                  at: new Date(),
-                  reason: `Thanh toán thành công qua ${method} (thẻ *${cardLast4})`
-                },
-                {
-                  status: "CONFIRMED",
-                  by: "system",
-                  at: new Date(),
-                  reason: "Hệ thống tự động xác nhận đơn hàng sau khi thanh toán"
-                }
-              ]
-            }
-          }
-        },
-        { new: true, session }
-      );
-
-      if (!order) {
-        // If order became null, it means status changed concurrently
-        res.status(409).json({ error: "Trạng thái đơn hàng đã thay đổi, vui lòng thử lại" });
-        await session.abortTransaction();
-        session.endSession();
-        return;
-      }
-
-      // Create Ledger entries
-      const feeAmt = order.platformFeeAmount || 0;
-      const sellerPayable = order.totalAmount - feeAmt;
-
-      await Ledger.create([{
-        transactionId: order.paymentId,
-        orderId: order._id,
-        orderCode: order.orderCode,
-        description: `Thanh toán online thành công cho đơn hàng ${order.orderCode}`,
-        entries: [
-          { account: "PLATFORM_CASH", type: "DR", amount: order.totalAmount },
-          { account: "BUYER_CLEARING", type: "CR", amount: order.totalAmount },
-          { account: "BUYER_CLEARING", type: "DR", amount: feeAmt },
-          { account: "PLATFORM_REVENUE", type: "CR", amount: feeAmt },
-          { account: "BUYER_CLEARING", type: "DR", amount: sellerPayable },
-          { account: "SELLER_PAYABLE", type: "CR", amount: sellerPayable },
-        ]
-      }], { session });
-
-      // Deduct stock for all purchased items
-      for (const item of order.items) {
-        const product = await Product.findById(item.productId).session(session);
-        if (product) {
-          product.quantity = Math.max(0, product.quantity - item.quantity);
-          if (product.quantity === 0) {
-            product.status = "sold";
-          } else {
-            product.status = "active";
-          }
-          product.reservedUntil = null;
-          product.reservedByOrderId = null;
-          await product.save({ session });
-        }
-      }
-
-      // Notify buyer
-      await Notification.create([{
-        userId,
-        type: "order",
-        title: "Thanh toán thành công",
-        message: `Đơn hàng ${order.orderCode} đã thanh toán thành công. Shop sẽ chuẩn bị hàng.`,
-      }], { session });
-
-      // Notify sellers
-      const sellerIds = Array.from(new Set(order.items.map((it) => it.sellerId.toString())));
-      for (const sId of sellerIds) {
-        await Notification.create([{
-          userId: sId,
-          type: "order",
-          title: "Đơn hàng mới đã thanh toán",
-          message: `Đơn hàng #${order.orderCode} đã thanh toán và chờ giao hàng. Hãy chuẩn bị hàng và tạo vận đơn!`,
-        }], { session });
-      }
-
-      await session.commitTransaction();
-      session.endSession();
-      res.json({ order: mapOrder(order) });
-      return;
-    } catch (err: any) {
-      if (session.inTransaction()) {
-        await session.abortTransaction();
-      }
-      session.endSession();
-
-      if (isWriteConflict(err) && attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
-        continue;
-      }
-
-      console.error("[payments] checkout error:", err);
-      res.status(500).json({ error: "Lỗi hệ thống" });
-      return;
-    }
-  }
-  } catch (err) {
-    console.error("[payments] checkout outer error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
-};
-
-// ── POST /api/payments/:code/cod-collect ──────────────────────────────────────────
-// Mock COD payment collection by carrier/admin
-export const codCollect = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const code = req.params.code as string;
-    const isObjectId = /^[0-9a-fA-F]{24}$/.test(code);
-    const filter = isObjectId ? { $or: [{ _id: code }, { orderCode: code }] } : { orderCode: code };
-
-    // Actor authorization: Only Admin or mock shipper (we'll just use Admin for MVP)
-    const isAdmin = req.user?.roles?.includes("admin");
-    if (!isAdmin) {
-      res.status(403).json({ error: "Chỉ Admin/Đơn vị vận chuyển mới có quyền thu tiền COD" });
-      return;
-    }
-
-    const order = await Order.findOne(filter);
     if (!order) {
       res.status(404).json({ error: "Không tìm thấy đơn hàng" });
       return;
     }
 
-    if (order.paymentMethod?.toUpperCase() !== "COD") {
-      res.status(400).json({ error: "Đơn hàng này không phải là đơn COD" });
+    // If order was already paid or confirmed, return current state idempotently
+    if (order.status === "PAID" || order.status === "CONFIRMED") {
+      res.json({ order: mapOrder(order) });
       return;
     }
 
-    if (order.status !== "DELIVERED" && order.status !== "COMPLETED") {
-      res.status(400).json({ error: "Chỉ thu tiền COD khi đơn hàng đã giao (DELIVERED/COMPLETED)" });
+    if (order.status !== "PENDING_PAYMENT") {
+      res.status(422).json({
+        error: `Đơn hàng đang ở trạng thái ${order.status}, không thể thanh toán`,
+      });
       return;
     }
 
-    // Idempotency check using Ledger
-    const existingLedger = await Ledger.findOne({ transactionId: `COD-COLLECT-${order.orderCode}` });
-    if (existingLedger || order.paidAt) {
-      res.json({ message: "Đã thu tiền COD cho đơn hàng này trước đó", order: mapOrder(order) });
-      return;
+    // Verify reservations are still valid
+    const now = new Date();
+    for (const item of order.items) {
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        res.status(400).json({ error: `Sản phẩm ${item.productName} không tồn tại` });
+        return;
+      }
+      
+      // If product is no longer reserved by this order, or reservation expired
+      const isReservedByThisOrder = product.reservedByOrderId?.toString() === order._id.toString();
+      const isReservationValid = product.reservedUntil && product.reservedUntil > now;
+      
+      if (!isReservedByThisOrder || !isReservationValid) {
+        res.status(409).json({ 
+          error: `Phiên giữ chỗ cho sản phẩm ${product.title} đã hết hạn. Vui lòng đặt hàng lại.` 
+        });
+        return;
+      }
     }
 
-    const feeAmt = order.platformFeeAmount || 0;
-    const sellerPayable = order.totalAmount - feeAmt;
-
-    await Ledger.create({
-      transactionId: `COD-COLLECT-${order.orderCode}`,
-      orderId: order._id,
-      orderCode: order.orderCode,
-      description: `Thu tiền COD cho đơn hàng ${order.orderCode}`,
-      entries: [
-        { account: "PLATFORM_CASH", type: "DR", amount: order.totalAmount },
-        { account: "BUYER_CLEARING", type: "CR", amount: order.totalAmount },
-        
-        { account: "BUYER_CLEARING", type: "DR", amount: feeAmt },
-        { account: "PLATFORM_REVENUE", type: "CR", amount: feeAmt },
-        
-        { account: "BUYER_CLEARING", type: "DR", amount: sellerPayable },
-        { account: "SELLER_PAYABLE", type: "CR", amount: sellerPayable },
-      ]
-    });
-
-    order.paidAt = new Date();
-    order.paymentId = `COD-COLLECT-${order.orderCode}`;
+    // Process payment simulation
+    order.paymentMethod = method || "card";
     
-    order.statusHistory.push({
-      status: order.status,
-      by: req.user?.email || "admin",
-      at: new Date(),
-      reason: "Đã ghi nhận thu tiền mặt (COD) thành công",
-    });
+    if (method === "COD") {
+      order.status = "CONFIRMED";
+      order.statusHistory.push({
+        status: "CONFIRMED",
+        by: "system",
+        at: new Date(),
+        reason: "Xác nhận đơn hàng thanh toán khi nhận hàng (COD)",
+      });
+    } else {
+      order.paymentId = `PAY-${Date.now()}`;
+      order.paidAt = new Date();
+
+      order.status = "PAID";
+      order.statusHistory.push({
+        status: "PAID",
+        by: "payment_gateway",
+        at: new Date(),
+        reason: `Thanh toán thành công qua ${method} (thẻ *${cardLast4})`,
+      });
+
+      // Advance to CONFIRMED
+      order.status = "CONFIRMED";
+      order.statusHistory.push({
+        status: "CONFIRMED",
+        by: "system",
+        at: new Date(),
+        reason: "Hệ thống tự động xác nhận đơn hàng sau khi thanh toán",
+      });
+    }
 
     await order.save();
 
-    res.json({ 
-      order: mapOrder(order),
-      message: "Thu tiền COD thành công và đã ghi nhận vào sổ cái (ledger)."
+    // Deduct stock for all purchased items
+    for (const item of order.items) {
+      const product = await Product.findById(item.productId);
+      if (product) {
+        product.quantity = Math.max(0, product.quantity - item.quantity);
+        if (product.quantity === 0) {
+          product.status = "sold";
+        } else {
+          product.status = "active";
+        }
+        product.reservedUntil = null;
+        product.reservedByOrderId = null;
+        await product.save();
+      }
+    }
+
+    // Notify buyer
+    await Notification.create({
+      userId,
+      type: "order",
+      title: "Thanh toán thành công",
+      message: `Đơn hàng ${order.orderCode} đã thanh toán thành công. Shop sẽ chuẩn bị hàng.`,
     });
+
+    // Notify sellers
+    const sellerIds = Array.from(new Set(order.items.map((it) => it.sellerId.toString())));
+    for (const sId of sellerIds) {
+      await Notification.create({
+        userId: sId,
+        type: "order",
+        title: "Đơn hàng mới đã thanh toán",
+        message: `Đơn hàng #${order.orderCode} đã thanh toán và chờ giao hàng. Hãy chuẩn bị hàng và tạo vận đơn!`,
+      });
+    }
+
+    res.json({ order: mapOrder(order) });
   } catch (err) {
-    console.error("codCollect error:", err);
+    console.error("[payments] checkout error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };

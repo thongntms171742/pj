@@ -2,10 +2,10 @@ import { Router } from "express";
 import {
   getProducts,
   getMyProducts,
+  getProductById,
   createProduct,
   updateProduct,
   archiveProduct,
-  getProductById,
 } from "../controllers/productController";
 import { createReview, getProductReviews } from "../controllers/reviewController";
 import { requireAuth } from "../middleware/auth";
