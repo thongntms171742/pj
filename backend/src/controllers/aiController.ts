@@ -4,9 +4,8 @@ import { Category } from "../models/Category";
 import { Product } from "../models/Product";
 import { mapProduct } from "./productController";
 
-
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
-
+// Đổi fallback mặc định sang model đang hoạt động chuẩn
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 async function askGemini(prompt: string, image?: { mimeType: string; data: string }): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -15,15 +14,19 @@ async function askGemini(prompt: string, image?: { mimeType: string; data: strin
   const parts: Array<Record<string, unknown>> = [];
   if (image) parts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
   parts.push({ text: prompt });
+
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: "application/json" } }),
   });
+
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`AI API trả về HTTP ${response.status}: ${errorText.substring(0, 150)}`);
+    // Bỏ substring hoặc tăng lên 1000 ký tự để không bị cụt thông báo gợi ý của Google
+    throw new Error(`AI API trả về HTTP ${response.status}: ${errorText.substring(0, 1000)}`);
   }
+
   const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("");
   if (!text) throw new Error("AI không trả về kết quả");
