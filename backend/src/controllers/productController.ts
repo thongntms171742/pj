@@ -177,6 +177,12 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    let finalCategoryId = categoryId;
+    if (!finalCategoryId && req.body.category) {
+      const catDoc = await mongoose.model("Category").findOne({ name: req.body.category });
+      if (catDoc) finalCategoryId = catDoc._id;
+    }
+
     const product = await Product.create({
       title: productTitle,
       description: description || "",
@@ -187,7 +193,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       status: "pending",
       coverImage: productImage,
       sellerId: userId,
-      categoryId: categoryId || null,
+      categoryId: finalCategoryId || null,
     });
 
     const populated = await Product.findById(product._id)
