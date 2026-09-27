@@ -179,7 +179,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
 
     let finalCategoryId = categoryId;
     if (!finalCategoryId && req.body.category) {
-      const catDoc = await mongoose.model("Category").findOne({ name: req.body.category });
+      const catDoc = await Category.findOne({ name: req.body.category });
       if (catDoc) finalCategoryId = catDoc._id;
     }
 
