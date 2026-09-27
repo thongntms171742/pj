@@ -6,7 +6,7 @@ import { mapProduct } from "./productController";
 export function mapSeller(u: any) {
   const sp = u.sellerProfile || {};
   const shopName = sp.shopName || u.name || "";
-  const avatarUrl = sp.avatarUrl || "";
+  const avatarUrl = sp.avatarUrl || u.avatarUrl || "";
   const coverImages = sp.coverImages || [];
   const totalTransactions = sp.totalTransactions ?? 0;
   const handle = sp.handle || u.email?.split("@")[0] || "";
