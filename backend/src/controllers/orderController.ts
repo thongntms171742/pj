@@ -425,7 +425,7 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
         return;
       }
     } else if (nextStatus === "DELIVERING" || nextStatus === "DELIVERED") {
-      if (!isAdmin) {
+      if (!isAdmin && !isSeller) {
         res.status(403).json({ error: "Chỉ đơn vị vận chuyển hoặc Admin mới có quyền cập nhật trạng thái này" });
         return;
       }
