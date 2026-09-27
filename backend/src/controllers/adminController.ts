@@ -165,7 +165,7 @@ export const getStats = async (_req: Request, res: Response): Promise<void> => {
     
     let totalC2CRevenue = 0;
     for (const order of orders) {
-      totalC2CRevenue += order.total;
+      totalC2CRevenue += order.totalAmount;
     }
     
     // Estimate 10% commission

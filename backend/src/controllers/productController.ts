@@ -216,3 +216,58 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };
+
+// ── PATCH /api/products/:id ───────────────────────────────────────────────────
+export const updateProduct = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const updateData = req.body;
+
+    const product = await Product.findOneAndUpdate(
+      { _id: id, sellerId: userId },
+      updateData,
+      { new: true }
+    )
+      .populate({ path: "sellerId", select: "name email sellerProfile" })
+      .populate({ path: "categoryId", select: "name slug" })
+      .lean();
+
+    if (!product) {
+      res.status(404).json({ error: "Sản phẩm không tồn tại hoặc không có quyền sửa" });
+      return;
+    }
+
+    res.json({ product: mapProduct(product) });
+  } catch (err) {
+    console.error("[products] updateProduct error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
+
+// ── PATCH /api/products/:id/archive ───────────────────────────────────────────
+export const archiveProduct = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+
+    const product = await Product.findOneAndUpdate(
+      { _id: id, sellerId: userId },
+      { status: "archived" },
+      { new: true }
+    )
+      .populate({ path: "sellerId", select: "name email sellerProfile" })
+      .populate({ path: "categoryId", select: "name slug" })
+      .lean();
+
+    if (!product) {
+      res.status(404).json({ error: "Sản phẩm không tồn tại hoặc không có quyền lưu trữ" });
+      return;
+    }
+
+    res.json({ product: mapProduct(product) });
+  } catch (err) {
+    console.error("[products] archiveProduct error:", err);
+    res.status(500).json({ error: "Lỗi hệ thống" });
+  }
+};
