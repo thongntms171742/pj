@@ -573,6 +573,10 @@ export default function App() {
           shippingAddress: address,
           paymentMethod,
           idempotencyKey,
+          items: orderItems.map(item => ({
+            productId: item.apiId || item.id,
+            quantity: item.qty || 1
+          })),
         });
         // replace optimistic order with server one
         const serverOrder = adaptOrder(res.order);
