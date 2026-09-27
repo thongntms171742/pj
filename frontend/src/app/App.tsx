@@ -139,7 +139,7 @@ export default function App() {
         console.error("Lỗi tải sản phẩm:", err);
       })
       .finally(() => setProductsLoading(false));
-  }, []);
+  }, [session?.token]);
 
   // ── Hydrate cart + orders + seller dashboard when session is active ──
   useEffect(() => {
@@ -509,8 +509,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    setCurrentUser("Nguyễn Thanh Linh");
-    setCurrentEmail("linh.nguyen@gmail.com");
+    setCurrentUser("");
+    setCurrentEmail("");
     setCurrentRoles([]);
     setUserRole("buyer");
     setStoredSession(null);

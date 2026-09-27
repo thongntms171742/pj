@@ -13,8 +13,8 @@ import type { Screen, Order, OrderItem, SellerProduct, Shipment } from "../../ty
 export function AccountScreen({
   go,
   onLogout,
-  userName = "Nguyễn Thanh Linh",
-  userEmail = "linh.nguyen@gmail.com",
+  userName = "",
+  userEmail = "",
   orders = [],
   myProducts,
   setMyProducts,
