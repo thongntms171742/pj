@@ -38,9 +38,9 @@ export const createReview = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Check: order is COMPLETED
-    if (order.status !== "COMPLETED") {
-      res.status(400).json({ error: `Chỉ có thể đánh giá khi đơn hàng đã hoàn tất (hiện tại: ${order.status})` });
+    // Check: order is DELIVERED or COMPLETED
+    if (order.status !== "COMPLETED" && order.status !== "DELIVERED") {
+      res.status(400).json({ error: `Chỉ có thể đánh giá khi đơn hàng đã giao (hiện tại: ${order.status})` });
       return;
     }
 
@@ -74,6 +74,29 @@ export const createReview = async (req: Request, res: Response): Promise<void> =
         rating: Math.round(rating),
         comment: comment || "",
       });
+
+      // Update seller's average rating
+      const sellerId = order.items[0]?.sellerId;
+      if (sellerId) {
+        const { Product } = await import("../models/Product");
+        const { User } = await import("../models/User");
+        
+        const sellerProducts = await Product.find({ sellerId }).select("_id").lean();
+        const productIds = sellerProducts.map((p) => p._id);
+        
+        if (productIds.length > 0) {
+          const avgResult = await Review.aggregate([
+            { $match: { productId: { $in: productIds } } },
+            { $group: { _id: null, avg: { $avg: "$rating" } } },
+          ]);
+          
+          const newRating = avgResult.length > 0 ? Math.round(avgResult[0].avg * 10) / 10 : 5.0;
+          
+          await User.findByIdAndUpdate(sellerId, {
+            $set: { "sellerProfile.rating": newRating }
+          });
+        }
+      }
 
       res.status(201).json({ review });
     } catch (createErr: any) {
