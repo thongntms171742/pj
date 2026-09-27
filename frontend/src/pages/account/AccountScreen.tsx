@@ -943,8 +943,14 @@ export function AccountScreen({
                           <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${badge.bg} ${badge.color}`} style={{ borderColor: "currentColor" }}>{badge.label}</span>
                         </div>
                         <div className="flex items-center gap-4 mt-3">
-                          <span className="flex items-center gap-1 text-xs" style={{ color: COFFEE, ...ff }}><Eye size={13} /> {product.views} lượt xem</span>
-                          <span className="flex items-center gap-1 text-xs" style={{ color: COFFEE, ...ff }}><Heart size={13} /> {product.likes} lượt thích</span>
+                          <span className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: COFFEE, ...ff }}>
+                            <Star size={14} fill={product.avgRating ? "#E8A838" : "none"} stroke={product.avgRating ? "#E8A838" : MUTED} />
+                            {product.avgRating ? (
+                              <span>{product.avgRating.toFixed(1)} ({product.reviewCount} đánh giá)</span>
+                            ) : (
+                              <span style={{ color: MUTED }}>Chưa có đánh giá</span>
+                            )}
+                          </span>
                         </div>
                       </div>
                       <div className="flex gap-2 flex-shrink-0">

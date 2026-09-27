@@ -193,6 +193,8 @@ export function adaptToSellerProduct(p: ApiProduct, sellerHandle: string): Selle
     image: p.coverImage,
     views: p.views,
     likes: p.likes,
+    avgRating: (p as any).avgRating || 0,
+    reviewCount: (p as any).reviewCount || 0,
     createdAt: new Date().toLocaleDateString("vi-VN"),
     seller: sellerHandle,
   };

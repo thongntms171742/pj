@@ -115,6 +115,8 @@ export interface SellerProduct {
   image: string;
   views: number;
   likes: number;
+  avgRating?: number;
+  reviewCount?: number;
   createdAt: string;
   seller?: string;
 }
