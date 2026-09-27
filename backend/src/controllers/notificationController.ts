@@ -32,8 +32,17 @@ export const getNotifications = async (req: Request, res: Response): Promise<voi
 export const markAsRead = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    await Notification.findByIdAndUpdate(id, { isRead: true });
-    res.json({ success: true });
+    const userId = req.user!.id;
+    const notification = await Notification.findOneAndUpdate(
+      { _id: id, userId },
+      { isRead: true },
+      { new: true }
+    );
+    if (!notification) {
+      res.status(404).json({ error: "Không tìm thấy thông báo hoặc không có quyền" });
+      return;
+    }
+    res.json({ success: true, notification });
   } catch (err) {
     console.error("[notifications] markAsRead error:", err);
     res.status(500).json({ error: "Lỗi hệ thống" });

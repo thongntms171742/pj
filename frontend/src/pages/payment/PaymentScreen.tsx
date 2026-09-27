@@ -4,7 +4,7 @@ import { T, ESPRESSO, COFFEE, LINEN, CARD, MUTED, SOFT, serif, ff, fmt } from ".
 import type { Screen, CartGroup, OrderItem } from "../../types";
 
 // ── Payment Screen ──────────────────────────────────────────────────────────────
-export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Screen) => void; cartGroups: CartGroup[]; updateCart: (cart: CartGroup[]) => void; addOrder: (items: OrderItem[], total: number, payment: string, name?: string, phone?: string, address?: string) => Promise<boolean>; }) {
+export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s: Screen) => void; cartGroups: CartGroup[]; updateCart: (cart: CartGroup[]) => void; addOrder: (items: OrderItem[], total: number, payment: string, name?: string, phone?: string, address?: string) => Promise<string | boolean>; }) {
   const [step, setStep] = useState<"address" | "card" | "otp">("address");
   const [fullName, setFullName] = useState("Nguyễn Thanh Linh");
   const [phone, setPhone] = useState("0987654321");
@@ -18,7 +18,23 @@ export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [orderId, setOrderId] = useState("");
+  const [finalTotal, setFinalTotal] = useState(0);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [timeLeft, setTimeLeft] = useState(1800); // 30 minutes reservation timer
+
+  React.useEffect(() => {
+    if (step !== "otp") return;
+    const interval = setInterval(() => {
+      setTimeLeft(prev => prev > 0 ? prev - 1 : 0);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [step]);
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
 
   // Mock saved cards
   const savedCards = [
@@ -33,7 +49,8 @@ export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s
   const allItems = cartGroups.flatMap(g => g.items);
   const checkedItems = allItems.filter(i => i.checked);
   const subtotal = checkedItems.reduce((s, i) => s + i.price * i.qty, 0);
-  const ship = checkedItems.length > 0 ? 30000 : 0;
+  const checkedSellers = new Set(checkedItems.map(i => i.seller)).size;
+  const ship = checkedSellers * 30000;
   const total = subtotal + ship;
 
   const handleNextToPayment = () => {
@@ -101,13 +118,15 @@ export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s
     // Generate order ID
     const newOrderId = `ORD-${Date.now().toString().slice(-6)}`;
     setOrderId(newOrderId);
+    setFinalTotal(total);
 
     // Add order and clear cart
-    const success = await addOrder(orderItems, total, `${selectedCardData?.bank} ***${selectedCardData?.last4}`, fullName, phone, address);
-    if (!success) {
+    const realOrderId = await addOrder(orderItems, total, `${selectedCardData?.bank} ***${selectedCardData?.last4}`, fullName, phone, address);
+    if (!realOrderId) {
       setIsProcessing(false);
       return;
     }
+    setOrderId(typeof realOrderId === "string" ? realOrderId : newOrderId);
 
     const newCart = cartGroups.map(g => ({
       ...g,
@@ -140,13 +159,15 @@ export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s
     // Generate order ID
     const newOrderId = `ORD-${Date.now().toString().slice(-6)}`;
     setOrderId(newOrderId);
+    setFinalTotal(total);
 
     // Add order and clear cart
-    const success = await addOrder(orderItems, total, "COD", fullName, phone, address);
-    if (!success) {
+    const realOrderId = await addOrder(orderItems, total, "COD", fullName, phone, address);
+    if (!realOrderId) {
       setIsProcessing(false);
       return;
     }
+    setOrderId(typeof realOrderId === "string" ? realOrderId : newOrderId);
 
     const newCart = cartGroups.map(g => ({
       ...g,
@@ -207,7 +228,7 @@ export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s
             </div>
             <div className="flex justify-between items-center pt-2" style={{ borderTop: `1px dashed ${MUTED}` }}>
               <span className="text-sm font-bold" style={{ color: ESPRESSO, ...ff }}>Tổng thanh toán</span>
-              <span className="text-lg font-bold" style={{ ...serif, color: T }}>{fmt(total)}</span>
+              <span className="text-lg font-bold" style={{ ...serif, color: T }}>{fmt(finalTotal)}</span>
             </div>
           </div>
           <div className="flex gap-3">
@@ -514,12 +535,17 @@ export function PaymentScreen({ go, cartGroups, updateCart, addOrder }: { go: (s
                 </p>
               )}
 
-              <p className="text-xs" style={{ color: COFFEE, ...ff }}>
-                Mã có hiệu lực trong <strong>60 giây</strong>
-              </p>
+              <div className="flex flex-col items-center gap-1 mb-2">
+                <p className="text-xs" style={{ color: COFFEE, ...ff }}>
+                  Thời gian giữ hàng (Reservation):
+                </p>
+                <div className="text-2xl font-bold font-mono" style={{ color: timeLeft < 300 ? "#E74C3C" : ESPRESSO }}>
+                  {formatTime(timeLeft)}
+                </div>
+              </div>
 
-              <button className="mt-4 text-sm font-semibold" style={{ color: T, ...ff }}>
-                Gửi lại mã
+              <button className="mt-2 text-sm font-semibold transition-all hover:opacity-80" style={{ color: T, ...ff }}>
+                Gửi lại mã OTP qua SMS
               </button>
             </div>
 

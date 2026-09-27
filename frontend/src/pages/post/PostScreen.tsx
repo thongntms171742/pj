@@ -197,6 +197,11 @@ export function PostScreen({ go, onAddProduct }: { go: (s: Screen) => void; onAd
                       </span>
                     )}
                   </div>
+                  {price && Number(price) > 0 && (
+                    <p className="text-[10px] mt-1.5 font-medium" style={{ color: COFFEE, ...ff }}>
+                      Thực nhận: <strong style={{ color: T }}>{fmt(Math.floor(Number(price) * 0.95))}</strong> (đã trừ 5% phí nền tảng)
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-bold block mb-1.5" style={{ color: COFFEE, ...ff }}>Số lượng *</label>

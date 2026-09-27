@@ -102,6 +102,9 @@ export default function App() {
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
   const [activeTag, setActiveTag] = useState<string>("");
   const [headerQuery, setHeaderQuery] = useState<string>("");
+  const [currentShopName, setCurrentShopName] = useState<string>("");
+  const [currentShopAvatar, setCurrentShopAvatar] = useState<string>("");
+  const [currentShopRating, setCurrentShopRating] = useState<number>(5);
   const [userRole, setUserRole] = useState<"buyer" | "seller">(() => {
     const saved = getStoredString(STORAGE_KEYS.userRole);
     if (saved === "buyer" || saved === "seller") return saved;
@@ -167,6 +170,30 @@ export default function App() {
         setUnreadNotifications(res.notifications.filter((n) => !n.isRead).length);
       })
       .catch(() => {});
+
+    if (currentRoles.includes("seller")) {
+      api
+        .get<{ products: import("../lib/api").ApiProduct[] }>("/products/mine")
+        .then((res) => {
+          const sellerProds: SellerProduct[] = res.products.map((p) =>
+            adaptToSellerProduct(p, p.sellerId?.handle ?? "")
+          );
+          setMyProductsByEmail((prev) => ({
+            ...prev,
+            [currentEmail]: sellerProds,
+          }));
+        })
+        .catch(() => {});
+
+      api
+        .get<{ seller: import("../types").Seller }>("/sellers/me")
+        .then((res) => {
+          setCurrentShopName(res.seller.name);
+          setCurrentShopAvatar(res.seller.avatar || "");
+          setCurrentShopRating(res.seller.rating || 5);
+        })
+        .catch(() => {});
+    }
 
     if (currentRoles.includes("admin")) {
       api
@@ -528,8 +555,8 @@ export default function App() {
     removeStored(STORAGE_KEYS.orders);
     removeStored(STORAGE_KEYS.userRole);
 
-    // Reset to empty — products will reload from API on next mount, cart/orders are server-driven per session.
-    setProducts([]);
+    // Reset to empty — cart/orders are server-driven per session.
+    // We intentionally don't clear setProducts([]) here so the home page keeps showing public listings.
     setOrders([]);
     setCartGroups([]);
     setMyProductsByEmail({});
@@ -597,19 +624,25 @@ export default function App() {
             method: paymentMethod === "COD" ? "COD" : "card",
             cardLast4: paymentMethod === "COD" ? "" : paymentMethod.slice(-4),
           });
+          const finalStatus = paymentMethod === "COD" ? "CONFIRMED" : "PAID";
+          setOrders((prev) => prev.map(o => o.id === serverOrder.id ? { ...o, status: finalStatus } : o));
           showToast(`✓ Đơn ${serverOrder.id} đã ${paymentMethod === "COD" ? "được xác nhận" : "thanh toán và chờ shop xác nhận"}`);
+          return serverOrder.id;
         } catch (payErr) {
           const msg = payErr instanceof ApiError ? payErr.message : "thanh toán thất bại";
           showToast(`⚠️ Đơn đã tạo nhưng thanh toán lỗi: ${msg}`);
+          return serverOrder.id;
         }
       } catch (err) {
         const msg = err instanceof ApiError ? err.message : "Không kết nối được backend";
         showToast(`⚠️ Đơn đã tạo offline: ${msg}`);
+        return localOrder.id;
       }
     }
+    return localOrder.id;
   };
 
-  const handleUpdateOrderStatus = (orderId: string, nextStatus: Order["status"]) => {
+  const handleUpdateOrderStatus = (orderId: string, nextStatus: Order["status"], skipApi = false) => {
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o)));
 
     let msg = "";
@@ -618,7 +651,7 @@ export default function App() {
     else if (nextStatus === "COMPLETED") msg = "Cảm ơn bạn đã gửi đánh giá sản phẩm!";
     if (msg) showToast(msg);
 
-    if (session?.token) {
+    if (session?.token && !skipApi) {
       api
         .patch(`/orders/${orderId}/status`, { status: nextStatus })
         .catch((err) => {
@@ -733,7 +766,9 @@ export default function App() {
               <AccountScreen
                 go={go}
                 onLogout={handleLogout}
-                userName={currentUser}
+                userName={userRole === "seller" && currentShopName ? currentShopName : currentUser}
+                userAvatar={userRole === "seller" && currentShopAvatar ? currentShopAvatar : undefined}
+                userRating={userRole === "seller" ? currentShopRating : undefined}
                 userEmail={currentEmail}
                 orders={orders}
                 myProducts={myProducts}

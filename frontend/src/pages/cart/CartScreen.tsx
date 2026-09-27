@@ -32,7 +32,8 @@ export function CartScreen({
 
   const subtotal = checkedItems.reduce((s, i) => s + i.price * i.qty, 0);
   const discount = promoApplied ? Math.round(subtotal * 0.1) : 0;
-  const ship = checkedItems.length > 0 ? 30000 : 0;
+  const checkedSellers = new Set(checkedItems.map(i => i.seller)).size;
+  const ship = checkedSellers * 30000;
   const total = subtotal - discount + ship;
 
   const toggleAll = () => {
