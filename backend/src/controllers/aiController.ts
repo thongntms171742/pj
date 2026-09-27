@@ -7,6 +7,7 @@ import { mapProduct } from "./productController";
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 
+
 async function askGemini(prompt: string, image?: { mimeType: string; data: string }): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY chưa được cấu hình trên backend");
