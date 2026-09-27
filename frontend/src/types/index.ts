@@ -194,3 +194,16 @@ export type ShipmentStatus =
   | "RETURNED"
   | "CANCELLED"
   | "FAILED";
+
+export interface Address {
+  id: string; // From backend _id
+  label: string;
+  name: string;
+  phone: string;
+  province: string;
+  district: string;
+  ward: string;
+  detail: string;
+  isDefault: boolean;
+  type: "delivery" | "warehouse";
+}

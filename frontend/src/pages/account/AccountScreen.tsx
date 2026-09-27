@@ -7,7 +7,7 @@ import {
 import { T, ESPRESSO, COFFEE, LINEN, CARD, MUTED, SOFT, serif, ff, fmt } from "../../lib/theme";
 import { getOrderTabStatus } from "../../lib/adapters";
 import { api } from "../../lib/api";
-import type { Screen, Order, OrderItem, SellerProduct, Shipment } from "../../types";
+import type { Screen, Order, OrderItem, SellerProduct, Shipment, Address } from "../../types";
 
 // ── Account Screen ──────────────────────────────────────────────────────────────
 export function AccountScreen({
@@ -58,11 +58,75 @@ export function AccountScreen({
   }, [userRole]);
 
   // ── Quản lý địa chỉ ───────────────────────────────────────────────────────
-  const [addresses, setAddresses] = useState([
-    { id: 1, label: "Nhà riêng", name: "Nguyễn Thanh Linh", phone: "0909XXX123", province: "TP. Hồ Chí Minh", district: "Quận 10", detail: "123 Đường Nguyễn Trãi", isDefault: true, type: "delivery" },
-    { id: 2, label: "Văn phòng", name: "Nguyễn Thanh Linh", phone: "0909XXX123", province: "TP. Hồ Chí Minh", district: "Quận 3", detail: "456 Đường Lý Thường Kiệt", isDefault: false, type: "delivery" },
-    { id: 3, label: "Kho chính", name: "Kho Của Linh", phone: "0909000000", province: "TP. Hồ Chí Minh", district: "Quận 1", detail: "12 Lê Lợi", isDefault: true, type: "warehouse" },
-  ]);
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [addressesLoading, setAddressesLoading] = useState(false);
+
+  const loadAddresses = useCallback(async () => {
+    setAddressesLoading(true);
+    try {
+      const res = await api.get<{ addresses: any[] }>("/addresses");
+      setAddresses(res.addresses.map(a => ({
+        id: a._id,
+        label: a.label,
+        name: a.name,
+        phone: a.phone,
+        province: a.province,
+        district: a.district,
+        ward: a.ward,
+        detail: a.detail,
+        isDefault: a.isDefault,
+        type: a.type
+      })));
+    } catch {
+      //
+    } finally {
+      setAddressesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAddresses();
+  }, [loadAddresses]);
+
+  const [addressDialog, setAddressDialog] = useState<{ open: boolean; editId?: string; type: "delivery" | "warehouse"; label: string; name: string; phone: string; province: string; district: string; detail: string; isDefault: boolean } | null>(null);
+
+  const handleSaveAddress = async () => {
+    if (!addressDialog) return;
+    try {
+      const payload = {
+        label: addressDialog.label,
+        name: addressDialog.name,
+        phone: addressDialog.phone,
+        province: addressDialog.province,
+        district: addressDialog.district,
+        ward: "",
+        detail: addressDialog.detail,
+        isDefault: addressDialog.isDefault,
+        type: addressDialog.type,
+      };
+      if (addressDialog.editId) {
+        await api.put(`/addresses/${addressDialog.editId}`, payload);
+      } else {
+        await api.post(`/addresses`, payload);
+      }
+      showToast?.("Đã lưu địa chỉ!");
+      setAddressDialog(null);
+      loadAddresses();
+    } catch (e: any) {
+      showToast?.(e.message || "Lỗi lưu địa chỉ");
+    }
+  };
+
+  const handleDeleteAddress = async (id: string) => {
+    if (!confirm("Bạn có chắc chắn muốn xoá địa chỉ này?")) return;
+    try {
+      await api.delete(`/addresses/${id}`);
+      showToast?.("Đã xoá địa chỉ");
+      loadAddresses();
+    } catch (e: any) {
+      showToast?.(e.message || "Lỗi xoá địa chỉ");
+    }
+  };
 
   // ── Seller orders (fetched when user switches to "selling" tab) ──
   const [sellerOrders, setSellerOrders] = useState<Order[]>([]);
@@ -1074,6 +1138,7 @@ export function AccountScreen({
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-xl font-bold" style={{ ...serif, color: ESPRESSO }}>Địa chỉ giao hàng</h2>
                 <button
+                  onClick={() => setAddressDialog({ open: true, type: "delivery", label: "Nhà riêng", name: userName || "", phone: "", province: "TP. Hồ Chí Minh", district: "", detail: "", isDefault: false })}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all hover:opacity-80"
                   style={{ backgroundColor: T, color: LINEN, ...ff }}
                 >
@@ -1081,8 +1146,12 @@ export function AccountScreen({
                   Thêm địa chỉ mới
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-4 mb-8">
-                {addresses.filter(a => a.type === "delivery").map((addr) => (
+              
+              {addressesLoading ? (
+                <div className="p-8 text-center" style={{ color: COFFEE }}>Đang tải địa chỉ...</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                  {addresses.filter(a => a.type === "delivery").map((addr) => (
                   <div key={addr.id} className="p-5 rounded-2xl" style={{ backgroundColor: CARD, border: `1px solid ${addr.isDefault ? T : MUTED}` }}>
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
@@ -1090,8 +1159,8 @@ export function AccountScreen({
                         {addr.isDefault && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: T + "18", color: T, ...ff }}>Mặc định</span>}
                       </div>
                       <div className="flex gap-2">
-                        <button className="text-xs font-semibold" style={{ color: COFFEE, ...ff }}>Sửa</button>
-                        {!addr.isDefault && <button className="text-xs font-semibold" style={{ color: "#E74C3C", ...ff }}>Xóa</button>}
+                        <button onClick={() => setAddressDialog({ open: true, editId: addr.id, type: addr.type, label: addr.label, name: addr.name, phone: addr.phone, province: addr.province, district: addr.district, detail: addr.detail, isDefault: addr.isDefault })} className="text-xs font-semibold" style={{ color: COFFEE, ...ff }}>Sửa</button>
+                        {!addr.isDefault && <button onClick={() => handleDeleteAddress(addr.id)} className="text-xs font-semibold" style={{ color: "#E74C3C", ...ff }}>Xóa</button>}
                       </div>
                     </div>
                     <p className="font-semibold text-sm" style={{ color: ESPRESSO, ...ff }}>{addr.name} · {addr.phone}</p>
@@ -1105,6 +1174,7 @@ export function AccountScreen({
                   <div className="flex items-center justify-between mb-5 border-t pt-8" style={{ borderColor: MUTED }}>
                     <h2 className="text-xl font-bold" style={{ ...serif, color: ESPRESSO }}>Địa chỉ kho lấy hàng</h2>
                     <button
+                      onClick={() => setAddressDialog({ open: true, type: "warehouse", label: "Kho chính", name: userName || "", phone: "", province: "TP. Hồ Chí Minh", district: "", detail: "", isDefault: false })}
                       className="flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all hover:opacity-80 border"
                       style={{ borderColor: T, color: T, ...ff }}
                     >
@@ -1121,8 +1191,8 @@ export function AccountScreen({
                             {addr.isDefault && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: T + "18", color: T, ...ff }}>Mặc định</span>}
                           </div>
                           <div className="flex gap-2">
-                            <button className="text-xs font-semibold" style={{ color: COFFEE, ...ff }}>Sửa</button>
-                            {!addr.isDefault && <button className="text-xs font-semibold" style={{ color: "#E74C3C", ...ff }}>Xóa</button>}
+                            <button onClick={() => setAddressDialog({ open: true, editId: addr.id, type: addr.type, label: addr.label, name: addr.name, phone: addr.phone, province: addr.province, district: addr.district, detail: addr.detail, isDefault: addr.isDefault })} className="text-xs font-semibold" style={{ color: COFFEE, ...ff }}>Sửa</button>
+                            {!addr.isDefault && <button onClick={() => handleDeleteAddress(addr.id)} className="text-xs font-semibold" style={{ color: "#E74C3C", ...ff }}>Xóa</button>}
                           </div>
                         </div>
                         <p className="font-semibold text-sm" style={{ color: ESPRESSO, ...ff }}>{addr.name} · {addr.phone}</p>
@@ -1132,12 +1202,86 @@ export function AccountScreen({
                   </div>
                 </>
               )}
+              {addresses.length === 0 && !addressesLoading && (
+                <div className="text-center p-8 border rounded-2xl" style={{ borderColor: MUTED, color: COFFEE }}>
+                  Bạn chưa có địa chỉ nào.
+                </div>
+              )}
             </div>
           )}
         </div>
       )}
 
       {shipmentDialog}
+
+      {/* ── Address Dialog ── */}
+      {addressDialog?.open && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={() => setAddressDialog(null)}>
+          <div className="p-6 rounded-3xl w-full max-w-md shadow-2xl relative" style={{ backgroundColor: LINEN }} onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-bold mb-4" style={{ ...serif, color: ESPRESSO }}>
+              {addressDialog.editId ? "Sửa địa chỉ" : (addressDialog.type === "warehouse" ? "Thêm kho hàng" : "Thêm địa chỉ giao hàng")}
+            </h3>
+            <div className="space-y-4">
+              <input
+                placeholder="Tên người nhận / Tên kho"
+                value={addressDialog.name}
+                onChange={e => setAddressDialog({...addressDialog, name: e.target.value})}
+                className="w-full px-4 py-3 rounded-xl border focus:outline-none"
+                style={{ borderColor: MUTED, backgroundColor: "#fff" }}
+              />
+              <input
+                placeholder="Số điện thoại"
+                value={addressDialog.phone}
+                onChange={e => setAddressDialog({...addressDialog, phone: e.target.value})}
+                className="w-full px-4 py-3 rounded-xl border focus:outline-none"
+                style={{ borderColor: MUTED, backgroundColor: "#fff" }}
+              />
+              <input
+                placeholder="Tỉnh/Thành phố"
+                value={addressDialog.province}
+                onChange={e => setAddressDialog({...addressDialog, province: e.target.value})}
+                className="w-full px-4 py-3 rounded-xl border focus:outline-none"
+                style={{ borderColor: MUTED, backgroundColor: "#fff" }}
+              />
+              <input
+                placeholder="Quận/Huyện"
+                value={addressDialog.district}
+                onChange={e => setAddressDialog({...addressDialog, district: e.target.value})}
+                className="w-full px-4 py-3 rounded-xl border focus:outline-none"
+                style={{ borderColor: MUTED, backgroundColor: "#fff" }}
+              />
+              <input
+                placeholder="Số nhà, Tên đường"
+                value={addressDialog.detail}
+                onChange={e => setAddressDialog({...addressDialog, detail: e.target.value})}
+                className="w-full px-4 py-3 rounded-xl border focus:outline-none"
+                style={{ borderColor: MUTED, backgroundColor: "#fff" }}
+              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="chkDefault"
+                  checked={addressDialog.isDefault}
+                  onChange={e => setAddressDialog({...addressDialog, isDefault: e.target.checked})}
+                />
+                <label htmlFor="chkDefault" className="text-sm font-semibold" style={{ color: COFFEE }}>
+                  Đặt làm {addressDialog.type === "warehouse" ? "kho mặc định" : "địa chỉ mặc định"}
+                </label>
+              </div>
+              <button
+                onClick={handleSaveAddress}
+                className="w-full py-3 rounded-xl font-bold text-white shadow-md transition-all hover:opacity-90 mt-2"
+                style={{ backgroundColor: T }}
+              >
+                Lưu địa chỉ
+              </button>
+            </div>
+            <button onClick={() => setAddressDialog(null)} className="absolute top-4 right-4" style={{ color: MUTED }}>
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
