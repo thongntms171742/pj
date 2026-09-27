@@ -94,7 +94,6 @@ export const getPlatformFee = async (_req: Request, res: Response): Promise<void
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };
-
 // ── GET /api/admin/pending-sellers ───────────────────────────────────────────
 export const getPendingSellers = async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -136,7 +135,6 @@ export const setPlatformFee = async (req: Request, res: Response): Promise<void>
     res.status(500).json({ error: "Lỗi hệ thống" });
   }
 };
-
 // ── PATCH /api/admin/sellers/:id/approve ─────────────────────────────────────
 export const approveSeller = async (req: Request, res: Response): Promise<void> => {
   try {
