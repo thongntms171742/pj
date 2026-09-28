@@ -10,14 +10,14 @@
 
 **Authentication**: Required (JWT).
 
-**Authorization**: Implicitly open to authenticated users (Note: `AI_CONTEXT.md` states "requires sellerStatus === APPROVED", but current backend implementation in `createProduct` does not strictly enforce this. Backend to enforce this in upcoming update).
+**Authorization**: Seller with `sellerStatus === "active"` (Note: Enforced by checking `user.sellerProfile.status` and `roles.includes("seller")`).
 
 **Request Body**:
 ```json
 {
   "title": "string (or name)",
   "price": "number",
-  "condition": "string",
+  "condition": "number (0-100 percentage)",
   "size": "string",
   "quantity": "number (default 1)",
   "description": "string (optional)",

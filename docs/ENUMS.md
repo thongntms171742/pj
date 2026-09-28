@@ -19,16 +19,12 @@ Standardized vocabulary used across Frontend and Backend.
 - `archived`
 
 ## Product Condition
-- `NEW`
-- `LIKE_NEW`
-- `GOOD`
-- `USED`
+- `0 - 100` (Number, representing condition percentage)
 
-## Seller Status
-- `NONE`
-- `PENDING`
-- `APPROVED`
-- `REJECTED`
+## Seller Status (sellerProfile.status)
+- `active`
+- `pending_approval`
+- `suspended`
 
 ## Payment Methods
 - `COD`

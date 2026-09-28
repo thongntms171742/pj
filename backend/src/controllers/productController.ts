@@ -161,6 +161,14 @@ export const getMyProducts = async (req: Request, res: Response): Promise<void> 
 export const createProduct = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
+
+    // Authorization: Check if user is an approved seller
+    const user = await User.findById(userId).lean();
+    if (!user || !user.roles.includes("seller") || user.sellerProfile?.status !== "active") {
+      res.status(403).json({ error: "SELLER_NOT_APPROVED" });
+      return;
+    }
+
     const { title, name, price, condition, size, quantity, description, coverImage, image, categoryId } = req.body;
 
     const productTitle = title || name;

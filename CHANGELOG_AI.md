@@ -66,3 +66,5 @@
 - Added `docs/API_CHANGELOG.md` to audit structural API updates over time.
 - Added `docs/INTEGRATION_GUIDE.md` detailing frontend environment variables and test account availability.
 - Added `docs/API_MATRIX.md` to track endpoint implementations and integration progress between teams.
+- **Security Fix**: Fixed seller authorization on `POST /api/products`. Previously it only validated `requireAuth`, allowing buyers to access product creation. It now strictly requires `user.roles.includes("seller")` and `user.sellerProfile.status === "active"`, rejecting with `403 SELLER_NOT_APPROVED` if unmet.
+- **Contract Accuracy Fix**: Adjusted `docs/ENUMS.md` and `docs/API_CONTRACT.md` to reflect that `Product.condition` is a Number (0-100) and `SellerStatus` is actually `active` | `pending_approval` | `suspended` (not `APPROVED`).
