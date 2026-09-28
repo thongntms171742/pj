@@ -85,7 +85,20 @@
 
 ### Verification
 - ✅ `npx tsc --noEmit` pass (exit 0).
-- ⚠️ Chưa chạy runtime smoke test vì chưa có test suite cho API contract — cần bổ sung.
+- ✅ `npm run test` (errorContract.test.ts) pass — **35/35 tests PASS**, verify:
+  - ErrorCode catalog đầy đủ 46 codes với HTTP status mapping.
+  - `sendError` produce đúng format `{ error: { code, message } }`.
+  - `handleInternalError` không leak stack trace ra response (regression test).
+  - Critical codes (UNAUTHORIZED, SELLER_NOT_APPROVED, ORDER_INVALID_TRANSITION, ...) đều tồn tại.
+- ⚠️ Integration tests (`productAuth.test.ts`, `orderAuth.test.ts`) chưa chạy được do thiếu `MONGODB_URI_TEST`. Setup ghi trong `docs/INTEGRATION_GUIDE.md` § Testing.
+
+### Tests added (testing infrastructure)
+
+- `backend/src/tests/errorContract.test.ts` (NEW): Unit test cho `utils/errors.ts`. Không cần DB, chạy nhanh (~2 giây).
+- `backend/src/tests/productAuth.test.ts` (UPDATED): Thêm 5 test cases cho error envelope format. Tự `dropDatabase()` trước khi chạy để clean state.
+- `backend/src/tests/orderAuth.test.ts` (UPDATED): Thêm 3 test cases + assert error code (FORBIDDEN, ORDER_NOT_FOUND, ORDER_STATUS_REQUIRED, ORDER_INVALID_TRANSITION).
+- `backend/.env.test.example` (NEW): Template cho `MONGODB_URI_TEST`. BE lead cần copy thành `.env.test` và điền URI thật.
+- `backend/package.json`: Thêm scripts `test`, `test:auth`, `test:order`, `test:all`.
 
 ## [2026-09-28]
 ### Added

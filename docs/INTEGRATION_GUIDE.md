@@ -84,3 +84,44 @@ VITE_API_URL=http://localhost:4000/api
 
 6. **Notification ownership**:
    - `PATCH /api/notifications/:id/read` hiện enforce ownership (user chỉ mark được notification của mình). Trước đây có thể mark của người khác — đã fix (IDOR).
+
+---
+
+## Testing
+
+### Unit tests (không cần DB)
+
+```bash
+cd backend
+npm run test
+```
+
+Test `errorContract.test.ts` verify:
+- Toàn bộ `ErrorCode` enum có HTTP status mapping (`46/46`).
+- `sendError` produce đúng shape `{ error: { code, message } }`.
+- `handleInternalError` không leak internal message ra client.
+- Critical error codes tồn tại.
+
+**Hiện tại: 35/35 PASS ✅**
+
+### Integration tests (cần MongoDB test DB)
+
+```bash
+cd backend
+npm run test:auth    # POST /api/products authorization matrix
+npm run test:order   # GET /orders/:code/shipment + PATCH /orders/:code/status
+```
+
+**Setup**:
+1. Copy `backend/.env.test.example` thành `backend/.env.test`
+2. Điền `MONGODB_URI_TEST` trỏ đến database riêng (khuyến nghị: cùng cluster nhưng DB name `thriftit_test`)
+3. Test sẽ tự `dropDatabase()` trước khi chạy — **ĐẢM BẢO** URI là test DB, không phải production
+
+**⚠️ QUAN TRỌNG**: Nếu không có `MONGODB_URI_TEST`, các test này sẽ fail. Tuyệt đối KHÔNG dùng production URI làm fallback.
+
+### Chạy tất cả tests
+
+```bash
+cd backend
+npm run test:all
+```

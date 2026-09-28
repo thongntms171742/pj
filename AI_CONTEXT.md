@@ -136,7 +136,12 @@ The project follows a strict API contract model between the Frontend and Backend
 ### Verification
 
 - ✅ `npx tsc --noEmit` pass (exit code 0).
-- ⚠️ Chưa chạy runtime smoke test vì chưa có test suite (chỉ có `verifyLedger.ts` cho financial subsystem). Cần bổ sung test cho error contract trước khi release.
+- ✅ `npm run test` (errorContract) pass — **35/35 PASS**, bao gồm:
+  - Verify ErrorCode catalog có đầy đủ 46 codes với HTTP status mapping.
+  - Verify `sendError` produce đúng format `{ error: { code, message } }`.
+  - Verify `handleInternalError` không leak stack trace ra response.
+  - Verify critical error codes (UNAUTHORIZED, SELLER_NOT_APPROVED, ORDER_INVALID_TRANSITION, ...) tồn tại.
+- ⚠️ **Integration tests chưa chạy được** (`test:auth`, `test:order`) vì cần `MONGODB_URI_TEST` — setup được ghi rõ trong `docs/INTEGRATION_GUIDE.md` § Testing. Tuyệt đối KHÔNG dùng production URI làm fallback.
 
 ### Known Limitations / Backward Compatibility
 

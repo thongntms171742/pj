@@ -6,7 +6,11 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "seed": "ts-node-dev --transpile-only src/seed.ts"
+    "seed": "ts-node-dev --transpile-only src/seed.ts",
+    "test": "ts-node --transpile-only src/tests/errorContract.test.ts",
+    "test:auth": "ts-node --transpile-only src/tests/productAuth.test.ts",
+    "test:order": "ts-node --transpile-only src/tests/orderAuth.test.ts",
+    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/productAuth.test.ts && ts-node --transpile-only src/tests/orderAuth.test.ts"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",
