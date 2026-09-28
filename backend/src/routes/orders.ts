@@ -16,7 +16,7 @@ router.get("/", requireAuth, getOrders);
 router.get("/seller", requireAuth, getSellerOrders);
 router.post("/", requireAuth, createOrder);
 router.get("/:id", requireAuth, getOrderById);
-router.get("/:code/shipment", getOrderShipment);
+router.get("/:code/shipment", requireAuth, getOrderShipment);
 router.post("/:code/shipment", requireAuth, createOrderShipment);
 router.patch("/:code/status", requireAuth, updateOrderStatus);
 

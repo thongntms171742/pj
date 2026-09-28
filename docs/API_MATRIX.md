@@ -23,9 +23,9 @@ This file tracks the implementation status of API features across teams based on
 | GET | `/api/orders/seller` | Yes | Seller | ✅ | ⏳ |
 | POST | `/api/orders` | Yes | Buyer | ✅ | ⏳ |
 | GET | `/api/orders/:id` | Yes | Buyer/Seller | ✅ | ⏳ |
-| GET | `/api/orders/:code/shipment` | No | Public | ✅ | ⏳ |
+| GET | `/api/orders/:code/shipment` | Yes | Buyer/Seller | ✅ | ⏳ |
 | POST | `/api/orders/:code/shipment` | Yes | Seller | ✅ | ⏳ |
-| PATCH | `/api/orders/:code/status` | Yes | Seller | ✅ | ⏳ |
+| PATCH | `/api/orders/:code/status` | Yes | Buyer/Seller | ✅ | ⏳ |
 | **Payments** | | | | | |
 | POST | `/api/payments/checkout` | Yes | Buyer | ✅ | ⏳ |
 | **Cart** | | | | | |

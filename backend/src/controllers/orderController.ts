@@ -358,6 +358,16 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    // Access control: buyer, seller of an item, or admin
+    const isBuyer = order.buyerId.toString() === userId;
+    const isSeller = order.items.some((it: any) => it.sellerId.toString() === userId);
+    const isAdmin = req.user?.roles?.includes("admin");
+
+    if (!isBuyer && !isSeller && !isAdmin) {
+      res.status(403).json({ error: "Bạn không có quyền cập nhật đơn hàng này" });
+      return;
+    }
+
     // Validate transition
     const currentStatus = order.status as OrderStatus;
     const nextStatus = status as OrderStatus;
@@ -368,6 +378,23 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
         error: `Không thể chuyển từ trạng thái ${currentStatus} sang ${nextStatus}`,
       });
       return;
+    }
+
+    // State-machine role bypass protection
+    if (!isAdmin) {
+      if (isBuyer && !isSeller) {
+        // Buyer can only CANCEL or COMPLETE
+        if (nextStatus !== "CANCELLED" && nextStatus !== "COMPLETED") {
+          res.status(403).json({ error: "Người mua chỉ có thể HỦY hoặc HOÀN TẤT đơn hàng" });
+          return;
+        }
+      } else if (isSeller) {
+        // Seller cannot mark as DELIVERED or DELIVERING or COMPLETED directly
+        if (["DELIVERING", "DELIVERED", "COMPLETED"].includes(nextStatus)) {
+          res.status(403).json({ error: "Người bán không thể tự cập nhật trạng thái Giao hàng hoặc Hoàn tất" });
+          return;
+        }
+      }
     }
 
     // If cancelling, restore inventory and release holds
@@ -601,6 +628,17 @@ export const getOrderShipment = async (req: Request, res: Response): Promise<voi
     const order = await Order.findOne(filter).lean();
     if (!order) {
       res.status(404).json({ error: "Không tìm thấy đơn hàng" });
+      return;
+    }
+
+    // Authorization: only buyer, seller, or admin can view tracking (prevent PII leak)
+    const userId = req.user?.id;
+    const isBuyer = order.buyerId?.toString() === userId;
+    const isSeller = (order.items || []).some((it: any) => it.sellerId?.toString() === userId);
+    const isAdmin = req.user?.roles?.includes("admin");
+
+    if (!isBuyer && !isSeller && !isAdmin) {
+      res.status(403).json({ error: "Bạn không có quyền xem thông tin vận chuyển của đơn hàng này" });
       return;
     }
 
