@@ -3,6 +3,7 @@ import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { Product } from "../models/Product";
 import { mapCartItem } from "./authController";
+import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 
 // ── GET /api/cart ─────────────────────────────────────────────────────────────
 export const getCart = async (req: Request, res: Response): Promise<void> => {
@@ -26,8 +27,7 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
 
     res.json({ cart: { _id: cart._id }, items: mapped });
   } catch (err) {
-    console.error("[cart] getCart error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[cart] getCart error");
   }
 };
 
@@ -38,7 +38,7 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
     const { productId, quantity = 1 } = req.body;
 
     if (!productId) {
-      res.status(400).json({ error: "productId is required" });
+      sendError(res, ErrorCode.MISSING_FIELD, "productId is required");
       return;
     }
 
@@ -46,25 +46,25 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
 
     const product = await Product.findById(productId);
     if (!product) {
-      res.status(404).json({ error: "Sản phẩm không tồn tại" });
+      sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Sản phẩm không tồn tại");
       return;
     }
 
     // Check if product is available
     if (product.status !== "active") {
-      res.status(400).json({ error: "Sản phẩm hiện không mở bán hoặc đã được giữ/bán" });
+      sendError(res, ErrorCode.PRODUCT_NOT_AVAILABLE, "Sản phẩm hiện không mở bán hoặc đã được giữ/bán");
       return;
     }
 
     // Check stock
     if (product.quantity <= 0) {
-      res.status(400).json({ error: "Sản phẩm đã hết hàng" });
+      sendError(res, ErrorCode.PRODUCT_OUT_OF_STOCK, "Sản phẩm đã hết hàng");
       return;
     }
 
     // Prevent buying own product
     if (product.sellerId.toString() === userId) {
-      res.status(400).json({ error: "Bạn không thể thêm sản phẩm của chính mình vào giỏ hàng" });
+      sendError(res, ErrorCode.SELF_PURCHASE_NOT_ALLOWED, "Bạn không thể thêm sản phẩm của chính mình vào giỏ hàng");
       return;
     }
 
@@ -79,9 +79,11 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
     const newQty = currentQty + addQty;
 
     if (newQty > product.quantity) {
-      res.status(400).json({
-        error: `Số lượng yêu cầu (${newQty}) vượt quá số lượng còn lại trong kho (${product.quantity})`,
-      });
+      sendError(
+        res,
+        ErrorCode.QUANTITY_EXCEEDS_STOCK,
+        `Số lượng yêu cầu (${newQty}) vượt quá số lượng còn lại trong kho (${product.quantity})`
+      );
       return;
     }
 
@@ -105,8 +107,7 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
 
     res.status(201).json({ item: mapCartItem(populated) });
   } catch (err) {
-    console.error("[cart] addCartItem error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[cart] addCartItem error");
   }
 };
 
@@ -120,13 +121,13 @@ export const updateCartItem = async (req: Request, res: Response): Promise<void>
     // Verify user ownership of the cart
     const cart = await Cart.findOne({ userId });
     if (!cart) {
-      res.status(404).json({ error: "Giỏ hàng không tồn tại" });
+      sendError(res, ErrorCode.CART_NOT_FOUND, "Giỏ hàng không tồn tại");
       return;
     }
 
     const item = await CartItem.findOne({ _id: id, cartId: cart._id });
     if (!item) {
-      res.status(404).json({ error: "Sản phẩm không có trong giỏ hàng" });
+      sendError(res, ErrorCode.CART_ITEM_NOT_FOUND, "Sản phẩm không có trong giỏ hàng");
       return;
     }
 
@@ -135,16 +136,21 @@ export const updateCartItem = async (req: Request, res: Response): Promise<void>
       if (parsedQty <= 0) {
         // If updated quantity <= 0, remove item
         await CartItem.findByIdAndDelete(item._id);
-        res.json({ message: "Đã xóa sản phẩm khỏi giỏ hàng", deleted: true, _id: item._id });
+        res.json({
+          deleted: true,
+          _id: item._id.toString(),
+        });
         return;
       }
 
       // Check stock
       const product = await Product.findById(item.productId);
       if (product && parsedQty > product.quantity) {
-        res.status(400).json({
-          error: `Số lượng vượt quá số lượng trong kho (${product.quantity})`,
-        });
+        sendError(
+          res,
+          ErrorCode.QUANTITY_EXCEEDS_STOCK,
+          `Số lượng vượt quá số lượng trong kho (${product.quantity})`
+        );
         return;
       }
       item.quantity = parsedQty;
@@ -166,8 +172,7 @@ export const updateCartItem = async (req: Request, res: Response): Promise<void>
 
     res.json({ item: mapCartItem(populated) });
   } catch (err) {
-    console.error("[cart] updateCartItem error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[cart] updateCartItem error");
   }
 };
 
@@ -179,20 +184,19 @@ export const deleteCartItem = async (req: Request, res: Response): Promise<void>
 
     const cart = await Cart.findOne({ userId });
     if (!cart) {
-      res.status(404).json({ error: "Giỏ hàng không tồn tại" });
+      sendError(res, ErrorCode.CART_NOT_FOUND, "Giỏ hàng không tồn tại");
       return;
     }
 
     const item = await CartItem.findOneAndDelete({ _id: id, cartId: cart._id });
     if (!item) {
-      res.status(404).json({ error: "Sản phẩm không có trong giỏ hàng" });
+      sendError(res, ErrorCode.CART_ITEM_NOT_FOUND, "Sản phẩm không có trong giỏ hàng");
       return;
     }
 
     res.status(204).send();
   } catch (err) {
-    console.error("[cart] deleteCartItem error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[cart] deleteCartItem error");
   }
 };
 
@@ -206,8 +210,7 @@ export const clearCart = async (req: Request, res: Response): Promise<void> => {
     }
     res.json({ success: true, message: "Đã làm trống giỏ hàng" });
   } catch (err) {
-    console.error("[cart] clearCart error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[cart] clearCart error");
   }
 };
 
@@ -255,7 +258,6 @@ export const mergeCart = async (req: Request, res: Response): Promise<void> => {
 
     res.json({ items: allItems.map((ci) => mapCartItem(ci)) });
   } catch (err) {
-    console.error("[cart] mergeCart error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[cart] mergeCart error");
   }
 };

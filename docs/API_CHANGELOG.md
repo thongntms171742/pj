@@ -22,6 +22,81 @@ Track changes to the API contract over time to ensure synchronization between Ba
 { }
 ```
 
+## 2026-09-29
+
+### Breaking Change — Unified Error Envelope
+
+**ALL endpoints** (mọi response 4xx/5xx).
+
+**Before**:
+```json
+{ "error": "MESSAGE_OR_CODE_STRING" }
+```
+Mixed format: một số endpoint trả business code (`"SELLER_NOT_APPROVED"`), một số trả Vietnamese message (`"Thiếu thông tin sản phẩm bắt buộc (title/name, price, condition, size)"`).
+
+**After**:
+```json
+{
+  "error": {
+    "code": "PRODUCT_TITLE_REQUIRED",
+    "message": "Thiếu tiêu đề sản phẩm (title hoặc name)"
+  }
+}
+```
+
+**Impact**:
+- FE PHẢI update error handler để đọc `error.code` (string enum) thay vì `error` (string tự do).
+- Toàn bộ error code mapping có trong `docs/ERROR_CODES.md` (~40 codes).
+- HTTP status giữ nguyên semantics: 400 (client error), 401 (auth), 403 (forbidden), 404 (not found), 409 (conflict), 422 (state machine), 500 (server), 502 (upstream), 503 (unavailable).
+
+### Breaking Change — Admin Listings Response Shape
+
+**`PATCH /api/admin/listings/:id/approve`**, **`PATCH /api/admin/listings/:id/reject`**
+
+**Before**:
+```json
+{ "product": { /* raw Mongoose document, fields không populate */ } }
+```
+
+**After**:
+```json
+{ "product": { /* ApiProduct — giống GET /api/products response */ } }
+```
+
+**Impact**:
+- Response giờ qua `mapProduct` → có đầy đủ field aliases (`name`/`title`, `image`/`coverImage`, seller populated, category populated).
+- FE có thể render trực tiếp vào product card mà không cần normalize.
+
+### Breaking Change — Auth Response
+
+**`POST /api/auth/login`**, **`POST /api/auth/register`**
+
+**Added**:
+- `user._id`: ObjectId của user (cho FE dùng khi cần gọi API theo id).
+- `user.sellerStatus`: `"active" | "pending_approval" | "suspended" | null` (login only, null nếu user không có sellerProfile).
+
+**Impact**:
+- FE đã check `user._id` (trước đây không có field này) sẽ bắt đầu nhận được giá trị hợp lệ.
+- FE có thể dùng `user.sellerStatus === "active"` để hiển thị UI seller (nút "Đăng sản phẩm").
+
+### Deprecated — `/api/auth/cart/merge`
+
+**`POST /api/auth/cart/merge`** is deprecated. Use **`POST /api/cart/merge`** instead.
+
+Both endpoints delegate to the same handler. The auth variant logs a deprecation warning and will be removed in a future release. FE mới phải dùng `/api/cart/merge`.
+
+### Security Fix — Notification Ownership
+
+**`PATCH /api/notifications/:id/read`**
+
+**Before**: Bất kỳ authenticated user nào cũng có thể mark notification của user khác là đã đọc (IDOR).
+
+**After**: Endpoint chỉ mark notification thuộc về user gọi. Nếu notification không thuộc user → `404 NOT_FOUND`.
+
+**Impact**: FE không cần đổi gì, behavior giống cũ. Bảo mật chặt hơn.
+
+---
+
 ## 2026-09-28
 
 ### Security Fix

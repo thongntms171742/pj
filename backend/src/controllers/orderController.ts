@@ -5,6 +5,7 @@ import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { Product } from "../models/Product";
 import { Notification } from "../models/Notification";
+import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 
 // ── Helper: Map Order to frontend ApiOrder shape ──────────────────────────────
 export const mapOrder = (o: any) => ({
@@ -71,8 +72,7 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
 
     res.json({ orders: mapped, total: mapped.length });
   } catch (err) {
-    console.error("[orders] getOrders error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[orders] getOrders error");
   }
 };
 
@@ -98,8 +98,7 @@ export const getSellerOrders = async (req: Request, res: Response): Promise<void
 
     res.json({ orders: mapped, total: mapped.length });
   } catch (err) {
-    console.error("[orders] getSellerOrders error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[orders] getSellerOrders error");
   }
 };
 
@@ -114,7 +113,7 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
 
     const order = await Order.findOne(filter).lean();
     if (!order) {
-      res.status(404).json({ error: "Không tìm thấy đơn hàng" });
+      sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
       return;
     }
 
@@ -124,14 +123,13 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
     const isAdmin = req.user?.roles?.includes("admin");
 
     if (!isBuyer && !isSeller && !isAdmin) {
-      res.status(403).json({ error: "Bạn không có quyền truy cập đơn hàng này" });
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền truy cập đơn hàng này");
       return;
     }
 
     res.json({ order: mapOrder(order) });
   } catch (err) {
-    console.error("[orders] getOrderById error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[orders] getOrderById error");
   }
 };
 
@@ -175,13 +173,13 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       // Find user cart and checked items
       const cart = await Cart.findOne({ userId });
       if (!cart) {
-        res.status(400).json({ error: "Giỏ hàng trống" });
+        sendError(res, ErrorCode.CART_EMPTY, "Giỏ hàng trống");
         return;
       }
 
       const checkedItems = await CartItem.find({ cartId: cart._id, checked: true });
       if (checkedItems.length === 0) {
-        res.status(400).json({ error: "Không có sản phẩm nào được chọn trong giỏ hàng" });
+        sendError(res, ErrorCode.NO_ITEMS_CHECKED, "Không có sản phẩm nào được chọn trong giỏ hàng");
         return;
       }
 
@@ -199,28 +197,34 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     for (const item of itemsToProcess) {
       const product = await Product.findById(item.productId).populate("sellerId");
       if (!product) {
-        res.status(404).json({ error: `Sản phẩm không tồn tại: ${item.productId}` });
+        sendError(res, ErrorCode.PRODUCT_NOT_FOUND, `Sản phẩm không tồn tại: ${item.productId}`);
         return;
       }
 
       if (product.status !== "active") {
-        res.status(400).json({
-          error: `Sản phẩm "${product.title}" hiện không còn mở bán (${product.status})`,
-        });
+        sendError(
+          res,
+          ErrorCode.PRODUCT_NOT_AVAILABLE,
+          `Sản phẩm "${product.title}" hiện không còn mở bán (${product.status})`
+        );
         return;
       }
 
       if (product.quantity < item.quantity) {
-        res.status(400).json({
-          error: `Sản phẩm "${product.title}" chỉ còn lại ${product.quantity} cái`,
-        });
+        sendError(
+          res,
+          ErrorCode.PRODUCT_OUT_OF_STOCK,
+          `Sản phẩm "${product.title}" chỉ còn lại ${product.quantity} cái`
+        );
         return;
       }
 
       if (product.sellerId?._id?.toString() === userId || (product.sellerId as any).toString() === userId) {
-        res.status(400).json({
-          error: `Bạn không thể tự mua sản phẩm của chính mình ("${product.title}")`,
-        });
+        sendError(
+          res,
+          ErrorCode.SELF_PURCHASE_NOT_ALLOWED,
+          `Bạn không thể tự mua sản phẩm của chính mình ("${product.title}")`
+        );
         return;
       }
 
@@ -330,8 +334,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     res.status(201).json({ order: mapOrder(order) });
   } catch (err) {
-    console.error("[orders] createOrder error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[orders] createOrder error");
   }
 };
 
@@ -344,7 +347,7 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
     const userId = req.user!.id;
 
     if (!status) {
-      res.status(400).json({ error: "Thiếu trạng thái mới" });
+      sendError(res, ErrorCode.ORDER_STATUS_REQUIRED, "Thiếu trạng thái mới");
       return;
     }
 
@@ -354,7 +357,7 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
 
     const order = await Order.findOne(filter);
     if (!order) {
-      res.status(404).json({ error: "Không tìm thấy đơn hàng" });
+      sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
       return;
     }
 
@@ -364,7 +367,7 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
     const isAdmin = req.user?.roles?.includes("admin");
 
     if (!isBuyer && !isSeller && !isAdmin) {
-      res.status(403).json({ error: "Bạn không có quyền cập nhật đơn hàng này" });
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền cập nhật đơn hàng này");
       return;
     }
 
@@ -374,9 +377,11 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
     const allowed = VALID_TRANSITIONS[currentStatus];
 
     if (!allowed || !allowed.includes(nextStatus)) {
-      res.status(422).json({
-        error: `Không thể chuyển từ trạng thái ${currentStatus} sang ${nextStatus}`,
-      });
+      sendError(
+        res,
+        ErrorCode.ORDER_INVALID_TRANSITION,
+        `Không thể chuyển từ trạng thái ${currentStatus} sang ${nextStatus}`
+      );
       return;
     }
 
@@ -385,13 +390,21 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
       if (isBuyer && !isSeller) {
         // Buyer can only CANCEL or COMPLETE
         if (nextStatus !== "CANCELLED" && nextStatus !== "COMPLETED") {
-          res.status(403).json({ error: "Người mua chỉ có thể HỦY hoặc HOÀN TẤT đơn hàng" });
+          sendError(
+            res,
+            ErrorCode.ORDER_BUYER_NOT_PARTICIPANT,
+            "Người mua chỉ có thể HỦY hoặc HOÀN TẤT đơn hàng"
+          );
           return;
         }
       } else if (isSeller) {
         // Seller cannot mark as DELIVERED or DELIVERING or COMPLETED directly
         if (["DELIVERING", "DELIVERED", "COMPLETED"].includes(nextStatus)) {
-          res.status(403).json({ error: "Người bán không thể tự cập nhật trạng thái Giao hàng hoặc Hoàn tất" });
+          sendError(
+            res,
+            ErrorCode.ORDER_SELLER_CANNOT_DELIVER,
+            "Người bán không thể tự cập nhật trạng thái Giao hàng hoặc Hoàn tất"
+          );
           return;
         }
       }
@@ -492,8 +505,7 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
 
     res.json({ order: mapOrder(order) });
   } catch (err) {
-    console.error("[orders] updateOrderStatus error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[orders] updateOrderStatus error");
   }
 };
 
@@ -510,7 +522,7 @@ export const createOrderShipment = async (req: Request, res: Response): Promise<
 
     const order = await Order.findOne(filter);
     if (!order) {
-      res.status(404).json({ error: "Không tìm thấy đơn hàng" });
+      sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
       return;
     }
 
@@ -519,18 +531,18 @@ export const createOrderShipment = async (req: Request, res: Response): Promise<
     const isAdmin = req.user?.roles?.includes("admin");
 
     if (!isSeller && !isAdmin) {
-      res.status(403).json({ error: "Bạn không có quyền tạo vận đơn cho đơn hàng này" });
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền tạo vận đơn cho đơn hàng này");
       return;
     }
 
     // Check status
     if (order.status === "SHIPPING" || order.status === "DELIVERING" || order.status === "DELIVERED") {
-      res.status(400).json({ error: "Đơn hàng này đã được tạo vận đơn trước đó" });
+      sendError(res, ErrorCode.ORDER_ALREADY_SHIPPED, "Đơn hàng này đã được tạo vận đơn trước đó");
       return;
     }
 
     if (order.status === "CANCELLED") {
-      res.status(400).json({ error: "Không thể tạo vận đơn cho đơn hàng đã hủy" });
+      sendError(res, ErrorCode.ORDER_ALREADY_CANCELLED, "Không thể tạo vận đơn cho đơn hàng đã hủy");
       return;
     }
 
@@ -612,8 +624,7 @@ export const createOrderShipment = async (req: Request, res: Response): Promise<
 
     res.status(201).json({ shipment });
   } catch (err) {
-    console.error("[orders] createOrderShipment error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[orders] createOrderShipment error");
   }
 };
 
@@ -627,7 +638,7 @@ export const getOrderShipment = async (req: Request, res: Response): Promise<voi
 
     const order = await Order.findOne(filter).lean();
     if (!order) {
-      res.status(404).json({ error: "Không tìm thấy đơn hàng" });
+      sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
       return;
     }
 
@@ -638,7 +649,7 @@ export const getOrderShipment = async (req: Request, res: Response): Promise<voi
     const isAdmin = req.user?.roles?.includes("admin");
 
     if (!isBuyer && !isSeller && !isAdmin) {
-      res.status(403).json({ error: "Bạn không có quyền xem thông tin vận chuyển của đơn hàng này" });
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền xem thông tin vận chuyển của đơn hàng này");
       return;
     }
 
@@ -729,7 +740,6 @@ export const getOrderShipment = async (req: Request, res: Response): Promise<voi
 
     res.json({ shipment });
   } catch (err) {
-    console.error("[orders] getOrderShipment error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[orders] getOrderShipment error");
   }
 };

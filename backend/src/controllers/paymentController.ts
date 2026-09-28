@@ -3,6 +3,7 @@ import { Order } from "../models/Order";
 import { Product } from "../models/Product";
 import { Notification } from "../models/Notification";
 import { mapOrder } from "./orderController";
+import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 
 // ── POST /api/payments/checkout ───────────────────────────────────────────────
 // Mock payment: advances order from PENDING_PAYMENT → PAID → CONFIRMED,
@@ -13,7 +14,7 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
     const { orderId, method = "card", cardLast4 = "1234" } = req.body;
 
     if (!orderId) {
-      res.status(400).json({ error: "orderId is required" });
+      sendError(res, ErrorCode.ORDER_ID_REQUIRED, "orderId is required");
       return;
     }
 
@@ -28,7 +29,7 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
     });
 
     if (!order) {
-      res.status(404).json({ error: "Không tìm thấy đơn hàng" });
+      sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
       return;
     }
 
@@ -39,9 +40,11 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
     }
 
     if (order.status !== "PENDING_PAYMENT") {
-      res.status(422).json({
-        error: `Đơn hàng đang ở trạng thái ${order.status}, không thể thanh toán`,
-      });
+      sendError(
+        res,
+        ErrorCode.ORDER_PAYMENT_INVALID_STATE,
+        `Đơn hàng đang ở trạng thái ${order.status}, không thể thanh toán`
+      );
       return;
     }
 
@@ -106,7 +109,6 @@ export const checkout = async (req: Request, res: Response): Promise<void> => {
 
     res.json({ order: mapOrder(order) });
   } catch (err) {
-    console.error("[payments] checkout error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[payments] checkout error");
   }
 };

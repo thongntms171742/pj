@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { Notification } from "../models/Notification";
+import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 
 // ── GET /api/notifications ────────────────────────────────────────────────────
 export const getNotifications = async (req: Request, res: Response): Promise<void> => {
@@ -23,19 +24,29 @@ export const getNotifications = async (req: Request, res: Response): Promise<voi
 
     res.json({ notifications: mapped });
   } catch (err) {
-    console.error("[notifications] getNotifications error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[notifications] getNotifications error");
   }
 };
 
 // ── PATCH /api/notifications/:id/read ─────────────────────────────────────────
+// Mark a notification as read.
+// NOTE: Now enforces ownership to prevent IDOR (user A marking user B's notification).
 export const markAsRead = async (req: Request, res: Response): Promise<void> => {
   try {
+    const userId = req.user!.id;
     const { id } = req.params;
-    await Notification.findByIdAndUpdate(id, { isRead: true });
+
+    const notif = await Notification.findOne({ _id: id, userId });
+    if (!notif) {
+      sendError(res, ErrorCode.NOT_FOUND, "Không tìm thấy notification");
+      return;
+    }
+
+    notif.isRead = true;
+    await notif.save();
+
     res.json({ success: true });
   } catch (err) {
-    console.error("[notifications] markAsRead error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[notifications] markAsRead error");
   }
 };

@@ -56,6 +56,37 @@
 - Added `.gitignore` configurations isolating local `.json` backups from the Git index.
 - Finalized local **E2E Buyer/Seller flow tests** verifying real-world viability of Seller Add Product, Buyer Cart, COD Orders, Shipping transitions, and Ledger consistency without mock fallback code.
 
+## [2026-09-29] (API Contract Unification)
+### Added & Implemented
+
+- **Unified Error Envelope** — Created `backend/src/utils/errors.ts` as single source of truth cho error response format.
+  - `ErrorCode` enum với ~40 business codes (PRODUCT_NOT_FOUND, SELLER_NOT_APPROVED, ORDER_INVALID_TRANSITION, AI_NOT_CONFIGURED, ...).
+  - `ErrorStatus` map chuẩn hóa HTTP status cho mỗi code.
+  - `sendError(res, code, message, status?)` helper.
+  - `handleInternalError(res, err, context)` helper cho catch block (không leak stack trace ra response).
+  - `ApiErrorBody` interface export cho FE consumer.
+- **Refactored toàn bộ BE** (9 controllers + middleware + app.ts) để dùng helper. Mọi error response giờ có format `{ error: { code: string, message: string } }`.
+
+### Fixed
+- **Admin endpoints shape inconsistency**: `PATCH /api/admin/listings/:id/approve|reject` giờ chạy qua `mapProduct` → response giống `GET /api/products` thay vì raw Mongoose document.
+- **Notification IDOR**: `PATCH /api/notifications/:id/read` giờ enforce ownership (chỉ mark notification của chính user gọi).
+- **Auth response missing fields**: `POST /api/auth/register` và `.../login` giờ trả `user._id` + `user.sellerStatus`.
+
+### Changed (Backward Compatible)
+- **Cart merge deprecation**: `/api/auth/cart/merge` trở thành thin wrapper delegate to `/api/cart/merge`. Endpoint chính thức là `/api/cart/merge`. Legacy endpoint vẫn hoạt động nhưng log warning.
+
+### Documentation
+- Updated `docs/API_CONTRACT.md` (đã đầy đủ 35 endpoints + ghi chú breaking change mới).
+- Rewrote `docs/AUTH_SPEC.md` đồng bộ với code (response shape đầy đủ + Role Matrix cập nhật).
+- Rewrote `docs/ENUMS.md` (Order Status 11 giá trị PAID/REFUNDED bổ sung, Payment Methods vocabulary thống nhất, Shipment Status mapping table, Error Code reference).
+- Rewrote `docs/ERROR_CODES.md` (~40 codes + HTTP status + FE action + TypeScript switch example).
+- Rewrote `docs/INTEGRATION_GUIDE.md` (test accounts thật từ seed + seller status + cart merge guidance).
+- Added entry trong `docs/API_CHANGELOG.md` ghi nhận 4 breaking changes.
+
+### Verification
+- ✅ `npx tsc --noEmit` pass (exit 0).
+- ⚠️ Chưa chạy runtime smoke test vì chưa có test suite cho API contract — cần bổ sung.
+
 ## [2026-09-28]
 ### Added
 - Implemented standardized API Contract Documentation architecture within the `docs/` directory to formally govern Backend and Frontend integration.

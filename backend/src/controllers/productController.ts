@@ -3,6 +3,7 @@ import "../models";
 import { Product } from "../models/Product";
 import { User } from "../models/User";
 import { Category } from "../models/Category";
+import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 
 // ── Helper: Map Product document to frontend-compatible shape ─────────────────
 export function mapProduct(p: any) {
@@ -110,8 +111,7 @@ export const getProducts = async (req: Request, res: Response): Promise<void> =>
     const mapped = products.map(mapProduct);
     res.json({ products: mapped, total: mapped.length });
   } catch (err) {
-    console.error("[products] getProducts error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[products] getProducts error");
   }
 };
 
@@ -151,8 +151,7 @@ export const getMyProducts = async (req: Request, res: Response): Promise<void> 
 
     res.json({ products: mapped, stats, total: mapped.length });
   } catch (err) {
-    console.error("[products] getMyProducts error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[products] getMyProducts error");
   }
 };
 
@@ -165,7 +164,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     // Authorization: Check if user is an approved seller
     const user = await User.findById(userId).lean();
     if (!user || !user.roles.includes("seller") || user.sellerProfile?.status !== "active") {
-      res.status(403).json({ error: "SELLER_NOT_APPROVED" });
+      sendError(res, ErrorCode.SELLER_NOT_APPROVED, "Tài khoản chưa được phê duyệt làm người bán");
       return;
     }
 
@@ -174,14 +173,26 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     const productTitle = title || name;
     const productImage = coverImage || image || "";
 
-    if (!productTitle || price == null || condition == null || !size) {
-      res.status(400).json({ error: "Thiếu thông tin sản phẩm bắt buộc (title/name, price, condition, size)" });
+    if (!productTitle) {
+      sendError(res, ErrorCode.PRODUCT_TITLE_REQUIRED, "Thiếu tiêu đề sản phẩm (title hoặc name)");
+      return;
+    }
+    if (price == null) {
+      sendError(res, ErrorCode.PRODUCT_PRICE_REQUIRED, "Thiếu giá sản phẩm (price)");
+      return;
+    }
+    if (condition == null) {
+      sendError(res, ErrorCode.PRODUCT_CONDITION_REQUIRED, "Thiếu tình trạng sản phẩm (condition, 0-100)");
+      return;
+    }
+    if (!size) {
+      sendError(res, ErrorCode.PRODUCT_SIZE_REQUIRED, "Thiếu kích thước sản phẩm (size)");
       return;
     }
 
     const finalQuantity = quantity != null ? Number(quantity) : 1;
     if (isNaN(finalQuantity) || finalQuantity < 1) {
-      res.status(400).json({ error: "Số lượng sản phẩm phải lớn hơn hoặc bằng 1" });
+      sendError(res, ErrorCode.PRODUCT_QUANTITY_INVALID, "Số lượng sản phẩm phải lớn hơn hoặc bằng 1");
       return;
     }
 
@@ -211,7 +222,6 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
 
     res.status(201).json({ product: mapProduct(populated) });
   } catch (err) {
-    console.error("[products] createProduct error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[products] createProduct error");
   }
 };

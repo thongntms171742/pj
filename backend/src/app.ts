@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 
 import "./models"; // Ensure all Mongoose models are registered
@@ -11,6 +11,7 @@ import paymentRoutes from "./routes/payments";
 import notificationRoutes from "./routes/notifications";
 import adminRoutes from "./routes/admin";
 import aiRoutes from "./routes/ai";
+import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 
 const app = express();
 
@@ -36,7 +37,15 @@ app.use("/api/ai", aiRoutes);
 
 // ── 404 catch-all ──────────────────────────────────────────────────────────────
 app.use("/api/*", (_req, res) => {
-  res.status(404).json({ error: "Endpoint không tồn tại" });
+  sendError(res, ErrorCode.NOT_FOUND, "Endpoint không tồn tại", 404);
+});
+
+// ── Global error handler ──────────────────────────────────────────────────────
+// Bắt mọi lỗi không được xử lý từ controller (e.g. thrown errors từ middleware).
+// Express yêu cầu 4 tham số để nhận diện error middleware.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  handleInternalError(res, err, "[express] uncaught error");
 });
 
 export default app;

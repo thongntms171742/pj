@@ -5,6 +5,13 @@ import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { Product } from "../models/Product";
 import { signToken } from "../middleware/auth";
+import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
+import { mergeCart as cartMergeCart } from "./cartController";
+
+// ── POST /api/auth/cart/merge ─────────────────────────────────────────────────
+// DEPRECATED: Use POST /api/cart/merge instead.
+// Kept for backward compatibility with older FE clients.
+// Will be removed in a future release — see docs/API_CHANGELOG.md.
 
 // ── POST /api/auth/register ───────────────────────────────────────────────────
 export const register = async (req: Request, res: Response): Promise<void> => {
@@ -12,13 +19,13 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
-      res.status(400).json({ error: "Vui lòng điền đầy đủ thông tin" });
+      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng điền đầy đủ thông tin");
       return;
     }
 
     const existing = await User.findOne({ email: email.toLowerCase() });
     if (existing) {
-      res.status(409).json({ error: "Email đã được sử dụng" });
+      sendError(res, ErrorCode.EMAIL_ALREADY_USED, "Email đã được sử dụng");
       return;
     }
 
@@ -42,14 +49,14 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     res.status(201).json({
       token,
       user: {
+        _id: user._id.toString(),
         name: user.name,
         email: user.email,
         roles: user.roles,
       },
     });
   } catch (err) {
-    console.error("[auth] register error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[auth] register error");
   }
 };
 
@@ -59,19 +66,19 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      res.status(400).json({ error: "Vui lòng nhập email và mật khẩu" });
+      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email và mật khẩu");
       return;
     }
 
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      res.status(401).json({ error: "Email hoặc mật khẩu không đúng" });
+      sendError(res, ErrorCode.INVALID_CREDENTIALS, "Email hoặc mật khẩu không đúng");
       return;
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      res.status(401).json({ error: "Email hoặc mật khẩu không đúng" });
+      sendError(res, ErrorCode.INVALID_CREDENTIALS, "Email hoặc mật khẩu không đúng");
       return;
     }
 
@@ -84,67 +91,31 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     res.json({
       token,
       user: {
+        _id: user._id.toString(),
         name: user.name,
         email: user.email,
         roles: user.roles,
+        sellerStatus: user.sellerProfile?.status ?? null,
       },
     });
   } catch (err) {
-    console.error("[auth] login error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[auth] login error");
   }
 };
 
-// ── POST /api/auth/cart/merge ─────────────────────────────────────────────────
-// Merges guest cart items (by productId) into the authenticated user's cart.
+// ── POST /api/auth/cart/merge (DEPRECATED — use /api/cart/merge) ──────────────
+// Thin wrapper that delegates to cartController.mergeCart and logs a deprecation warning.
 export const mergeCart = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userId = req.user!.id;
-    const { items } = req.body as { items?: { productId: string; quantity: number }[] };
-
-    if (!items || !Array.isArray(items)) {
-      res.status(400).json({ error: "items array is required" });
-      return;
-    }
-
-    // Ensure user has a cart
-    let cart = await Cart.findOne({ userId });
-    if (!cart) {
-      cart = await Cart.create({ userId });
-    }
-
-    for (const item of items) {
-      const product = await Product.findById(item.productId);
-      if (!product) continue;
-
-      await CartItem.findOneAndUpdate(
-        { cartId: cart._id, productId: product._id },
-        {
-          $inc: { quantity: item.quantity },
-          $setOnInsert: {
-            priceSnapshot: product.price,
-            checked: false,
-          },
-        },
-        { upsert: true, new: true }
-      );
-    }
-
-    // Return full cart
-    const allItems = await CartItem.find({ cartId: cart._id }).populate({
-      path: "productId",
-      populate: { path: "sellerId", select: "sellerProfile name email" },
-    });
-
-    // Map sellerId to flat API shape for frontend adapter
-    const mapped = allItems.map((ci) => mapCartItem(ci));
-
-    res.json({ items: mapped });
-  } catch (err) {
-    console.error("[auth] mergeCart error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
-  }
+  console.warn(
+    "[auth] DEPRECATED: /api/auth/cart/merge was called. " +
+    "Clients should migrate to /api/cart/merge."
+  );
+  return cartMergeCart(req, res);
 };
+
+// (Original mergeCart implementation has been moved to controllers/cartController.ts
+//  as the single source of truth. /api/auth/cart/merge is kept as a thin wrapper for
+//  backward compatibility.)
 
 // ── Helper: map populated CartItem to ApiCartItem shape ────────────────────────
 export function mapCartItem(ci: any): any {

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { sendError, ErrorCode } from "../utils/errors";
 
 const JWT_SECRET = process.env.JWT_SECRET || "thriftit_super_secret_key_change_me";
 
@@ -24,7 +25,7 @@ declare global {
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Chưa đăng nhập" });
+    sendError(res, ErrorCode.UNAUTHORIZED, "Chưa đăng nhập");
     return;
   }
 
@@ -34,7 +35,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     req.user = decoded;
     next();
   } catch {
-    res.status(401).json({ error: "Token không hợp lệ hoặc đã hết hạn" });
+    sendError(res, ErrorCode.TOKEN_INVALID, "Token không hợp lệ hoặc đã hết hạn");
   }
 }
 
@@ -60,7 +61,7 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
  */
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   if (!req.user?.roles.includes("admin")) {
-    res.status(403).json({ error: "Chỉ admin mới có quyền truy cập" });
+    sendError(res, ErrorCode.FORBIDDEN, "Chỉ admin mới có quyền truy cập");
     return;
   }
   next();

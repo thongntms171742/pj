@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { User } from "../models/User";
 import { Product } from "../models/Product";
 import { mapProduct } from "./productController";
+import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 
 export function mapSeller(u: any) {
   const sp = u.sellerProfile || {};
@@ -46,8 +47,7 @@ export const getSellers = async (_req: Request, res: Response): Promise<void> =>
     const mapped = sellers.map(mapSeller);
     res.json({ sellers: mapped, total: mapped.length });
   } catch (err) {
-    console.error("[sellers] getSellers error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[sellers] getSellers error");
   }
 };
 
@@ -58,13 +58,12 @@ export const getSellerMe = async (req: Request, res: Response): Promise<void> =>
     const userId = req.user!.id;
     const user = await User.findById(userId).lean();
     if (!user) {
-      res.status(404).json({ error: "Không tìm thấy tài khoản" });
+      sendError(res, ErrorCode.ACCOUNT_NOT_FOUND, "Không tìm thấy tài khoản");
       return;
     }
     res.json({ seller: mapSeller(user) });
   } catch (err) {
-    console.error("[sellers] getSellerMe error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[sellers] getSellerMe error");
   }
 };
 
@@ -100,14 +99,13 @@ export const getSellerById = async (req: Request, res: Response): Promise<void> 
       .lean();
 
     if (!seller) {
-      res.status(404).json({ error: "Không tìm thấy người bán" });
+      sendError(res, ErrorCode.NOT_FOUND, "Không tìm thấy người bán");
       return;
     }
 
     res.json({ seller: mapSeller(seller) });
   } catch (err) {
-    console.error("[sellers] getSellerById error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[sellers] getSellerById error");
   }
 };
 
@@ -135,7 +133,7 @@ export const getSellerProducts = async (req: Request, res: Response): Promise<vo
     }
 
     if (!sellerUser) {
-      res.status(404).json({ error: "Không tìm thấy người bán" });
+      sendError(res, ErrorCode.NOT_FOUND, "Không tìm thấy người bán");
       return;
     }
 
@@ -151,7 +149,6 @@ export const getSellerProducts = async (req: Request, res: Response): Promise<vo
     const mapped = products.map((p) => mapProduct(p));
     res.json({ products: mapped, total: mapped.length });
   } catch (err) {
-    console.error("[sellers] getSellerProducts error:", err);
-    res.status(500).json({ error: "Lỗi hệ thống" });
+    handleInternalError(res, err, "[sellers] getSellerProducts error");
   }
 };

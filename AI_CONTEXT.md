@@ -87,15 +87,61 @@
 
 ## API Contract & Documentation (`docs/`)
 The project follows a strict API contract model between the Frontend and Backend teams. All API documentation is located in the `docs/` folder:
-- `API_CONTRACT.md`: The primary human-readable contract detailing endpoints, request/response formats, and required auth/roles.
+- `API_CONTRACT.md`: The primary human-readable contract detailing endpoints, request/response formats, and required auth/roles. Covers all 35 endpoints (Auth, Sellers, Products, Cart, Orders, Shipments, Payments, Notifications, Admin, AI, Health). Each endpoint documents all 7 contract fields: Endpoint, Method, Auth/Authorization, Request body, Query/Path params, Success response, Errors. Includes mapping tables for order status state machine and shipment status derivation.
 - `AUTH_SPEC.md`: Specifics on authentication, tokens, and role-based access control matrix.
-- `ENUMS.md`: A unified vocabulary of enums (e.g. Order Status, Product Status) shared between teams.
-- `ERROR_CODES.md`: Standardized business error codes and expected frontend behaviors.
-- `API_CHANGELOG.md`: Tracks changes and breaking changes to the API over time.
-- `INTEGRATION_GUIDE.md`: Guides on local/production environments and test accounts.
+- `ENUMS.md`: A unified vocabulary of enums (Order Status 11 values, Product Status, Product Condition, Seller Status, Payment Methods, Notification Type, Shipment Status, Error Codes). Now fully in sync with `backend/src/models/*` and `backend/src/utils/errors.ts`.
+- `ERROR_CODES.md`: ~40 standardized business error codes mapped to FE actions and HTTP statuses. Format đã chuẩn hóa thành `{ error: { code, message } }` (xem Backend notes bên dưới).
+- `API_CHANGELOG.md`: Tracks changes and breaking changes to the API over time. Có entry mới 2026-09-29 ghi nhận breaking change về error envelope + admin shape.
+- `INTEGRATION_GUIDE.md`: Test accounts thật (lấy từ seed data) + health check + notes quan trọng cho FE.
 - `API_MATRIX.md`: Progress tracking of feature completion on both BE and FE.
 
 **Source of Truth:** API Contract là source of truth cho giao tiếp giữa FE và BE; Backend implementation và automated tests phải được kiểm tra để bảo đảm contract phản ánh API thực tế. Backend chịu trách nhiệm cập nhật các document này trước khi đánh dấu một tính năng là DONE. Frontend dựa vào các document này để làm thay vì phải tự đoán API behavior.
+
+## Backend Architecture Refactor (2026-09-29)
+
+### Unified Error Response System
+
+Đã chuẩn hóa toàn bộ error response format thành `{ error: { code, message } }`:
+
+- **`backend/src/utils/errors.ts`** (MỚI): Single source of truth chứa:
+  - `ErrorCode` const object với ~40 business error codes (PRODUCT_NOT_FOUND, SELLER_NOT_APPROVED, ORDER_INVALID_TRANSITION, ...).
+  - `ErrorStatus` map: HTTP status mặc định cho mỗi code.
+  - `sendError(res, code, message, status?)` helper.
+  - `handleInternalError(res, err, context)` helper cho catch block (log + trả INTERNAL_ERROR, không leak stack trace).
+  - `ApiErrorBody` interface export để FE consumer có type-safe.
+
+- **Tất cả 9 controllers + middleware** đã được refactor để dùng helper:
+  - `controllers/authController.ts`
+  - `controllers/productController.ts`
+  - `controllers/cartController.ts`
+  - `controllers/orderController.ts`
+  - `controllers/paymentController.ts`
+  - `controllers/sellerController.ts`
+  - `controllers/adminController.ts`
+  - `controllers/notificationController.ts`
+  - `controllers/aiController.ts`
+  - `middleware/auth.ts` (requireAuth, requireAdmin)
+  - `app.ts` (404 wildcard + global error handler)
+
+### Additional Fixes
+
+1. **Admin endpoints chuẩn hóa shape**: `PATCH /api/admin/listings/:id/approve` và `.../reject` giờ chạy qua `mapProduct` → response CÙNG shape với `GET /api/products` (thay vì raw Mongoose document).
+
+2. **Notification ownership fix**: `PATCH /api/notifications/:id/read` giờ enforce ownership (chỉ mark notification của mình) — fix IDOR.
+
+3. **Auth response bổ sung**: `POST /api/auth/register` và `.../login` giờ trả `user._id` + `user.sellerStatus` trong response.
+
+4. **Cart merge deprecation**: `/api/auth/cart/merge` trở thành thin wrapper delegate to `/api/cart/merge` + log deprecation warning. FE mới phải dùng `/api/cart/merge`.
+
+### Verification
+
+- ✅ `npx tsc --noEmit` pass (exit code 0).
+- ⚠️ Chưa chạy runtime smoke test vì chưa có test suite (chỉ có `verifyLedger.ts` cho financial subsystem). Cần bổ sung test cho error contract trước khi release.
+
+### Known Limitations / Backward Compatibility
+
+- Mọi endpoint trả error đều đã update format. Tuy nhiên, MỘT SỐ MESSAGE TIẾNG VIỆT cũ đã được giữ nguyên (chỉ wrap trong `{ error: { code, message } }`) — không breaking về UX, chỉ breaking về parser của FE.
+- `/api/auth/cart/merge` vẫn hoạt động để không break FE cũ. Sẽ xóa trong release tiếp theo.
 
 ## Notes & Recommendations for Frontend (No Frontend Code Changed)
 1. **COD Orders**: Backend sets COD orders directly to `CONFIRMED` upon creation.
