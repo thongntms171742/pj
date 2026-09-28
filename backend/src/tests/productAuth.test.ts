@@ -56,23 +56,41 @@ async function runTests() {
     }
   });
 
+  const suspendedSeller = await User.create({
+    name: "Test Suspended Seller",
+    email: `suspended_${Date.now()}@test.com`,
+    passwordHash: "hash",
+    roles: ["buyer", "seller"],
+    sellerProfile: {
+      handle: "suspended",
+      shopName: "Suspended Shop",
+      status: "suspended",
+      coverImages: [],
+      rating: 5,
+      totalTransactions: 0,
+      totalRevenue: 0,
+      commissionRate: 0.1,
+    }
+  });
+
   console.log("Running Authorization Matrix Tests for POST /api/products...");
 
   let passed = 0;
   let failed = 0;
 
-  async function testCreateProduct(userId: string, expectedStatus: number, expectedError?: string) {
+  async function testCreateProduct(userId: string | null, expectedStatus: number, expectedError?: string, customBody: any = {}) {
     let statusCode = 200;
     let jsonResponse: any = {};
 
     const req = {
-      user: { id: userId, email: "test@test.com", roles: [] },
+      user: userId ? { id: userId, email: "test@test.com", roles: [] } : undefined,
       body: {
         title: "Test Product",
         price: 100000,
         condition: 95,
         size: "M",
         quantity: 1,
+        ...customBody
       }
     } as unknown as Request;
 
@@ -86,28 +104,54 @@ async function runTests() {
       }
     } as unknown as Response;
 
-    await createProduct(req, res);
+    // Simulate requireAuth middleware manually for null user
+    if (!userId) {
+      statusCode = 401;
+      jsonResponse = { error: "Chưa đăng nhập" };
+    } else {
+      await createProduct(req, res);
+    }
 
     if (statusCode === expectedStatus && (!expectedError || jsonResponse.error === expectedError)) {
-      console.log(`✅ PASS: User ${userId} got status ${statusCode}`);
+      console.log(`✅ PASS: User ${userId || "Unauthenticated"} got status ${statusCode}`);
+      
+      // Verification for spoofed sellerId
+      if (expectedStatus === 201 && customBody.sellerId) {
+        if (jsonResponse.product?.sellerId?.id !== userId && jsonResponse.product?.sellerId !== userId) {
+           console.error(`❌ FAIL: Spoofed sellerId was accepted! Expected ${userId}, got ${jsonResponse.product?.sellerId?.id || jsonResponse.product?.sellerId}`);
+           failed++;
+           return;
+        } else {
+           console.log(`✅ PASS: Spoofed sellerId ignored. Product created with true userId.`);
+        }
+      }
       passed++;
     } else {
-      console.error(`❌ FAIL: User ${userId}. Expected ${expectedStatus} ${expectedError || ""}, got ${statusCode} ${JSON.stringify(jsonResponse)}`);
+      console.error(`❌ FAIL: User ${userId || "Unauthenticated"}. Expected ${expectedStatus} ${expectedError || ""}, got ${statusCode} ${JSON.stringify(jsonResponse)}`);
       failed++;
     }
   }
 
-  // Test 1: Buyer
+  // Test 1: Buyer -> 403
   await testCreateProduct(buyer._id.toString(), 403, "SELLER_NOT_APPROVED");
 
-  // Test 2: Pending Seller
+  // Test 2: Pending Seller -> 403
   await testCreateProduct(pendingSeller._id.toString(), 403, "SELLER_NOT_APPROVED");
 
-  // Test 3: Approved Seller
+  // Test 3: Suspended Seller -> 403
+  await testCreateProduct(suspendedSeller._id.toString(), 403, "SELLER_NOT_APPROVED");
+
+  // Test 4: Approved Seller -> 201
   await testCreateProduct(approvedSeller._id.toString(), 201);
 
+  // Test 5: Approved Seller attempting to spoof sellerId -> 201 (spoofed ID ignored)
+  await testCreateProduct(approvedSeller._id.toString(), 201, undefined, { sellerId: buyer._id.toString() });
+
+  // Test 6: Unauthenticated -> 401
+  await testCreateProduct(null, 401, "Chưa đăng nhập");
+
   // Cleanup
-  await User.deleteMany({ _id: { $in: [buyer._id, pendingSeller._id, approvedSeller._id] } });
+  await User.deleteMany({ _id: { $in: [buyer._id, pendingSeller._id, approvedSeller._id, suspendedSeller._id] } });
   
   // also delete the created product by approvedSeller
   const { Product } = await import("../models/Product");

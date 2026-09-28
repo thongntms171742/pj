@@ -103,9 +103,9 @@
 
 **Purpose**: Retrieves shipment and live delivery tracking timeline for a specific order.
 
-**Authentication**: Not strictly required in routes (Public), but typically called by authenticated users viewing their order.
+**Authentication**: Required (JWT).
 
-**Authorization**: Any user with the order code.
+**Authorization**: Order participant (Buyer or participating Seller) or Admin.
 
 **Request Body**: None
 
