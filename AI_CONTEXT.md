@@ -154,3 +154,47 @@ The project follows a strict API contract model between the Frontend and Backend
 3. **Cart Cleanup**: Creating an order automatically cleans checked items from the server database cart.
 4. **Shipment Modal**: The seller shipment creation endpoint `POST /api/orders/:id/shipment` accepts `{ pickup: { name, phone, address, province, district, ward, note } }` and responds with `{ shipment: Shipment }`.
 5. **Seller Screen & Cards**: Both property naming conventions (`name`/`avatar`/`thumbs`/`transactions` and `shopName`/`avatarUrl`/`coverImages`/`totalTransactions`) are supplied in responses for 100% frontend compatibility. Products also include the top-level string `seller: "handle"` matching `seller.handle`.
+
+---
+
+## Backend Iteration 2026-09-29 (Admin Stats + Reviews + Admin Path Alignment)
+
+### Added
+- **`GET /api/admin/stats`** — Aggregated platform stats. Trả `{ stats: { pendingListings, soldProducts, totalOrders, totalUsers, totalSellers, platformProfit } }`. `platformProfit` tính bằng aggregate `$sum` của `Order.platformFee` (Ledger model chưa được tích hợp vào repo hiện tại).
+- **`POST /api/products/:id/reviews`** — Buyer đánh giá sản phẩm sau khi đơn hàng giao thành công.
+  - Tạo model mới `Review.ts` (compound unique index `(orderId, productId, buyerId)` để chống duplicate).
+  - Validate: `rating` integer 1–5, order phải thuộc user gọi, status ∈ { `DELIVERED`, `COMPLETED` }, product phải nằm trong `order.items`.
+  - 3 ErrorCodes mới: `REVIEW_RATING_INVALID` (400), `REVIEW_NOT_ALLOWED` (403), `REVIEW_ALREADY_EXISTS` (409).
+
+### Changed (with backward compat aliases)
+- **Admin seller moderation paths** align với FE `AdminScreen`:
+  - Canonical: `PATCH /api/admin/sellers/:id/{approve,reject}`.
+  - Legacy: `PATCH /api/admin/users/:id/{approve-seller,reject-seller}` vẫn hoạt động nhưng **deprecated** — log warning mỗi lần gọi. Sẽ xóa trong release tiếp theo khi FE đã migrate.
+- **`GET /api/admin/pending-sellers`** response shape đổi:
+  - Trước: `{ sellers, total }` (FE cũ đọc `res.sellers`).
+  - Sau: `{ users, total }` (match FE `AdminScreen` đọc `res.users`).
+  - **Breaking change** nhẹ — không có alias backward-compat vì key `sellers` cũ không còn được trả.
+
+### Verification
+- ✅ `npx tsc --noEmit` pass (exit 0).
+- ✅ `npm run test` (errorContract) pass — **38/38 PASS** (đã bao gồm critical codes cho review + admin cũ).
+- ✅ `npm run build` pass.
+
+### Known Limitations
+- `platformProfit` hiện tính trực tiếp từ `Order.platformFee`, không qua `Ledger` model. Khi `Ledger` được tích hợp, có thể cần refactor để dùng nguồn double-entry chuẩn.
+- `Ledger.ts` và `PlatformFeeConfig.ts` được nhắc tới trong CHANGELOG_AI cũ nhưng **không tồn tại trong git working tree của branch `backend` hiện tại**. Nếu cần dùng phải tạo mới từ scratch.
+
+### Backlog (cần làm trước khi vào production payment)
+
+> Task lớn cần tracking riêng, không chặn tiến độ FE hiện tại vì `platformProfit` đã có giải pháp tạm aggregate `Order.platformFee`.
+
+- [ ] **Implement `Ledger.ts` (double-entry accounting)**
+  - Schema: `account` enum (PLATFORM_CASH, PLATFORM_REVENUE, SELLER_PAYABLE, BUYER_PAYMENT, REFUND), `entryType` (DEBIT/CREDIT), `amount`, `currency`, `orderId`, `idempotencyKey`, `createdAt`.
+  - Migrations: backfill entries cho orders đã completed để reconcile với `Order.platformFee`.
+  - Refactor `getAdminStats` để dùng `Ledger` thay vì aggregate trực tiếp (chống drift giữa platformFee Order vs Ledger entries).
+- [ ] **Implement `PlatformFeeConfig.ts`**
+  - Schema: `name`, `rate` (commission %), `effectiveFrom`, `effectiveTo`, `category` (optional).
+  - Hook vào `orderController` để áp dụng rate theo thời điểm đặt hàng (không dùng hardcode `0.1`).
+  - Admin endpoint để update rate với audit trail.
+- [ ] **Cleanup deprecated admin paths**
+  - Sau khi FE team confirm đã migrate sang canonical `/admin/sellers/:id/{approve,reject}`, xóa aliases `/admin/users/:id/{approve,reject}-seller`.

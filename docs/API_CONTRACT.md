@@ -1059,21 +1059,25 @@ REFUNDED        → (terminal)
 **Success (200)**:
 ```json
 {
-  "sellers": [ /* ApiSeller — same shape với GET /api/sellers */ ],
+  "users": [ /* ApiSeller — same shape với GET /api/sellers */ ],
   "total": "number"
 }
 ```
+
+> **Note**: Response key đổi từ `sellers` (cũ) thành `users` để khớp FE `AdminScreen` (`res.users`). Backward-compat: key `sellers` không còn được trả — FE nào đang đọc key này cần update.
 
 **Errors**:
 - `500` `INTERNAL_ERROR` — Lỗi hệ thống
 
 ---
 
-### PATCH `/api/admin/users/:id/approve-seller`
+### PATCH `/api/admin/sellers/:id/approve`
 
 **Mục đích**: Phê duyệt seller application — set `sellerProfile.status = "active"`. User có thể tạo sản phẩm ngay sau khi login lại.
 
 **Auth**: Required + role `admin`.
+
+> **Path alias**: `/api/admin/users/:id/approve-seller` vẫn hoạt động nhưng **deprecated** — log warning mỗi lần gọi. Nên chuyển sang canonical path `/api/admin/sellers/:id/approve`.
 
 **Success (200)** — newly approved:
 ```json
@@ -1102,11 +1106,13 @@ REFUNDED        → (terminal)
 
 ---
 
-### PATCH `/api/admin/users/:id/reject-seller`
+### PATCH `/api/admin/sellers/:id/reject`
 
 **Mục đích**: Từ chối seller application — set `sellerProfile.status = "suspended"` + xóa role `"seller"` khỏi `user.roles`.
 
 **Auth**: Required + role `admin`.
+
+> **Path alias**: `/api/admin/users/:id/reject-seller` vẫn hoạt động nhưng **deprecated** — log warning mỗi lần gọi. Nên chuyển sang canonical path `/api/admin/sellers/:id/reject`.
 
 **Request**:
 ```json
@@ -1132,6 +1138,92 @@ REFUNDED        → (terminal)
 - `400` `INVALID_INPUT` — User chưa đăng ký seller (chưa có `sellerProfile`)
 - `404` `ACCOUNT_NOT_FOUND` — User không tồn tại
 - `500` `INTERNAL_ERROR` — Lỗi hệ thống
+
+---
+
+### GET `/api/admin/stats`
+
+**Mục đích**: Thống kê tổng quan cho Admin Dashboard — số liệu đếm theo collection + tổng platform profit.
+
+**Auth**: Required + role `admin`.
+
+**Success (200)**:
+```json
+{
+  "stats": {
+    "pendingListings": 12,
+    "soldProducts": 240,
+    "totalOrders": 1024,
+    "totalUsers": 5000,
+    "totalSellers": 87,
+    "platformProfit": 12345678
+  }
+}
+```
+
+**Field meaning**:
+- `pendingListings` — số sản phẩm đang `status = "pending"` chờ duyệt.
+- `soldProducts` — số sản phẩm đã `status = "sold"`.
+- `totalOrders` — tổng số đơn hàng (mọi trạng thái).
+- `totalUsers` — tổng số user trong hệ thống.
+- `totalSellers` — số user có role `"seller"`.
+- `platformProfit` — tổng `platformFee` (VND) từ tất cả orders, dùng cho dashboard tính hoa hồng C2C.
+
+**Errors**:
+- `401` `UNAUTHORIZED` — Thiếu JWT
+- `403` `FORBIDDEN` — Không phải admin
+- `500` `INTERNAL_ERROR` — Lỗi hệ thống
+
+---
+
+## Reviews
+
+### POST `/api/products/:id/reviews`
+
+**Mục đích**: Buyer đánh giá sản phẩm sau khi đơn hàng được giao thành công. Mỗi (orderId, productId, buyerId) chỉ được review 1 lần.
+
+**Auth**: Required (JWT, role `buyer`).
+
+**Request**:
+```json
+{
+  "rating": 5,
+  "comment": "Sản phẩm đẹp, đúng mô tả",
+  "orderId": "65f0a1b2c3d4e5f6a7b8c9d0"
+}
+```
+
+**Validation**:
+- `rating`: integer 1–5 (bắt buộc).
+- `orderId`: ObjectId của order đã mua sản phẩm (bắt buộc).
+- `comment`: string tối đa 1000 ký tự (optional).
+- Order phải thuộc về user gọi request (`buyerId` match).
+- Order phải có `status ∈ { DELIVERED, COMPLETED }`.
+- Product phải nằm trong `order.items`.
+
+**Success (201)**:
+```json
+{
+  "review": {
+    "_id": "65f0a2b3c4d5e6f7a8b9c0d1",
+    "productId": "65e9a0b1c2d3e4f5a6b7c8d9",
+    "buyerId": "65d8c9d0e1f2a3b4c5d6e7f8",
+    "orderId": "65f0a1b2c3d4e5f6a7b8c9d0",
+    "rating": 5,
+    "comment": "Sản phẩm đẹp, đúng mô tả",
+    "createdAt": "2026-09-29T10:30:00.000Z"
+  }
+}
+```
+
+**Errors**:
+- `400` `REVIEW_RATING_INVALID` — Rating không phải integer 1–5.
+- `400` `ORDER_ID_REQUIRED` — Thiếu `orderId`.
+- `403` `REVIEW_NOT_ALLOWED` — Order không thuộc user, hoặc chưa giao, hoặc product không có trong order.
+- `404` `PRODUCT_NOT_FOUND` — Sản phẩm không tồn tại.
+- `404` `ORDER_NOT_FOUND` — Đơn hàng không tồn tại.
+- `409` `REVIEW_ALREADY_EXISTS` — Đã review (orderId, productId, buyerId) này rồi.
+- `500` `INTERNAL_ERROR` — Lỗi hệ thống.
 
 ---
 

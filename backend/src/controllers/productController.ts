@@ -3,6 +3,8 @@ import "../models";
 import { Product } from "../models/Product";
 import { User } from "../models/User";
 import { Category } from "../models/Category";
+import { Order } from "../models/Order";
+import { Review } from "../models/Review";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 
 // ── Helper: Map Product document to frontend-compatible shape ─────────────────
@@ -223,5 +225,136 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     res.status(201).json({ product: mapProduct(populated) });
   } catch (err) {
     handleInternalError(res, err, "[products] createProduct error");
+  }
+};
+
+// ── POST /api/products/:id/reviews ───────────────────────────────────────────
+// Buyer submits a review for a product purchased via an order.
+// Requirements:
+//   - Buyer must be authenticated.
+//   - Buyer must own the order referenced by `orderId`.
+//   - Order must contain the product and be in DELIVERED (or later) state.
+//   - Rating must be integer 1..5.
+//   - One review per (orderId, productId, buyerId) tuple — duplicate → 409.
+//
+// Request body:
+//   { rating: number, comment?: string, orderId: string }
+//
+// Response:
+//   { review: { _id, productId, buyerId, orderId, rating, comment, createdAt } }
+export const createReview = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id: productId } = req.params;
+    const buyerId = req.user!.id;
+    const { rating, comment, orderId } = req.body as {
+      rating?: number;
+      comment?: string;
+      orderId?: string;
+    };
+
+    // Validate product exists
+    const product = await Product.findById(productId).select("_id").lean();
+    if (!product) {
+      sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Sản phẩm không tồn tại");
+      return;
+    }
+
+    // Validate rating
+    if (typeof rating !== "number" || !Number.isInteger(rating) || rating < 1 || rating > 5) {
+      sendError(
+        res,
+        ErrorCode.REVIEW_RATING_INVALID,
+        "Đánh giá phải là số nguyên từ 1 đến 5"
+      );
+      return;
+    }
+
+    // Validate orderId
+    if (!orderId || typeof orderId !== "string") {
+      sendError(
+        res,
+        ErrorCode.ORDER_ID_REQUIRED,
+        "Thiếu orderId của đơn hàng đã mua sản phẩm này"
+      );
+      return;
+    }
+
+    // Fetch order, check ownership + state + product inclusion
+    const order = await Order.findById(orderId).lean();
+    if (!order) {
+      sendError(res, ErrorCode.ORDER_NOT_FOUND, "Đơn hàng không tồn tại");
+      return;
+    }
+    if (order.buyerId.toString() !== buyerId) {
+      sendError(
+        res,
+        ErrorCode.REVIEW_NOT_ALLOWED,
+        "Bạn chỉ có thể đánh giá sản phẩm trong đơn hàng của chính mình"
+      );
+      return;
+    }
+    // Allow review only after delivery
+    const REVIEWABLE_STATUSES: ReadonlyArray<string> = [
+      "DELIVERED",
+      "COMPLETED",
+    ];
+    if (!REVIEWABLE_STATUSES.includes(order.status)) {
+      sendError(
+        res,
+        ErrorCode.REVIEW_NOT_ALLOWED,
+        "Chỉ có thể đánh giá sau khi đơn hàng được giao thành công"
+      );
+      return;
+    }
+    // Ensure product is part of this order
+    const item = order.items.find(
+      (it) => it.productId.toString() === productId
+    );
+    if (!item) {
+      sendError(
+        res,
+        ErrorCode.REVIEW_NOT_ALLOWED,
+        "Sản phẩm này không nằm trong đơn hàng được cung cấp"
+      );
+      return;
+    }
+
+    // Create review (unique index will catch duplicates and surface 409)
+    try {
+      const review = await Review.create({
+        productId,
+        buyerId,
+        orderId,
+        rating,
+        comment: comment ?? "",
+      });
+
+      res.status(201).json({
+        review: {
+          _id: review._id.toString(),
+          productId: review.productId.toString(),
+          buyerId: review.buyerId.toString(),
+          orderId: review.orderId.toString(),
+          rating: review.rating,
+          comment: review.comment,
+          createdAt: review.createdAt,
+        },
+      });
+      return;
+    } catch (err: unknown) {
+      // Duplicate key error from unique index
+      const e = err as { code?: number };
+      if (e?.code === 11000) {
+        sendError(
+          res,
+          ErrorCode.REVIEW_ALREADY_EXISTS,
+          "Bạn đã đánh giá sản phẩm này cho đơn hàng này rồi"
+        );
+        return;
+      }
+      throw err;
+    }
+  } catch (err) {
+    handleInternalError(res, err, "[products] createReview error");
   }
 };

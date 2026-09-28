@@ -56,6 +56,55 @@
 - Added `.gitignore` configurations isolating local `.json` backups from the Git index.
 - Finalized local **E2E Buyer/Seller flow tests** verifying real-world viability of Seller Add Product, Buyer Cart, COD Orders, Shipping transitions, and Ledger consistency without mock fallback code.
 
+## [2026-09-29] (Admin Stats + Reviews + Admin Path Alignment)
+### Added (Backend)
+
+- **`GET /api/admin/stats`** — Aggregated platform stats cho Admin Dashboard.
+  - Trả `{ stats: { pendingListings, soldProducts, totalOrders, totalUsers, totalSellers, platformProfit } }`.
+  - `platformProfit` aggregate `$sum` của `Order.platformFee` (tạm thời, chưa dùng `Ledger`).
+- **`POST /api/products/:id/reviews`** — Buyer review sau khi đơn giao.
+  - Tạo model mới `backend/src/models/Review.ts` (compound unique index `(orderId, productId, buyerId)`).
+  - Validate: rating integer 1–5, order thuộc user, status ∈ { DELIVERED, COMPLETED }, product trong order.
+  - 3 ErrorCodes mới: `REVIEW_RATING_INVALID` (400), `REVIEW_NOT_ALLOWED` (403), `REVIEW_ALREADY_EXISTS` (409).
+  - Wire route: `POST /api/products/:id/reviews` (sau `POST /api/products` để tránh route shadow).
+
+### Changed (Backend)
+
+- **Admin seller moderation paths align với FE `AdminScreen`**:
+  - Canonical: `PATCH /api/admin/sellers/:id/{approve,reject}`.
+  - Legacy deprecated: `PATCH /api/admin/users/:id/{approve-seller,reject-seller}` — vẫn hoạt động, log warning mỗi lần gọi.
+- **`GET /api/admin/pending-sellers`** response shape đổi:
+  - Trước: `{ sellers, total }`.
+  - Sau: `{ users, total }` (match FE `AdminScreen` đọc `res.users`).
+  - **Breaking change** — không có alias backward-compat.
+
+### Files Changed
+- `backend/src/controllers/adminController.ts` — thêm `getAdminStats`, đổi response shape `getPendingSellers`.
+- `backend/src/routes/admin.ts` — thêm canonical paths + deprecated aliases.
+- `backend/src/controllers/productController.ts` — thêm `createReview`, import `Order` & `Review`.
+- `backend/src/routes/products.ts` — wire `POST /:id/reviews`.
+- `backend/src/models/Review.ts` (NEW) — model + unique index.
+- `backend/src/models/index.ts` — export `Review`.
+- `backend/src/utils/errors.ts` — thêm 3 error codes (REVIEW_*) + HTTP status mappings.
+- `docs/API_CONTRACT.md` — thêm docs cho `/admin/stats`, `/products/:id/reviews`, cập nhật admin endpoints.
+- `docs/API_CHANGELOG.md` — entry mới ghi breaking change + new endpoints.
+- `AI_CONTEXT.md` — section "Backend Iteration 2026-09-29" với verification + known limitations.
+
+### Verification
+- ✅ `npx tsc --noEmit` pass (exit 0).
+- ✅ `npm run test` (errorContract) pass — **38/38 PASS** (bao gồm các critical codes).
+- ✅ `npm run build` pass.
+
+### Known Limitations
+- `platformProfit` từ `Order.platformFee` thay vì `Ledger` (chưa tích hợp).
+- `Ledger.ts` và `PlatformFeeConfig.ts` được nhắc trong entry 2026-09-26 cũ nhưng **không có trong git tree branch `backend` hiện tại** — cần tạo mới nếu muốn dùng.
+
+### Backlog (cần làm trước khi vào production payment)
+
+- [ ] **Implement `Ledger.ts`** — double-entry accounting (PLATFORM_CASH / PLATFORM_REVENUE / SELLER_PAYABLE / BUYER_PAYMENT / REFUND). Refactor `getAdminStats` dùng `Ledger` thay vì aggregate `Order.platformFee` để tránh drift.
+- [ ] **Implement `PlatformFeeConfig.ts`** — schema + admin endpoint để update commission rate theo thời điểm áp dụng. Hook vào `orderController` thay hardcode `0.1`.
+- [ ] **Cleanup deprecated admin paths** — sau khi FE team confirm migrate sang canonical `/admin/sellers/:id/{approve,reject}`, xóa aliases `/admin/users/:id/{approve,reject}-seller` trong `routes/admin.ts`.
+
 ## [2026-09-29] (Seller Application Flow)
 ### Added
 

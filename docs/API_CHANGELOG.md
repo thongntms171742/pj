@@ -24,6 +24,80 @@ Track changes to the API contract over time to ensure synchronization between Ba
 
 ## 2026-09-29
 
+### Added — Admin Stats Endpoint
+
+**`GET /api/admin/stats`** — Aggregated platform stats for Admin Dashboard.
+
+**Response (200)**:
+```json
+{
+  "stats": {
+    "pendingListings": 12,
+    "soldProducts": 240,
+    "totalOrders": 1024,
+    "totalUsers": 5000,
+    "totalSellers": 87,
+    "platformProfit": 12345678
+  }
+}
+```
+
+**Impact**: FE `AdminScreen` tab "Tổng quan thống kê" đã có sẵn call tới `/admin/stats` (đọc `res.stats`) — endpoint giờ hoạt động, fallback UI hiển thị `0` không còn cần thiết.
+
+---
+
+### Added — Product Reviews
+
+**`POST /api/products/:id/reviews`** — Buyer submits a review for a product purchased via a delivered order.
+
+**New model**: `Review.ts` (`productId`, `buyerId`, `orderId`, `rating`, `comment`, timestamps).
+- Unique compound index `(orderId, productId, buyerId)` chống duplicate.
+
+**Request**:
+```json
+{ "rating": 5, "comment": "...", "orderId": "..." }
+```
+
+**Validation**:
+- `rating` integer 1–5.
+- `orderId` thuộc user gọi request, status ∈ { DELIVERED, COMPLETED }, và chứa product id này.
+
+**New ErrorCodes**:
+- `REVIEW_RATING_INVALID` (400)
+- `REVIEW_NOT_ALLOWED` (403)
+- `REVIEW_ALREADY_EXISTS` (409)
+
+**Impact**: FE `AccountScreen` tab "Đánh giá" đã có nút "Đánh giá ngay" gọi `POST /products/{productId}/reviews` — giờ submit thành công vào DB. Backend sẽ tự chuyển order sang `COMPLETED` qua flow hiện có (FE side effect).
+
+---
+
+### Changed — Admin Seller Moderation Paths (Breaking + Backward Compat)
+
+Canonical paths đổi để match FE `AdminScreen`:
+
+| Trước (deprecated) | Sau (canonical) |
+|---|---|
+| `PATCH /api/admin/users/:id/approve-seller` | `PATCH /api/admin/sellers/:id/approve` |
+| `PATCH /api/admin/users/:id/reject-seller` | `PATCH /api/admin/sellers/:id/reject` |
+
+**Backward compat**: Cả 2 paths cũ vẫn hoạt động, log warning mỗi lần gọi. Nên migrate FE sang canonical.
+
+**`GET /api/admin/pending-sellers`** response shape đổi:
+
+**Before**:
+```json
+{ "sellers": [...], "total": 5 }
+```
+
+**After**:
+```json
+{ "users": [...], "total": 5 }
+```
+
+**Impact**: FE `AdminScreen` đã đọc `res.users` — đã khớp. Nếu còn client nào đọc `res.sellers` cần update.
+
+---
+
 ### Added — Seller Application Flow
 
 **`POST /api/auth/seller/apply`** — User tự đăng ký trở thành seller.

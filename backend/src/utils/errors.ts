@@ -63,6 +63,11 @@ export const ErrorCode = {
   ORDER_PAYMENT_INVALID_STATE: "ORDER_PAYMENT_INVALID_STATE",
   ORDER_ID_REQUIRED: "ORDER_ID_REQUIRED",
 
+  // ── Review ───────────────────────────────────────────────────────────────
+  REVIEW_NOT_ALLOWED: "REVIEW_NOT_ALLOWED",
+  REVIEW_ALREADY_EXISTS: "REVIEW_ALREADY_EXISTS",
+  REVIEW_RATING_INVALID: "REVIEW_RATING_INVALID",
+
   // ── AI ────────────────────────────────────────────────────────────────────
   AI_QUERY_INVALID_LENGTH: "AI_QUERY_INVALID_LENGTH",
   AI_IMAGE_INVALID: "AI_IMAGE_INVALID",
@@ -134,6 +139,11 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   ORDER_ALREADY_CANCELLED: 400,
   ORDER_PAYMENT_INVALID_STATE: 422,
   ORDER_ID_REQUIRED: 400,
+
+  // Review
+  REVIEW_NOT_ALLOWED: 403,
+  REVIEW_ALREADY_EXISTS: 409,
+  REVIEW_RATING_INVALID: 400,
 
   // AI
   AI_QUERY_INVALID_LENGTH: 400,

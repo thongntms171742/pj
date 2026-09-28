@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { Product } from "../models/Product";
 import { User } from "../models/User";
+import { Order } from "../models/Order";
 import { Notification } from "../models/Notification";
 import { mapProduct } from "./productController";
 import { mapSeller } from "./sellerController";
@@ -72,6 +73,11 @@ export const rejectListing = async (req: Request, res: Response): Promise<void> 
 
 // ── GET /api/admin/pending-sellers ───────────────────────────────────────────
 // List all users whose sellerProfile.status === "pending_approval".
+//
+// NOTE: Response shape is `{ users, total }` so FE AdminScreen
+//       can read `res.users` directly. Earlier versions returned
+//       `{ sellers, total }` — that alias is kept via /admin/pending-sellers/sellers
+//       (deprecated, kept for backward compat — see routes/admin.ts).
 export const getPendingSellers = async (_req: Request, res: Response): Promise<void> => {
   try {
     const users = await User.find({ "sellerProfile.status": "pending_approval" })
@@ -79,14 +85,17 @@ export const getPendingSellers = async (_req: Request, res: Response): Promise<v
       .lean();
 
     const sellers = users.map(mapSeller);
-    res.json({ sellers, total: sellers.length });
+    // Primary shape: { users } — matches FE AdminScreen (`res.users`).
+    res.json({ users: sellers, total: sellers.length });
   } catch (err) {
     handleInternalError(res, err, "[admin] getPendingSellers error");
   }
 };
 
-// ── PATCH /api/admin/users/:id/approve-seller ────────────────────────────────
+// ── PATCH /api/admin/sellers/:id/approve ─────────────────────────────────────
 // Approve a pending seller application: set status = "active".
+// This is the canonical path. Legacy path `/admin/users/:id/approve-seller`
+// is kept as an alias in routes/admin.ts (deprecated).
 // Sends notification to the user.
 export const approveSeller = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -135,8 +144,9 @@ export const approveSeller = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-// ── PATCH /api/admin/users/:id/reject-seller ─────────────────────────────────
+// ── PATCH /api/admin/sellers/:id/reject ──────────────────────────────────────
 // Reject a pending seller application: set status = "suspended" + remove role.
+// Canonical path. Legacy `/admin/users/:id/reject-seller` kept as alias.
 // Sends notification explaining rejection.
 export const rejectSeller = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -176,5 +186,53 @@ export const rejectSeller = async (req: Request, res: Response): Promise<void> =
     });
   } catch (err) {
     handleInternalError(res, err, "[admin] rejectSeller error");
+  }
+};
+
+// ── GET /api/admin/stats ─────────────────────────────────────────────────────
+// Aggregated platform-wide statistics for the Admin Dashboard.
+//
+// Returns counts + platform profit (sum of platformFee across all orders).
+// Response shape: `{ stats: {...} }` — matches FE AdminScreen usage.
+export const getAdminStats = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const [
+      pendingListings,
+      soldProducts,
+      totalOrders,
+      totalUsers,
+      totalSellers,
+      platformProfitAgg,
+    ] = await Promise.all([
+      Product.countDocuments({ status: "pending" }),
+      Product.countDocuments({ status: "sold" }),
+      Order.countDocuments(),
+      User.countDocuments({}),
+      User.countDocuments({ roles: "seller" }),
+      Order.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalPlatformFee: { $sum: { $ifNull: ["$platformFee", 0] } },
+          },
+        },
+      ]),
+    ]);
+
+    const platformProfit =
+      platformProfitAgg.length > 0 ? platformProfitAgg[0].totalPlatformFee : 0;
+
+    res.json({
+      stats: {
+        pendingListings,
+        soldProducts,
+        totalOrders,
+        totalUsers,
+        totalSellers,
+        platformProfit,
+      },
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] getAdminStats error");
   }
 };
