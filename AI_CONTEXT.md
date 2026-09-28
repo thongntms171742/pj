@@ -85,6 +85,18 @@
 2. **Safe DB Reset**: Use `npx ts-node --transpile-only scripts/reset-demo-db.ts --execute --confirm-reset` to safely clean the active catalog while preserving history.
 3. **Safe DB Seed**: Use `npx ts-node --transpile-only scripts/seed-demo-products.ts --execute --confirm-seed` to create fresh demo products for testing. Avoid using the old `seed.ts`.
 
+## API Contract & Documentation (`docs/`)
+The project follows a strict API contract model between the Frontend and Backend teams. All API documentation is located in the `docs/` folder:
+- `API_CONTRACT.md`: The primary human-readable contract detailing endpoints, request/response formats, and required auth/roles.
+- `AUTH_SPEC.md`: Specifics on authentication, tokens, and role-based access control matrix.
+- `ENUMS.md`: A unified vocabulary of enums (e.g. Order Status, Product Status) shared between teams.
+- `ERROR_CODES.md`: Standardized business error codes and expected frontend behaviors.
+- `API_CHANGELOG.md`: Tracks changes and breaking changes to the API over time.
+- `INTEGRATION_GUIDE.md`: Guides on local/production environments and test accounts.
+- `API_MATRIX.md`: Progress tracking of feature completion on both BE and FE.
+
+**Source of Truth:** API Contract là source of truth cho giao tiếp giữa FE và BE; Backend implementation và automated tests phải được kiểm tra để bảo đảm contract phản ánh API thực tế. Backend chịu trách nhiệm cập nhật các document này trước khi đánh dấu một tính năng là DONE. Frontend dựa vào các document này để làm thay vì phải tự đoán API behavior.
+
 ## Notes & Recommendations for Frontend (No Frontend Code Changed)
 1. **COD Orders**: Backend sets COD orders directly to `CONFIRMED` upon creation.
 2. **Online Payments**: `POST /payments/checkout` advances online orders to `CONFIRMED` and returns full `ApiOrder` object.
