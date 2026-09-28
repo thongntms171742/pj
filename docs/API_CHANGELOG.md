@@ -24,6 +24,27 @@ Track changes to the API contract over time to ensure synchronization between Ba
 
 ## 2026-09-29
 
+### Added — Seller Application Flow
+
+**`POST /api/auth/seller/apply`** — User tự đăng ký trở thành seller.
+
+**Before**: User muốn thành seller phải admin set thủ công trong DB.
+
+**After**: User POST application với `{ shopName, handle?, description?, ... }`. BE auto-add role `"seller"` + set `sellerProfile.status = "pending_approval"`.
+
+**New endpoints**:
+- `POST /api/auth/seller/apply` (Buyer → pending_approval)
+- `GET /api/admin/pending-sellers` (Admin)
+- `PATCH /api/admin/users/:id/approve-seller` (Admin → active, gửi notification)
+- `PATCH /api/admin/users/:id/reject-seller` (Admin → suspended + remove role, gửi notification kèm `reason`)
+
+**New ErrorCodes**: `SELLER_HANDLE_TAKEN` (409), `SELLER_SHOP_NAME_TAKEN` (409), `SELLER_ALREADY_APPROVED` (409).
+
+**Impact**:
+- FE có thể build form "Đăng ký bán hàng" hoàn chỉnh (UI flow mới).
+- FE check `user.sellerStatus` để show banner "Đang chờ duyệt" hoặc "Đã được duyệt".
+- Admin dashboard có thêm section "Seller applications" (hiển thị list pending).
+
 ### Breaking Change — Unified Error Envelope
 
 **ALL endpoints** (mọi response 4xx/5xx).

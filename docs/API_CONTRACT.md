@@ -130,6 +130,72 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
 
 ---
 
+### POST `/api/auth/seller/apply`
+
+**Mục đích**: User đăng ký trở thành người bán (seller application flow).
+
+**Auth**: Required (Buyer — user chưa phải seller active).
+
+**Request**:
+```json
+{
+  "shopName": "string (required, 3–100 chars, unique)",
+  "handle": "string (optional, 3–30 chars, alphanumeric + _ + .) — tự động sinh từ email nếu bỏ trống",
+  "description": "string (optional, max 500 chars)",
+  "avatarUrl": "string (optional, URL)",
+  "coverImages": ["string"] // optional, max 5 URLs
+}
+```
+
+**Success (201)** — first-time application:
+```json
+{
+  "application": {
+    "userId": "string",
+    "shopName": "string",
+    "handle": "string",
+    "status": "pending_approval",
+    "submittedAt": "ISO date",
+    "estimatedReviewDays": 3
+  },
+  "user": {
+    "_id": "string",
+    "name": "string",
+    "email": "string",
+    "roles": ["buyer", "seller"],
+    "sellerStatus": "pending_approval"
+  }
+}
+```
+
+**Success (200)** — idempotent update (user đã apply trước đó, vẫn pending):
+```json
+{ "application": { /* same shape */ }, "user": { /* same shape */ } }
+```
+
+**Errors**:
+- `400` `INVALID_INPUT` — `shopName phải có độ dài từ 3 đến 100 ký tự`
+- `400` `INVALID_INPUT` — `handle chỉ chấp nhận chữ cái, số, dấu _ và . (độ dài 3-30)`
+- `401` `UNAUTHORIZED` — Chưa đăng nhập
+- `404` `ACCOUNT_NOT_FOUND` — User không tồn tại
+- `409` `SELLER_ALREADY_APPROVED` — User đã là seller active (không cần apply)
+- `409` `SELLER_HANDLE_TAKEN` — `Handle "..." đã được sử dụng bởi người bán khác`
+- `409` `SELLER_SHOP_NAME_TAKEN` — `Tên shop "..." đã được sử dụng`
+- `500` `INTERNAL_ERROR` — Lỗi hệ thống
+
+> **Side effects**:
+> - Thêm role `"seller"` vào `user.roles` (FE có thể check `user.roles.includes("seller")` + `user.sellerStatus === "pending_approval"` để show banner "Đang chờ duyệt").
+> - Set `user.sellerProfile = { ..., status: "pending_approval" }`.
+> - User KHÔNG THỂ tạo sản phẩm cho đến khi admin duyệt (vẫn trả `403 SELLER_NOT_APPROVED`).
+
+> **FE workflow**:
+> 1. Show form "Đăng ký bán hàng" với các field trên.
+> 2. Submit → gọi endpoint này.
+> 3. Nhận `user.sellerStatus === "pending_approval"` → show banner "Đang chờ admin duyệt (~3 ngày)".
+> 4. Disable nút tạo sản phẩm cho đến khi login lại và thấy `sellerStatus === "active"`.
+
+---
+
 ### POST `/api/auth/cart/merge`
 
 **Mục đích**: ⚠️ **DEPRECATED** — dùng `POST /api/cart/merge` thay thế.
@@ -981,6 +1047,91 @@ REFUNDED        → (terminal)
 **Errors**:
 - `404` `PRODUCT_NOT_FOUND` — `Sản phẩm không tồn tại`
 - `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+
+---
+
+### GET `/api/admin/pending-sellers`
+
+**Mục đích**: Danh sách user đang chờ admin duyệt để trở thành seller.
+
+**Auth**: Required + role `admin`.
+
+**Success (200)**:
+```json
+{
+  "sellers": [ /* ApiSeller — same shape với GET /api/sellers */ ],
+  "total": "number"
+}
+```
+
+**Errors**:
+- `500` `INTERNAL_ERROR` — Lỗi hệ thống
+
+---
+
+### PATCH `/api/admin/users/:id/approve-seller`
+
+**Mục đích**: Phê duyệt seller application — set `sellerProfile.status = "active"`. User có thể tạo sản phẩm ngay sau khi login lại.
+
+**Auth**: Required + role `admin`.
+
+**Success (200)** — newly approved:
+```json
+{
+  "seller": { /* ApiSeller */ },
+  "alreadyApproved": false
+}
+```
+
+**Success (200)** — idempotent (đã active sẵn):
+```json
+{
+  "seller": { /* ApiSeller */ },
+  "alreadyApproved": true
+}
+```
+
+**Side effects**:
+- Set `sellerProfile.status = "active"`.
+- Gửi notification cho user thông báo đã được phê duyệt.
+
+**Errors**:
+- `400` `INVALID_INPUT` — User chưa đăng ký seller (chưa có `sellerProfile`)
+- `404` `ACCOUNT_NOT_FOUND` — User không tồn tại
+- `500` `INTERNAL_ERROR` — Lỗi hệ thống
+
+---
+
+### PATCH `/api/admin/users/:id/reject-seller`
+
+**Mục đích**: Từ chối seller application — set `sellerProfile.status = "suspended"` + xóa role `"seller"` khỏi `user.roles`.
+
+**Auth**: Required + role `admin`.
+
+**Request**:
+```json
+{
+  "reason": "string (optional) — lý do từ chối sẽ gửi qua notification"
+}
+```
+
+**Success (200)**:
+```json
+{
+  "seller": { /* ApiSeller — status = "suspended" */ },
+  "rejected": true
+}
+```
+
+**Side effects**:
+- Set `sellerProfile.status = "suspended"`.
+- Xóa `"seller"` khỏi `user.roles`.
+- Gửi notification cho user (kèm `reason` nếu có).
+
+**Errors**:
+- `400` `INVALID_INPUT` — User chưa đăng ký seller (chưa có `sellerProfile`)
+- `404` `ACCOUNT_NOT_FOUND` — User không tồn tại
+- `500` `INTERNAL_ERROR` — Lỗi hệ thống
 
 ---
 

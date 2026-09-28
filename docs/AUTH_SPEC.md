@@ -81,6 +81,61 @@
 
 ---
 
+## Seller Application Flow
+
+**POST /api/auth/seller/apply**
+
+User muốn trở thành seller đăng ký qua endpoint này. Trước đây phải admin set thủ công trong DB — giờ user tự apply qua UI.
+
+**Request**:
+```json
+{
+  "shopName": "string (3-100 chars, required)",
+  "handle": "string (3-30 chars, optional - auto-gen từ email)",
+  "description": "string (max 500 chars, optional)",
+  "avatarUrl": "string (optional)",
+  "coverImages": ["string"] (max 5, optional)
+}
+```
+
+**Success (201 first-time / 200 idempotent)**:
+```json
+{
+  "application": {
+    "userId": "...",
+    "shopName": "Minh Tú Vintage",
+    "handle": "minhtu_vintage",
+    "status": "pending_approval",
+    "submittedAt": "ISO",
+    "estimatedReviewDays": 3
+  },
+  "user": {
+    "_id": "...",
+    "name": "Minh Tú",
+    "email": "minhtu@gmail.com",
+    "roles": ["buyer", "seller"],
+    "sellerStatus": "pending_approval"
+  }
+}
+```
+
+**Errors**:
+- `400 INVALID_INPUT` — shopName/handle không hợp lệ
+- `409 SELLER_ALREADY_APPROVED` — User đã là seller active
+- `409 SELLER_HANDLE_TAKEN` — Handle đã được seller khác dùng
+- `409 SELLER_SHOP_NAME_TAKEN` — Tên shop đã được seller khác dùng
+- `500 INTERNAL_ERROR` — Lỗi hệ thống
+
+**FE UI flow**:
+1. Show form "Đăng ký bán hàng" cho user có `sellerStatus === null`.
+2. Submit → success → redirect về dashboard với banner "Đang chờ admin duyệt".
+3. Disable nút "Đăng sản phẩm" cho đến khi `sellerStatus === "active"` (sau khi admin duyệt).
+
+**Admin approve flow**:
+- `GET /api/admin/pending-sellers` — list applications.
+- `PATCH /api/admin/users/:id/approve-seller` — duyệt (set status = active).
+- `PATCH /api/admin/users/:id/reject-seller` — từ chối (set status = suspended + remove role).
+
 ## Token storage & usage
 
 *(Frontend lưu token vào `localStorage` (key: `token`) và gửi kèm `Authorization: Bearer <token>` cho mọi request cần auth.)*

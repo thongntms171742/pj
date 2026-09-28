@@ -50,6 +50,9 @@
 | `EMAIL_ALREADY_USED` | 409 | Email đã tồn tại | Show "Email đã được sử dụng" |
 | `INVALID_CREDENTIALS` | 401 | Email/password sai | Show "Email hoặc mật khẩu không đúng" |
 | `ITEMS_REQUIRED` | 400 | Cart merge thiếu items array | Highlight items field |
+| `SELLER_HANDLE_TAKEN` | 409 | Handle đã được seller khác dùng | Highlight handle field, gợi ý chọn handle khác |
+| `SELLER_SHOP_NAME_TAKEN` | 409 | Tên shop đã được seller khác dùng | Highlight shopName field |
+| `SELLER_ALREADY_APPROVED` | 409 | User đã là seller active, không cần apply | Disable nút "Đăng ký bán hàng" |
 
 ### Seller
 

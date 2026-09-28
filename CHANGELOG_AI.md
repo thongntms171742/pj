@@ -56,6 +56,31 @@
 - Added `.gitignore` configurations isolating local `.json` backups from the Git index.
 - Finalized local **E2E Buyer/Seller flow tests** verifying real-world viability of Seller Add Product, Buyer Cart, COD Orders, Shipping transitions, and Ledger consistency without mock fallback code.
 
+## [2026-09-29] (Seller Application Flow)
+### Added
+
+- **`POST /api/auth/seller/apply`** — User tự đăng ký thành seller (trước đây admin phải set thủ công trong DB).
+  - Validation: shopName 3-100 chars unique, handle 3-30 chars alphanumeric + `_` + `.`, description max 500, coverImages max 5.
+  - Auto-generate `handle` từ email local-part nếu user không cung cấp.
+  - Idempotent: nếu user đã apply, trả current state với status code 200 (vs 201 first-time).
+  - Side effects: thêm role `"seller"` vào `user.roles`, set `sellerProfile.status = "pending_approval"`.
+- **Admin seller moderation endpoints**:
+  - `GET /api/admin/pending-sellers` — list applications đang chờ duyệt.
+  - `PATCH /api/admin/users/:id/approve-seller` — duyệt, set `status = "active"`, gửi notification.
+  - `PATCH /api/admin/users/:id/reject-seller` — từ chối, set `status = "suspended"` + remove role, gửi notification kèm `reason`.
+- **3 ErrorCodes mới**: `SELLER_HANDLE_TAKEN` (409), `SELLER_SHOP_NAME_TAKEN` (409), `SELLER_ALREADY_APPROVED` (409).
+
+### Documentation
+- Updated `docs/API_CONTRACT.md` — added 4 endpoints (apply + 3 admin).
+- Updated `docs/AUTH_SPEC.md` — added section "Seller Application Flow".
+- Updated `docs/ERROR_CODES.md` — added 3 new codes.
+- Updated `docs/API_CHANGELOG.md` — added entry 2026-09-29.
+- Updated `backend/src/tests/errorContract.test.ts` — added 3 new critical codes (38/38 PASS).
+
+### Verification
+- ✅ `npx tsc --noEmit` pass.
+- ✅ `npm run test` pass — **38/38 PASS** (was 35, +3 for new codes).
+
 ## [2026-09-29] (API Contract Unification)
 ### Added & Implemented
 
