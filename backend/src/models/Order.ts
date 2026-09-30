@@ -37,6 +37,7 @@ export const ORDER_STATUSES = [
   "DELIVERED",
   "COMPLETED",
   "CANCELLED",
+  "CANCEL_REQUESTED",
   "DISPUTED",
   "REFUNDED",
 ] as const;
@@ -47,13 +48,14 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 export const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   PENDING_PAYMENT: ["PAID", "CONFIRMED", "CANCELLED"],
   PAID: ["CONFIRMED", "PACKING", "CANCELLED", "REFUNDED"],
-  CONFIRMED: ["PACKING", "SHIPPING", "CANCELLED"],
-  PACKING: ["SHIPPING", "CANCELLED"],
+  CONFIRMED: ["PACKING", "SHIPPING", "CANCELLED", "CANCEL_REQUESTED"],
+  PACKING: ["SHIPPING", "CANCELLED", "CANCEL_REQUESTED"],
   SHIPPING: ["DELIVERING", "DELIVERED", "CANCELLED"],
   DELIVERING: ["DELIVERED", "COMPLETED"],
   DELIVERED: ["COMPLETED", "DISPUTED"],
   COMPLETED: [],
   CANCELLED: [],
+  CANCEL_REQUESTED: ["CANCELLED", "CONFIRMED"],
   DISPUTED: ["REFUNDED", "COMPLETED"],
   REFUNDED: [],
 };
@@ -140,6 +142,8 @@ export interface IOrder extends Document {
   deliveredAt?: Date | null;
   shippingEvents: IShippingEvent[];
   idempotencyKey: string;
+  cancelReason?: string;
+  cancelRequestedAt?: Date | null;
 }
 
 const OrderSchema = new Schema<IOrder>(
@@ -173,6 +177,8 @@ const OrderSchema = new Schema<IOrder>(
     deliveredAt: { type: Date, default: null },
     shippingEvents: { type: [ShippingEventSchema], default: [] },
     idempotencyKey: { type: String, default: undefined },
+    cancelReason: { type: String, default: "" },
+    cancelRequestedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

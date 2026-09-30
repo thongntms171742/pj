@@ -225,3 +225,8 @@ The project follows a strict API contract model between the Frontend and Backend
 - ✅ `npx tsc --noEmit` pass (exit 0).
 - ✅ `npm run build` pass (exit 0).
 - ✅ `npm run test` (errorContract) pass — **38/38 PASS**.
+
+### Backend Adjustments (2026-10-01)
+- **`ORDER_BUYER_NOT_PARTICIPANT` Bug**: Fixed issue in `updateOrderStatus` where the buyer was previously blocked from transitioning an order to `DELIVERED` or `DISPUTED`. Updated role-based restrictions in `orderController.ts` to allow buyers to transition orders to `DELIVERED` and `DISPUTED` (alongside `CANCELLED` and `COMPLETED`). Updated `API_CONTRACT.md` and `ERROR_CODES.md` to reflect this fix. Fixed related test in `orderAuth.test.ts`.
+- **`CANCEL_REQUESTED` Flow**: Added `CANCEL_REQUESTED` to `ORDER_STATUSES` enum and updated `VALID_TRANSITIONS` in `Order.ts` to support buyer cancellation requests. Added `cancelReason` and `cancelRequestedAt` fields to the `Order` schema and `mapOrder` output. Allowed inventory restoration when an order transitions to `CANCELLED` directly from `CANCEL_REQUESTED`.
+- **Seller Delivery Restrictions**: Removed the role-based restriction preventing sellers from setting `DELIVERING` and `DELIVERED` status directly in `orderController.ts` (since there is no real shipping provider). Updated tests for new seller permissions.

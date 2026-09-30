@@ -1,5 +1,21 @@
 # AI Changelog
 
+## [2026-10-01]
+### Added
+- Added `CANCEL_REQUESTED` to `ORDER_STATUSES` enum and updated `VALID_TRANSITIONS` in `Order.ts` to support buyer cancellation requests.
+- Added `cancelReason` and `cancelRequestedAt` fields to the `Order` model and `mapOrder` response.
+
+### Changed
+- Removed the role-based restriction preventing sellers from setting `DELIVERING` and `DELIVERED` status directly in `orderController.ts` (since there is no real shipping provider).
+- Updated role-based restrictions in `orderController.ts` to allow sellers to transition orders from `CANCEL_REQUESTED` to `CANCELLED` (accept cancel) or `CONFIRMED` (reject cancel).
+- Enforced a constraint where buyers can only use `CANCELLED` directly if the order is in `PENDING_PAYMENT` or `PAID`. Once the order reaches `CONFIRMED` or later, they must use `CANCEL_REQUESTED`.
+- Allowed inventory restoration when an order transitions to `CANCELLED` directly from `CANCEL_REQUESTED`.
+- Updated `API_CONTRACT.md` and `ERROR_CODES.md` to reflect new valid transitions for buyers and sellers.
+- Fixed a buggy test in `orderAuth.test.ts` which attempted an invalid state machine transition when testing seller delivery restrictions, and updated tests for new seller permissions.
+
+### Fixed
+- Fixed `ORDER_BUYER_NOT_PARTICIPANT` error when buyers attempted to mark orders as `DELIVERED` or `DISPUTED`. Updated role-based restrictions in `orderController.ts` to allow buyers to transition orders to `DELIVERED` and `DISPUTED` (in addition to `CANCELLED` and `COMPLETED`).
+
 ## [2026-09-23]
 ### Added
 - Express + TypeScript + Mongoose backend initialized in `backend/`.

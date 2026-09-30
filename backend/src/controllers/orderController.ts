@@ -49,6 +49,8 @@ export const mapOrder = (o: any) => ({
     ? new Date(o.estimatedDeliveryAt).toISOString()
     : null,
   deliveredAt: o.deliveredAt ? new Date(o.deliveredAt).toISOString() : null,
+  cancelReason: o.cancelReason || "",
+  cancelRequestedAt: o.cancelRequestedAt ? new Date(o.cancelRequestedAt).toISOString() : null,
   idempotencyKey: o.idempotencyKey,
   createdAt: o.createdAt
     ? new Date(o.createdAt).toISOString()
@@ -388,26 +390,40 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
     // State-machine role bypass protection
     if (!isAdmin) {
       if (isBuyer && !isSeller) {
-        // Buyer can only CANCEL or COMPLETE
-        if (nextStatus !== "CANCELLED" && nextStatus !== "COMPLETED") {
+        // Buyer can CANCEL, REQUEST CANCEL, mark as DELIVERED, COMPLETE or DISPUTE
+        if (!["CANCELLED", "CANCEL_REQUESTED", "DELIVERED", "COMPLETED", "DISPUTED"].includes(nextStatus)) {
           sendError(
             res,
             ErrorCode.ORDER_BUYER_NOT_PARTICIPANT,
-            "Người mua chỉ có thể HỦY hoặc HOÀN TẤT đơn hàng"
+            "Người mua chỉ có thể HỦY, YÊU CẦU HỦY, BÁO ĐÃ NHẬN, KHIẾU NẠI hoặc HOÀN TẤT đơn hàng"
+          );
+          return;
+        }
+
+        if (nextStatus === "CANCELLED" && !["PENDING_PAYMENT", "PAID"].includes(currentStatus)) {
+          sendError(
+            res,
+            ErrorCode.ORDER_BUYER_NOT_PARTICIPANT,
+            "Sau khi đơn hàng đã được xác nhận, bạn chỉ có thể Yêu cầu hủy (CANCEL_REQUESTED)"
           );
           return;
         }
       } else if (isSeller) {
-        // Seller cannot mark as DELIVERED or DELIVERING or COMPLETED directly
-        if (["DELIVERING", "DELIVERED", "COMPLETED"].includes(nextStatus)) {
+        // Seller cannot mark as COMPLETED directly (buyer must do it or system)
+        if (["COMPLETED"].includes(nextStatus)) {
           sendError(
             res,
             ErrorCode.ORDER_SELLER_CANNOT_DELIVER,
-            "Người bán không thể tự cập nhật trạng thái Giao hàng hoặc Hoàn tất"
+            "Người bán không thể tự cập nhật trạng thái Hoàn tất"
           );
           return;
         }
       }
+    }
+
+    if (nextStatus === "CANCEL_REQUESTED") {
+      order.cancelReason = reason || "";
+      order.cancelRequestedAt = new Date();
     }
 
     // If cancelling, restore inventory and release holds
@@ -424,7 +440,8 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
             currentStatus === "CONFIRMED" ||
             currentStatus === "PAID" ||
             currentStatus === "PACKING" ||
-            currentStatus === "SHIPPING"
+            currentStatus === "SHIPPING" ||
+            currentStatus === "CANCEL_REQUESTED"
           ) {
             // Restore quantity
             prod.quantity += item.quantity;

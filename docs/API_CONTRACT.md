@@ -915,8 +915,8 @@ REFUNDED        → (terminal)
 ```
 
 **Role-based restrictions** (ngoài state machine):
-- **Buyer-only** (không phải seller/admin): chỉ được chuyển sang `CANCELLED` hoặc `COMPLETED`.
-- **Seller** (không phải admin): KHÔNG được tự chuyển sang `DELIVERING`, `DELIVERED`, `COMPLETED` — các bước này phải do shipment mock hoặc buyer thực hiện.
+- **Buyer-only** (không phải seller/admin): chỉ được chuyển sang `CANCELLED`, `CANCEL_REQUESTED`, `DELIVERED`, `COMPLETED` hoặc `DISPUTED`. (Lưu ý: Chỉ được trực tiếp chuyển sang `CANCELLED` khi đơn chưa được `CONFIRMED`. Từ `CONFIRMED` trở đi phải dùng `CANCEL_REQUESTED`).
+- **Seller** (không phải admin): KHÔNG được tự chuyển sang `COMPLETED` — bước này phải do buyer hoặc system thực hiện.
 - **Admin**: bỏ qua mọi role-based restriction (vẫn phải tuân state machine).
 
 **Success (200)**:
@@ -927,8 +927,9 @@ REFUNDED        → (terminal)
 **Errors**:
 - `400` `Thiếu trạng thái mới`
 - `403` `Bạn không có quyền cập nhật đơn hàng này`
-- `403` `Người mua chỉ có thể HỦY hoặc HOÀN TẤT đơn hàng`
-- `403` `Người bán không thể tự cập nhật trạng thái Giao hàng hoặc Hoàn tất`
+- `403` `Người mua chỉ có thể HỦY, YÊU CẦU HỦY, BÁO ĐÃ NHẬN, KHIẾU NẠI hoặc HOÀN TẤT đơn hàng`
+- `403` `Sau khi đơn hàng đã được xác nhận, bạn chỉ có thể Yêu cầu hủy (CANCEL_REQUESTED)`
+- `403` `Người bán không thể tự cập nhật trạng thái Hoàn tất`
 - `404` `Không tìm thấy đơn hàng`
 - `422` `Không thể chuyển từ trạng thái A sang B` (state machine violation)
 

@@ -101,17 +101,28 @@ async function runTests() {
   console.log("\n--- Testing PATCH /orders/:code/status ---\n");
 
   // Order is CONFIRMED. State machine order.
+  await testEndpoint(updateOrderStatus, { testName: "Buyer A → CANCELLED (Direct cancel not allowed after CONFIRMED)", user: { id: buyerA._id.toString(), roles: ["buyer"] }, params: { code: orderA.orderCode }, body: { status: "CANCELLED" } }, 403, "ORDER_BUYER_NOT_PARTICIPANT");
+  await testEndpoint(updateOrderStatus, { testName: "Buyer A → CANCEL_REQUESTED (Allowed after CONFIRMED)", user: { id: buyerA._id.toString(), roles: ["buyer"] }, params: { code: orderA.orderCode }, body: { status: "CANCEL_REQUESTED" } }, 200);
+  
+  // Revert back to CONFIRMED for subsequent tests
+  await Order.updateOne({ _id: orderA._id }, { status: "CONFIRMED" });
+
   await testEndpoint(updateOrderStatus, { testName: "Buyer A → COMPLETED (Invalid transition CONFIRMED→COMPLETED)", user: { id: buyerA._id.toString(), roles: ["buyer"] }, params: { code: orderA.orderCode }, body: { status: "COMPLETED" } }, 422, "ORDER_INVALID_TRANSITION");
   await testEndpoint(updateOrderStatus, { testName: "Seller B → PACKING (IDOR: not a seller of items in order)", user: { id: sellerB._id.toString(), roles: ["buyer", "seller"] }, params: { code: orderA.orderCode }, body: { status: "PACKING" } }, 403, "FORBIDDEN");
   await testEndpoint(updateOrderStatus, { testName: "Seller A → PACKING (OK: CONFIRMED→PACKING)", user: { id: sellerA._id.toString(), roles: ["buyer", "seller"] }, params: { code: orderA.orderCode }, body: { status: "PACKING" } }, 200);
 
-  // Order is now PACKING.
-  await testEndpoint(updateOrderStatus, { testName: "Seller A → DELIVERING (State-machine bypass: PACKING→DELIVERING not allowed)", user: { id: sellerA._id.toString(), roles: ["buyer", "seller"] }, params: { code: orderA.orderCode }, body: { status: "DELIVERING" } }, 403, "ORDER_SELLER_CANNOT_DELIVER");
-
   // Force to SHIPPING for admin test
+  await Order.updateOne({ _id: orderA._id }, { status: "SHIPPING" });
+  await testEndpoint(updateOrderStatus, { testName: "Seller A → DELIVERING (OK: SHIPPING→DELIVERING allowed for seller now)", user: { id: sellerA._id.toString(), roles: ["buyer", "seller"] }, params: { code: orderA.orderCode }, body: { status: "DELIVERING" } }, 200);
+
+  // Revert back to SHIPPING to test Admin
   await Order.updateOne({ _id: orderA._id }, { status: "SHIPPING" });
   await testEndpoint(updateOrderStatus, { testName: "Admin → DELIVERING (OK: SHIPPING→DELIVERING)", user: { id: adminUser._id.toString(), roles: ["buyer", "admin"] }, params: { code: orderA.orderCode }, body: { status: "DELIVERING" } }, 200);
 
+  // Seller tests DELIVERED
+  await testEndpoint(updateOrderStatus, { testName: "Seller A → DELIVERED (OK: DELIVERING→DELIVERED allowed for seller now)", user: { id: sellerA._id.toString(), roles: ["buyer", "seller"] }, params: { code: orderA.orderCode }, body: { status: "DELIVERED" } }, 200);
+  
+  // Revert back to DELIVERING to test Admin
   await Order.updateOne({ _id: orderA._id }, { status: "DELIVERING" });
   await testEndpoint(updateOrderStatus, { testName: "Admin → DELIVERED (OK: DELIVERING→DELIVERED)", user: { id: adminUser._id.toString(), roles: ["buyer", "admin"] }, params: { code: orderA.orderCode }, body: { status: "DELIVERED" } }, 200);
 

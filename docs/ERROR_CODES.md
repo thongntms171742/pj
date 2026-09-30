@@ -93,8 +93,8 @@
 | `ORDER_ID_REQUIRED` | 400 | Thiếu orderId khi checkout | Retry với orderId |
 | `ORDER_STATUS_REQUIRED` | 400 | Thiếu status khi PATCH | Disable button |
 | `ORDER_INVALID_TRANSITION` | 422 | Chuyển trạng thái không hợp lệ theo state machine | Refresh order, disable nút |
-| `ORDER_BUYER_NOT_PARTICIPANT` | 403 | Buyer cố chuyển sang status không được phép | Chỉ hiển thị nút "Hủy" / "Hoàn tất" |
-| `ORDER_SELLER_CANNOT_DELIVER` | 403 | Seller cố set DELIVERED/COMPLETED | Ẩn nút, giải thích |
+| `ORDER_BUYER_NOT_PARTICIPANT` | 403 | Buyer cố chuyển sang status không được phép | Hiển thị nút (Hủy, Đã nhận, Hoàn tất, Khiếu nại) phù hợp status |
+| `ORDER_SELLER_CANNOT_DELIVER` | 403 | Seller cố set COMPLETED | Ẩn nút, giải thích |
 | `ORDER_ALREADY_SHIPPED` | 400 | Đơn đã được ship | Ẩn nút "Tạo vận đơn" |
 | `ORDER_ALREADY_CANCELLED` | 400 | Đơn đã bị hủy | Ẩn mọi action |
 | `ORDER_PAYMENT_INVALID_STATE` | 422 | Checkout khi order không phải PENDING_PAYMENT | Refresh order status |
