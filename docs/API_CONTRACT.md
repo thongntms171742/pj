@@ -196,6 +196,35 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
 
 ---
 
+### PUT `/api/auth/me/avatar`
+
+**Mục đích**: Cập nhật ảnh đại diện (avatar) của tài khoản người dùng và hồ sơ người bán (nếu có).
+
+**Auth**: Required (User).
+
+**Request**:
+```json
+{
+  "avatarUrl": "https://example.com/avatar.jpg (string, required)"
+}
+```
+
+**Success (200)**:
+```json
+{
+  "avatarUrl": "https://example.com/avatar.jpg",
+  "message": "Cập nhật ảnh đại diện thành công"
+}
+```
+
+**Errors**:
+- `400` `INVALID_INPUT` — `Thiếu avatarUrl hoặc không hợp lệ`
+- `401` `UNAUTHORIZED` — `Chưa đăng nhập`
+- `404` `ACCOUNT_NOT_FOUND` — `Không tìm thấy người dùng`
+- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+
+---
+
 ### POST `/api/auth/cart/merge`
 
 **Mục đích**: ⚠️ **DEPRECATED** — dùng `POST /api/cart/merge` thay thế.
@@ -323,6 +352,57 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
 **Errors**:
 - `404` `Không tìm thấy người bán`
 - `500` `Lỗi hệ thống`
+
+---
+
+### GET `/api/sellers/me/reviews`
+
+**Mục đích**: Lấy danh sách đánh giá từ khách hàng đối với các sản phẩm của shop hiện tại.
+
+**Auth**: Required (Seller).
+
+**Success (200)**:
+```json
+{
+  "reviews": [
+    {
+      "_id": "string",
+      "rating": 5,
+      "comment": "string",
+      "buyerId": { "name": "string", "avatarUrl": "string" },
+      "productId": { "title": "string", "coverImage": "string", "price": "number" },
+      "createdAt": "ISO date"
+    }
+  ],
+  "total": "number"
+}
+```
+
+**Errors**:
+- `401` `UNAUTHORIZED` — `Chưa đăng nhập`
+- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+
+---
+
+### GET `/api/sellers/:idOrHandle/reviews`
+
+**Mục đích**: Lấy danh sách đánh giá công khai của một shop người bán.
+
+**Auth**: Public.
+
+**Path params**: `idOrHandle` — ObjectId 24 hex, hoặc handle, hoặc email.
+
+**Success (200)**:
+```json
+{
+  "reviews": [ /* Danh sách reviews */ ],
+  "total": "number"
+}
+```
+
+**Errors**:
+- `404` `NOT_FOUND` — `Không tìm thấy người bán`
+- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
 
 ---
 
@@ -459,6 +539,57 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
 - `401` `Chưa đăng nhập` hoặc `Token không hợp lệ hoặc đã hết hạn`
 - `403` `SELLER_NOT_APPROVED` — user không có role seller hoặc `sellerProfile.status !== "active"`
 - `500` `Lỗi hệ thống`
+
+---
+
+### GET `/api/products/:id`
+
+**Mục đích**: Lấy thông tin chi tiết của một sản phẩm theo ID (ObjectId), bao gồm thông tin người bán và danh mục.
+
+**Auth**: Public.
+
+**Path Params**:
+| Param | Type | Required | Description |
+| :--- | :--- | :---: | :--- |
+| `id` | string | Yes | MongoDB ObjectId của sản phẩm |
+
+**Success (200)**:
+```json
+{
+  "product": { /* ApiProduct */ }
+}
+```
+
+**Errors**:
+- `404` `PRODUCT_NOT_FOUND` — `Sản phẩm không tồn tại`
+- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+
+---
+
+### PATCH `/api/products/:id/archive`
+
+**Mục đích**: Lưu trữ (archive / ẩn) sản phẩm. Chỉ người bán sở hữu sản phẩm hoặc Admin có quyền thực hiện.
+
+**Auth**: Required (Owner Seller hoặc Admin).
+
+**Path Params**:
+| Param | Type | Required | Description |
+| :--- | :--- | :---: | :--- |
+| `id` | string | Yes | MongoDB ObjectId của sản phẩm |
+
+**Success (200)**:
+```json
+{
+  "message": "Sản phẩm đã được lưu trữ thành công",
+  "product": { /* ApiProduct với status === 'archived' */ }
+}
+```
+
+**Errors**:
+- `401` `UNAUTHORIZED` — `Chưa đăng nhập`
+- `403` `FORBIDDEN` — `Bạn không có quyền lưu trữ sản phẩm này`
+- `404` `PRODUCT_NOT_FOUND` — `Sản phẩm không tồn tại`
+- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
 
 ---
 

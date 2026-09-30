@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import "../models";
 import { Product } from "../models/Product";
 import { User } from "../models/User";
@@ -225,6 +226,76 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     res.status(201).json({ product: mapProduct(populated) });
   } catch (err) {
     handleInternalError(res, err, "[products] createProduct error");
+  }
+};
+
+// ── GET /api/products/:id ───────────────────────────────────────────────────
+// Returns a single product detail populated with seller and category info.
+export const getProductById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Sản phẩm không tồn tại");
+      return;
+    }
+
+    const product = await Product.findById(id)
+      .populate({ path: "sellerId", select: "name email sellerProfile" })
+      .populate({ path: "categoryId", select: "name slug" })
+      .lean();
+
+    if (!product) {
+      sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Sản phẩm không tồn tại");
+      return;
+    }
+
+    res.json({ product: mapProduct(product) });
+  } catch (err) {
+    handleInternalError(res, err, "[products] getProductById error");
+  }
+};
+
+// ── PATCH /api/products/:id/archive ─────────────────────────────────────────
+// Archives a product (allowed for product owner or admin).
+export const archiveProduct = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Sản phẩm không tồn tại");
+      return;
+    }
+
+    const userId = req.user!.id;
+    const userRoles = req.user!.roles || [];
+
+    const product = await Product.findById(id);
+    if (!product) {
+      sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Sản phẩm không tồn tại");
+      return;
+    }
+
+    const isOwner = product.sellerId.toString() === userId;
+    const isAdmin = userRoles.includes("admin");
+
+    if (!isOwner && !isAdmin) {
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền lưu trữ sản phẩm này");
+      return;
+    }
+
+    product.status = "archived";
+    await product.save();
+
+    const populated = await Product.findById(product._id)
+      .populate({ path: "sellerId", select: "name email sellerProfile" })
+      .populate({ path: "categoryId", select: "name slug" })
+      .lean();
+
+    res.json({
+      message: "Sản phẩm đã được lưu trữ thành công",
+      product: mapProduct(populated),
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[products] archiveProduct error");
   }
 };
 

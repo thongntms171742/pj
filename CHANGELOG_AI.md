@@ -56,6 +56,23 @@
 - Added `.gitignore` configurations isolating local `.json` backups from the Git index.
 - Finalized local **E2E Buyer/Seller flow tests** verifying real-world viability of Seller Add Product, Buyer Cart, COD Orders, Shipping transitions, and Ledger consistency without mock fallback code.
 
+## [2026-09-30] (OpenAPI Specification Alignment & Missing Product/Seller Endpoints)
+### Added & Aligned (Backend)
+- **`GET /api/products/:id`**: Single product detail endpoint populated with seller and category information via `mapProduct`.
+- **`PATCH /api/products/:id/archive`**: Allows seller owner or admin to archive/hide a product.
+- **`GET /api/sellers/me/reviews` & `GET /api/sellers/:idOrHandle/reviews`**: Returns customer reviews for products belonging to the seller.
+- **`PUT /api/auth/me/avatar`**: Updates authenticated user and seller profile avatar.
+
+### Documentation & Contract Synchronization
+- **`docs/openapi.yaml`**: Hoàn thiện toàn bộ OpenAPI 3.0.3 specification gồm 12 tags, đầy đủ Cart, Notifications, Sellers, Admin moderation, AI, Reviews, schema chi tiết và đồng bộ sang `pj_UI/docs/openapi.yaml`.
+- **`docs/API_MATRIX.md`**: Cập nhật ma trận tiến độ thực tế giữa BE và FE (đánh dấu hoàn tất các tính năng FE đã kết nối).
+- **`docs/API_CONTRACT.md`**: Bổ sung chi tiết contract cho các endpoint `/products/:id`, `/products/:id/archive`, `/sellers/me/reviews`, `/auth/me/avatar`.
+
+### Verification
+- ✅ `npx tsc --noEmit` pass (0 errors).
+- ✅ `npm run build` pass (tsc compile OK).
+- ✅ `npm run test` (errorContract) pass — 38/38 PASS.
+
 ## [2026-09-29] (Admin Stats + Reviews + Admin Path Alignment)
 ### Added (Backend)
 

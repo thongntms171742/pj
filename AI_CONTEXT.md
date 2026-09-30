@@ -198,3 +198,30 @@ The project follows a strict API contract model between the Frontend and Backend
   - Admin endpoint để update rate với audit trail.
 - [ ] **Cleanup deprecated admin paths**
   - Sau khi FE team confirm đã migrate sang canonical `/admin/sellers/:id/{approve,reject}`, xóa aliases `/admin/users/:id/{approve,reject}-seller`.
+
+## Backend & Contract Iteration (2026-09-30) — Alignment with OpenAPI & FE Progress
+
+### Implemented / Aligned Endpoints:
+1. **`GET /api/products/:id`**:
+   - Controller: `getProductById` in `productController.ts`. Populates `sellerId` and `categoryId`, maps via `mapProduct`.
+   - Route: `router.get("/:id", getProductById)` in `routes/products.ts`.
+2. **`PATCH /api/products/:id/archive`**:
+   - Controller: `archiveProduct` in `productController.ts`. Authorization: owner seller hoặc admin.
+   - Route: `router.patch("/:id/archive", requireAuth, archiveProduct)` in `routes/products.ts`.
+3. **`GET /api/sellers/me/reviews` & `GET /api/sellers/:idOrHandle/reviews`**:
+   - Controller: `getSellerReviews` in `sellerController.ts`. Finds all products of seller and loads reviews populated with buyer and product details.
+   - Routes: `router.get("/me/reviews", requireAuth, getSellerReviews)` and `router.get("/:idOrHandle/reviews", getSellerReviews)` in `routes/sellers.ts`.
+4. **`PUT /api/auth/me/avatar`**:
+   - Controller: `updateAvatar` in `authController.ts`. Updates user & seller avatar URL.
+   - Route: `router.put("/me/avatar", requireAuth, updateAvatar)` in `routes/auth.ts`.
+5. **OpenAPI Specification (`docs/openapi.yaml`)**:
+   - Đồng bộ và hoàn thiện toàn bộ schema OpenAPI 3.0.3 (Cart, Notifications, Sellers, Admin moderation, AI, Reviews).
+   - Bổ sung response schema chi tiết cho `GET /api/admin/pending-sellers` (`PendingSellersResponse`), `PATCH /api/admin/sellers/:id/approve` (`ApproveSellerResponse`), `PATCH /api/admin/sellers/:id/reject` (`RejectSellerResponse`), `GET /api/admin/pending-listings`, `PATCH /api/admin/listings/:id/reject`.
+   - Đồng bộ sang cả `pj_UI/docs/openapi.yaml`.
+6. **API Progress Matrix (`docs/API_MATRIX.md`)**:
+   - Cập nhật tiến độ hoàn thành thực tế giữa BE và FE (chuyển trạng thái các endpoint đã tích hợp từ `⏳` sang `✅`).
+
+### Verification:
+- ✅ `npx tsc --noEmit` pass (exit 0).
+- ✅ `npm run build` pass (exit 0).
+- ✅ `npm run test` (errorContract) pass — **38/38 PASS**.

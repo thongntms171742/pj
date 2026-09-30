@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { User } from "../models/User";
 import { Product } from "../models/Product";
+import { Review } from "../models/Review";
 import { mapProduct } from "./productController";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 
@@ -150,5 +151,57 @@ export const getSellerProducts = async (req: Request, res: Response): Promise<vo
     res.json({ products: mapped, total: mapped.length });
   } catch (err) {
     handleInternalError(res, err, "[sellers] getSellerProducts error");
+  }
+};
+
+// ── GET /api/sellers/me/reviews or /api/sellers/:idOrHandle/reviews ──────────
+// Returns reviews received for all products sold by this seller.
+export const getSellerReviews = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const param = (req.params.idOrHandle as string || "").trim();
+    let sellerId: any;
+
+    if (!param || param === "me") {
+      sellerId = req.user?.id;
+    } else {
+      const cleanHandle = param.replace(/^@/, "");
+      const isObjectId = /^[0-9a-fA-F]{24}$/.test(cleanHandle);
+      let sellerUser: any;
+      if (isObjectId) {
+        sellerUser = await User.findById(cleanHandle).lean();
+      }
+      if (!sellerUser) {
+        sellerUser = await User.findOne({
+          $or: [
+            { "sellerProfile.handle": { $regex: new RegExp(`^${cleanHandle}$`, "i") } },
+            { email: cleanHandle.toLowerCase() },
+            { name: { $regex: new RegExp(`^${cleanHandle}$`, "i") } },
+            { "sellerProfile.shopName": { $regex: new RegExp(`^${cleanHandle}$`, "i") } },
+          ],
+        }).lean();
+      }
+      if (!sellerUser) {
+        sendError(res, ErrorCode.NOT_FOUND, "Không tìm thấy người bán");
+        return;
+      }
+      sellerId = sellerUser._id;
+    }
+
+    if (!sellerId) {
+      sendError(res, ErrorCode.UNAUTHORIZED, "Chưa xác thực");
+      return;
+    }
+
+    const products = await Product.find({ sellerId }).select("_id").lean();
+    const productIds = products.map((p) => p._id);
+    const reviews = await Review.find({ productId: { $in: productIds } })
+      .populate({ path: "buyerId", select: "name avatarUrl" })
+      .populate({ path: "productId", select: "title coverImage price" })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({ reviews, total: reviews.length });
+  } catch (err) {
+    handleInternalError(res, err, "[sellers] getSellerReviews error");
   }
 };

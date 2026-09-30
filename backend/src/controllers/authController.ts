@@ -300,3 +300,32 @@ export function mapCartItem(ci: any): any {
     checked: ci.checked,
   };
 }
+
+// ── PUT /api/auth/me/avatar ──────────────────────────────────────────────────
+// Updates user avatar URL.
+export const updateAvatar = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { avatarUrl } = req.body as { avatarUrl?: string };
+
+    if (!avatarUrl || typeof avatarUrl !== "string") {
+      sendError(res, ErrorCode.INVALID_INPUT, "Thiếu avatarUrl hoặc không hợp lệ");
+      return;
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      sendError(res, ErrorCode.ACCOUNT_NOT_FOUND, "Không tìm thấy người dùng");
+      return;
+    }
+
+    if (user.sellerProfile) {
+      user.sellerProfile.avatarUrl = avatarUrl;
+    }
+    await user.save();
+
+    res.json({ avatarUrl, message: "Cập nhật ảnh đại diện thành công" });
+  } catch (err) {
+    handleInternalError(res, err, "[auth] updateAvatar error");
+  }
+};

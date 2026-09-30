@@ -1,0 +1,2136 @@
+openapi: 3.0.3
+
+info:
+  title: Thrift It! API
+  description: |
+    REST API for Thrift It! second-hand marketplace.
+
+    Backend is the source of truth for:
+    - authentication & user identity
+    - seller status & verification
+    - product catalog, pricing & stock
+    - shopping cart & cart merge
+    - order lifecycle & state machine
+    - payment processing (Online Checkout & COD)
+    - shipment tracking & live timeline events
+    - product reviews & ratings
+    - admin moderation (listings, seller applications & stats)
+    - AI-assisted catalog search & recommendations
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:4000
+    description: Local development
+  - url: https://YOUR-BACKEND-DOMAIN
+    description: Production
+
+tags:
+  - name: Health
+    description: System health check
+  - name: Auth
+    description: Authentication, registration and profile
+  - name: Products
+    description: Product listings and catalog
+  - name: Sellers
+    description: Seller applications, shop profiles and seller reviews
+  - name: Cart
+    description: Shopping cart management
+  - name: Orders
+    description: Order processing and status state machine
+  - name: Payments
+    description: Payment checkout and COD collection
+  - name: Shipments
+    description: Shipping labels and live timeline tracking
+  - name: Reviews
+    description: Buyer reviews and ratings
+  - name: Notifications
+    description: User notifications
+  - name: Admin
+    description: Listing moderation, seller approvals and platform stats
+  - name: AI
+    description: AI smart search and product analysis
+
+paths:
+
+  # ============================================================
+  # HEALTH
+  # ============================================================
+
+  /api/health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Backend is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  # ============================================================
+  # AUTH
+  # ============================================================
+
+  /api/auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register a new user
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/me/avatar:
+    put:
+      tags:
+        - Auth
+      summary: Update user avatar
+      operationId: updateAvatar
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - avatarUrl
+              properties:
+                avatarUrl:
+                  type: string
+                  example: 'https://example.com/avatar.jpg'
+      responses:
+        '200':
+          description: Avatar updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  avatarUrl:
+                    type: string
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/seller/apply:
+    post:
+      tags:
+        - Sellers
+      summary: Apply to become a seller
+      operationId: applySeller
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SellerApplicationRequest'
+      responses:
+        '200':
+          description: Seller application submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/auth/cart/merge:
+    post:
+      tags:
+        - Cart
+      summary: Merge guest cart (legacy auth path)
+      deprecated: true
+      operationId: authMergeCart
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergeCartRequest'
+      responses:
+        '200':
+          description: Cart merged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartItemsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================
+  # PRODUCTS
+  # ============================================================
+
+  /api/products:
+    get:
+      tags:
+        - Products
+      summary: Get products catalog
+      operationId: getProducts
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: seller
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sellerId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ProductStatus'
+      responses:
+        '200':
+          description: List of products
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+
+    post:
+      tags:
+        - Products
+      summary: Create product listing
+      operationId: createProduct
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/products/mine:
+    get:
+      tags:
+        - Products
+      summary: Get current authenticated seller products and stats
+      operationId: getMyProducts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Seller's products and summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/products/seller:
+    get:
+      tags:
+        - Products
+      summary: Alias for /api/products/mine
+      operationId: getSellerOwnProducts
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Seller products
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/products/{id}:
+    get:
+      tags:
+        - Products
+      summary: Get product by ID
+      operationId: getProductById
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Product detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/products/{id}/archive:
+    patch:
+      tags:
+        - Products
+      summary: Archive product
+      operationId: archiveProduct
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Product archived successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/products/{productId}/reviews:
+    get:
+      tags:
+        - Reviews
+        - Products
+      summary: Get reviews for a specific product
+      operationId: getProductReviews
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Product reviews
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags:
+        - Reviews
+        - Products
+      summary: Create product review for completed order
+      operationId: createProductReview
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReviewRequest'
+      responses:
+        '201':
+          description: Review created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ============================================================
+  # SELLERS
+  # ============================================================
+
+  /api/sellers:
+    get:
+      tags:
+        - Sellers
+      summary: Get all active sellers
+      operationId: getSellers
+      responses:
+        '200':
+          description: List of active sellers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerListResponse'
+
+  /api/sellers/me:
+    get:
+      tags:
+        - Sellers
+      summary: Get profile of authenticated seller
+      operationId: getSellerMe
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Seller profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/sellers/me/reviews:
+    get:
+      tags:
+        - Sellers
+        - Reviews
+      summary: Get reviews for authenticated seller
+      operationId: getSellerMeReviews
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of reviews
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/sellers/{idOrHandle}:
+    get:
+      tags:
+        - Sellers
+      summary: Get public seller profile by handle, email, or ID
+      operationId: getSellerByIdOrHandle
+      parameters:
+        - $ref: '#/components/parameters/SellerIdOrHandle'
+      responses:
+        '200':
+          description: Seller profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/sellers/{idOrHandle}/products:
+    get:
+      tags:
+        - Sellers
+        - Products
+      summary: Get products belonging to a seller
+      operationId: getSellerProducts
+      parameters:
+        - $ref: '#/components/parameters/SellerIdOrHandle'
+      responses:
+        '200':
+          description: Seller products
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/sellers/{idOrHandle}/reviews:
+    get:
+      tags:
+        - Sellers
+        - Reviews
+      summary: Get customer reviews for a seller
+      operationId: getSellerCustomerReviews
+      parameters:
+        - $ref: '#/components/parameters/SellerIdOrHandle'
+      responses:
+        '200':
+          description: Seller reviews
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # CART
+  # ============================================================
+
+  /api/cart:
+    get:
+      tags:
+        - Cart
+      summary: Get current user cart and populated items
+      operationId: getCart
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User cart and items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      tags:
+        - Cart
+      summary: Clear current user cart
+      operationId: clearCartRoot
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cart cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/cart/items:
+    post:
+      tags:
+        - Cart
+      summary: Add product item to cart
+      operationId: addCartItem
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCartItemRequest'
+      responses:
+        '200':
+          description: Item added or incremented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartItemResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/cart/items/{id}:
+    patch:
+      tags:
+        - Cart
+      summary: Update cart item quantity or checked status
+      operationId: updateCartItem
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCartItemRequest'
+      responses:
+        '200':
+          description: Cart item updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartItemResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Cart
+      summary: Remove item from cart
+      operationId: deleteCartItem
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Item removed from cart
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/cart/clear:
+    delete:
+      tags:
+        - Cart
+      summary: Clear all items in cart
+      operationId: clearCart
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cart cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/cart/merge:
+    post:
+      tags:
+        - Cart
+      summary: Merge guest cart items into authenticated user cart
+      operationId: mergeCart
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergeCartRequest'
+      responses:
+        '200':
+          description: Merged cart items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartItemsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================
+  # ORDERS
+  # ============================================================
+
+  /api/orders:
+    get:
+      tags:
+        - Orders
+      summary: Get authenticated buyer orders
+      operationId: getOrders
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Buyer orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - Orders
+      summary: Create order (from checked cart items or custom payload)
+      operationId: createOrder
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/orders/seller:
+    get:
+      tags:
+        - Orders
+      summary: Get seller orders
+      operationId: getSellerOrders
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Seller orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/orders/{code}:
+    get:
+      tags:
+        - Orders
+      summary: Get order by code or ID
+      operationId: getOrderByCode
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderCode'
+      responses:
+        '200':
+          description: Order details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/orders/{code}/status:
+    patch:
+      tags:
+        - Orders
+      summary: Update order status via state machine
+      operationId: updateOrderStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderStatusRequest'
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/orders/{code}/shipment:
+    get:
+      tags:
+        - Shipments
+        - Orders
+      summary: Get live shipment tracking & timeline events
+      operationId: getOrderShipment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderCode'
+      responses:
+        '200':
+          description: Shipment tracking info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags:
+        - Shipments
+        - Orders
+      summary: Create shipping label (seller only)
+      operationId: createOrderShipment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShipmentRequest'
+      responses:
+        '201':
+          description: Shipping label created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ============================================================
+  # PAYMENTS
+  # ============================================================
+
+  /api/payments/checkout:
+    post:
+      tags:
+        - Payments
+      summary: Pay for order (online card payment)
+      operationId: checkoutPayment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+      responses:
+        '200':
+          description: Payment successful and inventory deducted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/payments/{code}/cod-collect:
+    post:
+      tags:
+        - Payments
+      summary: Idempotent COD payment collection
+      operationId: collectCodPayment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderCode'
+      responses:
+        '200':
+          description: COD collected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================
+  # NOTIFICATIONS
+  # ============================================================
+
+  /api/notifications:
+    get:
+      tags:
+        - Notifications
+      summary: Get notifications for authenticated user
+      operationId: getNotifications
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of notifications
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/notifications/{id}/read:
+    patch:
+      tags:
+        - Notifications
+      summary: Mark a notification as read
+      operationId: markNotificationAsRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '200':
+          description: Notification marked as read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # ADMIN — LISTINGS
+  # ============================================================
+
+  /api/admin/pending-listings:
+    get:
+      tags:
+        - Admin
+      summary: Get pending product listings for moderation
+      operationId: getPendingListings
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pending product listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/listings/{id}/approve:
+    patch:
+      tags:
+        - Admin
+      summary: Approve product listing
+      operationId: approveListing
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Listing approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/admin/listings/{id}/reject:
+    patch:
+      tags:
+        - Admin
+      summary: Reject product listing (archive)
+      operationId: rejectListing
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Listing rejected and archived
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # ADMIN — SELLERS
+  # ============================================================
+
+  /api/admin/pending-sellers:
+    get:
+      tags:
+        - Admin
+      summary: Get pending seller applications
+      operationId: getPendingSellers
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pending sellers list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingSellersResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/sellers/{id}/approve:
+    patch:
+      tags:
+        - Admin
+      summary: Approve seller application
+      operationId: approveSeller
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Seller approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApproveSellerResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/admin/sellers/{id}/reject:
+    patch:
+      tags:
+        - Admin
+      summary: Reject seller application
+      operationId: rejectSeller
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  example: 'Thiếu thông tin liên hệ xác thực'
+      responses:
+        '200':
+          description: Seller rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RejectSellerResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # ADMIN — STATS
+  # ============================================================
+
+  /api/admin/stats:
+    get:
+      tags:
+        - Admin
+      summary: Get admin dashboard statistics
+      operationId: getAdminStats
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminStatsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ============================================================
+  # AI
+  # ============================================================
+
+  /api/ai/search:
+    post:
+      tags:
+        - AI
+      summary: AI natural language search for vintage products
+      operationId: searchWithAi
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiSearchRequest'
+      responses:
+        '200':
+          description: Matched products
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiSearchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/ai/analyze-listing:
+    post:
+      tags:
+        - AI
+      summary: AI valuation, description enhancement, and categorization
+      operationId: analyzeListing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiAnalyzeRequest'
+      responses:
+        '200':
+          description: AI analysis results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiAnalyzeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/ai/recommendations:
+    post:
+      tags:
+        - AI
+      summary: AI-driven product recommendations
+      operationId: getAiRecommendations
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiRecommendationsRequest'
+      responses:
+        '200':
+          description: Recommended products
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiRecommendationsResponse'
+
+# ==================================================================
+# COMPONENTS
+# ==================================================================
+
+components:
+
+  # ================================================================
+  # SECURITY
+  # ================================================================
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ================================================================
+  # PARAMETERS
+  # ================================================================
+
+  parameters:
+    ProductId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
+    OrderCode:
+      name: code
+      in: path
+      required: true
+      schema:
+        type: string
+
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
+    SellerIdOrHandle:
+      name: idOrHandle
+      in: path
+      required: true
+      schema:
+        type: string
+
+    NotificationId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
+  # ================================================================
+  # RESPONSES
+  # ================================================================
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Authentication required or token invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: Authenticated user does not have permission
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Conflict:
+      description: Conflict or duplicate resource
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  # ================================================================
+  # SCHEMAS
+  # ================================================================
+
+  schemas:
+
+    ErrorBody:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          example: PRODUCT_NOT_FOUND
+        message:
+          type: string
+          example: Sản phẩm không tồn tại
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+
+    SuccessMessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Thao tác thành công
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        timestamp:
+          type: string
+          format: date-time
+
+    RegisterRequest:
+      type: object
+      required:
+        - name
+        - email
+        - password
+      properties:
+        name:
+          type: string
+          example: Minh Tu
+        email:
+          type: string
+          format: email
+          example: minhtu@gmail.com
+        password:
+          type: string
+          format: password
+          example: '123456'
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: linh.nguyen@gmail.com
+        password:
+          type: string
+          format: password
+          example: '123456'
+
+    AuthUser:
+      type: object
+      properties:
+        _id:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        roles:
+          type: array
+          items:
+            type: string
+        sellerStatus:
+          type: string
+          enum: [NONE, PENDING, APPROVED, REJECTED]
+
+    AuthResponse:
+      type: object
+      required:
+        - token
+        - user
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/AuthUser'
+
+    SellerApplicationRequest:
+      type: object
+      required:
+        - shopName
+      properties:
+        shopName:
+          type: string
+          example: Minh Tu Vintage
+        handle:
+          type: string
+          example: minhtu.vintage
+        description:
+          type: string
+          example: Chuyên đồ 2hand chất lượng cao
+        avatarUrl:
+          type: string
+        coverImages:
+          type: array
+          items:
+            type: string
+
+    ProductStatus:
+      type: string
+      enum:
+        - pending
+        - active
+        - reserved
+        - sold
+        - archived
+
+    CreateProductRequest:
+      type: object
+      required:
+        - title
+        - price
+        - quantity
+        - condition
+        - size
+      properties:
+        title:
+          type: string
+          example: Áo khoác denim vintage 90s
+        name:
+          type: string
+          description: Alias for title
+        price:
+          type: number
+          minimum: 0
+          example: 350000
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+          example: 1
+        condition:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 95
+        size:
+          type: string
+          example: L
+        description:
+          type: string
+          example: Áo denim form rộng đẹp
+        coverImage:
+          type: string
+        image:
+          type: string
+          description: Alias for coverImage
+        categoryId:
+          type: string
+        category:
+          type: string
+          description: Category name alias
+
+    ProductSellerInfo:
+      type: object
+      properties:
+        _id:
+          type: string
+        id:
+          type: string
+        handle:
+          type: string
+        shopName:
+          type: string
+        name:
+          type: string
+        avatarUrl:
+          type: string
+        avatar:
+          type: string
+        rating:
+          type: number
+
+    ProductCategoryInfo:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+
+    Product:
+      type: object
+      properties:
+        _id:
+          type: string
+        id:
+          type: string
+        title:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        condition:
+          type: number
+        size:
+          type: string
+        quantity:
+          type: integer
+        status:
+          $ref: '#/components/schemas/ProductStatus'
+        coverImage:
+          type: string
+        image:
+          type: string
+        views:
+          type: number
+        likes:
+          type: number
+        seller:
+          type: string
+        sellerName:
+          type: string
+        sellerAvatar:
+          type: string
+        sellerId:
+          $ref: '#/components/schemas/ProductSellerInfo'
+        categoryId:
+          $ref: '#/components/schemas/ProductCategoryInfo'
+        category:
+          type: string
+
+    ProductResponse:
+      type: object
+      properties:
+        product:
+          $ref: '#/components/schemas/Product'
+        message:
+          type: string
+
+    ProductListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        stats:
+          type: object
+          properties:
+            totalProducts:
+              type: integer
+            activeProducts:
+              type: integer
+            pendingProducts:
+              type: integer
+            soldProducts:
+              type: integer
+            totalViews:
+              type: integer
+            totalLikes:
+              type: integer
+            estimatedRevenue:
+              type: number
+
+    Seller:
+      type: object
+      properties:
+        _id:
+          type: string
+        id:
+          type: string
+        shopName:
+          type: string
+        name:
+          type: string
+        handle:
+          type: string
+        description:
+          type: string
+        avatarUrl:
+          type: string
+        avatar:
+          type: string
+        coverImages:
+          type: array
+          items:
+            type: string
+        thumbs:
+          type: array
+          items:
+            type: string
+        rating:
+          type: number
+        totalTransactions:
+          type: number
+        transactions:
+          type: number
+        totalRevenue:
+          type: number
+        commissionRate:
+          type: number
+        status:
+          type: string
+        email:
+          type: string
+
+    SellerResponse:
+      type: object
+      properties:
+        seller:
+          $ref: '#/components/schemas/Seller'
+
+    SellerListResponse:
+      type: object
+      properties:
+        sellers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Seller'
+        total:
+          type: integer
+
+    PendingSellersResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/Seller'
+        total:
+          type: integer
+
+    ApproveSellerResponse:
+      type: object
+      properties:
+        seller:
+          $ref: '#/components/schemas/Seller'
+        alreadyApproved:
+          type: boolean
+
+    RejectSellerResponse:
+      type: object
+      properties:
+        seller:
+          $ref: '#/components/schemas/Seller'
+        rejected:
+          type: boolean
+
+    # ── Cart Schemas ──
+    Cart:
+      type: object
+      properties:
+        _id:
+          type: string
+        userId:
+          type: string
+
+    CartItem:
+      type: object
+      properties:
+        _id:
+          type: string
+        cartId:
+          type: string
+        productId:
+          $ref: '#/components/schemas/Product'
+        quantity:
+          type: integer
+        priceSnapshot:
+          type: number
+        checked:
+          type: boolean
+
+    CartResponse:
+      type: object
+      properties:
+        cart:
+          $ref: '#/components/schemas/Cart'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+
+    CartItemResponse:
+      type: object
+      properties:
+        item:
+          $ref: '#/components/schemas/CartItem'
+
+    CartItemsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+
+    AddCartItemRequest:
+      type: object
+      required:
+        - productId
+      properties:
+        productId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+
+    UpdateCartItemRequest:
+      type: object
+      properties:
+        quantity:
+          type: integer
+        checked:
+          type: boolean
+
+    MergeCartItemInput:
+      type: object
+      required:
+        - productId
+        - quantity
+      properties:
+        productId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+
+    MergeCartRequest:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MergeCartItemInput'
+
+    # ── Order Schemas ──
+    CreateOrderRequest:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItemInput'
+        paymentMethod:
+          type: string
+          enum: [COD, CARD, WALLET]
+          default: COD
+        shippingName:
+          type: string
+        shippingPhone:
+          type: string
+        shippingAddress:
+          type: string
+        idempotencyKey:
+          type: string
+
+    OrderItemInput:
+      type: object
+      required:
+        - productId
+        - quantity
+      properties:
+        productId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+
+    CheckoutRequest:
+      type: object
+      required:
+        - orderId
+      properties:
+        orderId:
+          type: string
+        paymentMethod:
+          type: string
+          default: CARD
+
+    UpdateOrderStatusRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        reason:
+          type: string
+
+    OrderStatus:
+      type: string
+      enum:
+        - PENDING_PAYMENT
+        - PAID
+        - CONFIRMED
+        - PACKING
+        - SHIPPING
+        - DELIVERING
+        - DELIVERED
+        - COMPLETED
+        - CANCELLED
+        - DISPUTED
+        - REFUNDED
+
+    OrderItem:
+      type: object
+      properties:
+        productId:
+          type: string
+        sellerId:
+          type: string
+        productName:
+          type: string
+        productImageUrl:
+          type: string
+        unitPrice:
+          type: number
+        quantity:
+          type: integer
+        sellerAmount:
+          type: number
+
+    Order:
+      type: object
+      properties:
+        _id:
+          type: string
+        orderCode:
+          type: string
+        buyerId:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        subtotal:
+          type: number
+        shippingFee:
+          type: number
+        platformFeeRate:
+          type: number
+        platformFeeAmount:
+          type: number
+        sellerAmount:
+          type: number
+        discount:
+          type: number
+        totalAmount:
+          type: number
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        paymentMethod:
+          type: string
+        shippingName:
+          type: string
+        shippingPhone:
+          type: string
+        shippingAddress:
+          type: string
+        trackingNumber:
+          type: string
+        shippingProvider:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    OrderResponse:
+      type: object
+      properties:
+        order:
+          $ref: '#/components/schemas/Order'
+
+    OrderListResponse:
+      type: object
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+
+    CreateShipmentRequest:
+      type: object
+      properties:
+        provider:
+          type: string
+          default: GHTK
+        pickup:
+          type: object
+          properties:
+            address:
+              type: string
+            ward:
+              type: string
+            district:
+              type: string
+            province:
+              type: string
+
+    Shipment:
+      type: object
+      properties:
+        _id:
+          type: string
+        orderId:
+          type: string
+        status:
+          type: string
+        trackingNumber:
+          type: string
+        trackingUrl:
+          type: string
+        provider:
+          type: string
+        events:
+          type: array
+          items:
+            type: object
+
+    ShipmentResponse:
+      type: object
+      properties:
+        shipment:
+          $ref: '#/components/schemas/Shipment'
+
+    # ── Review Schemas ──
+    CreateReviewRequest:
+      type: object
+      required:
+        - rating
+        - orderId
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: string
+        orderId:
+          type: string
+
+    Review:
+      type: object
+      properties:
+        _id:
+          type: string
+        userId:
+          type: string
+        buyerId:
+          type: object
+        productId:
+          type: object
+        orderId:
+          type: string
+        rating:
+          type: integer
+        comment:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ReviewResponse:
+      type: object
+      properties:
+        review:
+          $ref: '#/components/schemas/Review'
+
+    ReviewListResponse:
+      type: object
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/Review'
+        total:
+          type: integer
+
+    # ── Notification Schemas ──
+    Notification:
+      type: object
+      properties:
+        _id:
+          type: string
+        userId:
+          type: string
+        type:
+          type: string
+          enum: [order, chat, promo, system, review]
+        title:
+          type: string
+        message:
+          type: string
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    NotificationResponse:
+      type: object
+      properties:
+        notification:
+          $ref: '#/components/schemas/Notification'
+
+    NotificationListResponse:
+      type: object
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+
+    # ── Admin Stats ──
+    AdminStatsResponse:
+      type: object
+      properties:
+        stats:
+          type: object
+          properties:
+            pendingListings:
+              type: integer
+            soldProducts:
+              type: integer
+            totalOrders:
+              type: integer
+            totalUsers:
+              type: integer
+            totalSellers:
+              type: integer
+            platformProfit:
+              type: number
+
+    # ── AI Schemas ──
+    AiSearchRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          example: 'áo khoác dạ màu nâu ấm'
+
+    AiSearchResponse:
+      type: object
+      properties:
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+
+    AiAnalyzeRequest:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        image:
+          type: string
+
+    AiAnalyzeResponse:
+      type: object
+      properties:
+        suggestedPrice:
+          type: number
+        suggestedCategory:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    AiRecommendationsRequest:
+      type: object
+      properties:
+        productId:
+          type: string
+        category:
+          type: string
+
+    AiRecommendationsResponse:
+      type: object
+      properties:
+        recommendations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'

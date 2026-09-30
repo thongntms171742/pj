@@ -2,7 +2,9 @@ import { Router } from "express";
 import {
   getProducts,
   getMyProducts,
+  getProductById,
   createProduct,
+  archiveProduct,
   createReview,
 } from "../controllers/productController";
 import { requireAuth } from "../middleware/auth";
@@ -14,8 +16,11 @@ router.get("/seller", requireAuth, getMyProducts);
 router.get("/", getProducts);
 router.post("/", requireAuth, createProduct);
 
-// IMPORTANT: this must come AFTER `/:id/...` style routes when added later.
-// Reviews are a nested resource under a product.
+// Specific action sub-routes before `/:id` wildcard
+router.patch("/:id/archive", requireAuth, archiveProduct);
 router.post("/:id/reviews", requireAuth, createReview);
+
+// Product by ID
+router.get("/:id", getProductById);
 
 export default router;
