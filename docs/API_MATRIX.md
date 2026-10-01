@@ -53,6 +53,9 @@ This file tracks the implementation status of API features across teams based on
 | GET | `/api/notifications` | Yes | Any | ✅ | ✅ | User notification feed |
 | PATCH | `/api/notifications/:id/read` | Yes | Any | ✅ | ✅ | Mark notification as read |
 | **Admin** | | | | | | |
+| GET | `/api/admin/users` | Yes | Admin | ✅ | ⏳ | Users list with pagination & filters |
+| PATCH | `/api/admin/users/:id/status` | Yes | Admin | ✅ | ⏳ | Ban or unban user account |
+| GET | `/api/admin/users/:id/details` | Yes | Admin | ✅ | ⏳ | User details & stats |
 | GET | `/api/admin/pending-listings` | Yes | Admin | ✅ | ✅ | Pending product listings moderation |
 | PATCH | `/api/admin/listings/:id/approve` | Yes | Admin | ✅ | ✅ | Approve listing -> active |
 | PATCH | `/api/admin/listings/:id/reject` | Yes | Admin | ✅ | ✅ | Reject listing -> archived |

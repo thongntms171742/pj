@@ -1214,7 +1214,7 @@ REFUNDED        → (terminal)
 { "success": true }
 ```
 
-> **Lưu ý**: hiện tại handler `markAsRead` không kiểm tra ownership của notification (luôn `findByIdAndUpdate`). Nếu cần bảo mật chặt hơn, báo BE cập nhật.
+> **Lưu ý**: handler `markAsRead` **đã enforce ownership** — user chỉ mark được notification của chính mình (IDOR đã fix 2026-09-29).
 
 ---
 
@@ -1411,6 +1411,104 @@ REFUNDED        → (terminal)
 - `401` `UNAUTHORIZED` — Thiếu JWT
 - `403` `FORBIDDEN` — Không phải admin
 - `500` `INTERNAL_ERROR` — Lỗi hệ thống
+
+---
+
+### GET `/api/admin/users`
+
+**Mục đích**: Lấy danh sách toàn bộ Users trong hệ thống, có phân trang và filter theo role/tìm kiếm.
+
+**Auth**: Required + role `admin`.
+
+**Query params**:
+- `page` (number, default: 1)
+- `limit` (number, default: 20)
+- `search` (string, optional) — Tìm theo name hoặc email
+- `role` (string, optional) — Filter theo role (VD: `buyer,seller`)
+
+**Success (200)**:
+```json
+{
+  "users": [
+    {
+      "_id": "string",
+      "name": "string",
+      "email": "string",
+      "roles": ["buyer", "seller"],
+      "accountStatus": "active",
+      "accountStatusReason": "string",
+      "createdAt": "ISO date"
+    }
+  ],
+  "total": "number",
+  "page": "number",
+  "limit": "number",
+  "totalPages": "number"
+}
+```
+
+---
+
+### PATCH `/api/admin/users/:id/status`
+
+**Mục đích**: Cấp quyền cho Admin khóa (Ban) hoặc mở khóa tài khoản.
+
+**Auth**: Required + role `admin`.
+
+**Request**:
+```json
+{
+  "status": "suspended",
+  "reason": "Vi phạm chính sách..." 
+}
+```
+
+**Success (200)**:
+```json
+{
+  "success": true,
+  "user": {
+    "_id": "string",
+    "accountStatus": "suspended",
+    "accountStatusReason": "Vi phạm chính sách..."
+  }
+}
+```
+
+**Errors**:
+- `400` `INVALID_INPUT` — Trạng thái không hợp lệ
+- `403` `FORBIDDEN` — Không thể khóa tài khoản của chính mình
+- `404` `ACCOUNT_NOT_FOUND` — Không tìm thấy người dùng
+
+---
+
+### GET `/api/admin/users/:id/details`
+
+**Mục đích**: Xem chi tiết và lịch sử hoạt động của 1 user.
+
+**Auth**: Required + role `admin`.
+
+**Success (200)**:
+```json
+{
+  "user": {
+    "_id": "string",
+    "name": "string",
+    "email": "string",
+    "roles": ["buyer"],
+    "accountStatus": "active",
+    "accountStatusReason": ""
+  },
+  "stats": {
+    "totalOrders": "number",
+    "cancelledOrders": "number",
+    "totalSpent": "number"
+  }
+}
+```
+
+**Errors**:
+- `404` `ACCOUNT_NOT_FOUND` — Không tìm thấy người dùng
 
 ---
 

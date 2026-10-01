@@ -18,30 +18,32 @@
 | `DELIVERED` | Đã giao thành công | ❌ |
 | `COMPLETED` | Buyer xác nhận hoàn tất (terminal revenue) | ✅ |
 | `CANCELLED` | Hủy đơn (stock được restore nếu trước SHIPPING) | ✅ |
+| `CANCEL_REQUESTED` | Buyer yêu cầu hủy (chờ seller accept/reject) | ❌ |
 | `DISPUTED` | Buyer mở tranh chấp | ❌ |
 | `REFUNDED` | Hoàn tiền sau tranh chấp | ✅ |
 
 ### State Machine
 
 ```
-PENDING_PAYMENT → PAID, CONFIRMED, CANCELLED
-PAID            → CONFIRMED, PACKING, CANCELLED, REFUNDED
-CONFIRMED       → PACKING, SHIPPING, CANCELLED
-PACKING         → SHIPPING, CANCELLED
-SHIPPING        → DELIVERING, DELIVERED, CANCELLED
-DELIVERING      → DELIVERED, COMPLETED
-DELIVERED       → COMPLETED, DISPUTED
-COMPLETED       → (terminal)
-CANCELLED       → (terminal)
-DISPUTED        → REFUNDED, COMPLETED
-REFUNDED        → (terminal)
+PENDING_PAYMENT  → PAID, CONFIRMED, CANCELLED
+PAID             → CONFIRMED, PACKING, CANCELLED, REFUNDED
+CONFIRMED        → PACKING, SHIPPING, CANCELLED, CANCEL_REQUESTED
+PACKING          → SHIPPING, CANCELLED, CANCEL_REQUESTED
+SHIPPING         → DELIVERING, DELIVERED, CANCELLED
+DELIVERING       → DELIVERED, COMPLETED
+DELIVERED        → COMPLETED, DISPUTED
+COMPLETED        → (terminal)
+CANCELLED        → (terminal)
+CANCEL_REQUESTED → CANCELLED, CONFIRMED
+DISPUTED         → REFUNDED, COMPLETED
+REFUNDED         → (terminal)
 ```
 
 ### Role-based restrictions (ngoài state machine)
 
-- **Buyer-only**: chỉ được chuyển sang `CANCELLED` hoặc `COMPLETED` → nếu khác → `403 ORDER_BUYER_NOT_PARTICIPANT`.
-- **Seller (non-admin)**: KHÔNG được chuyển sang `DELIVERING`/`DELIVERED`/`COMPLETED` → nếu vi phạm → `403 ORDER_SELLER_CANNOT_DELIVER`.
-- **Admin**: bỏ qua role-based restriction (vẫn phải tuân state machine).
+- **Buyer-only**: chỉ được chuyển sang `CANCELLED`, `CANCEL_REQUESTED`, `DELIVERED`, `COMPLETED`, hoặc `DISPUTED`. Lưu ý: buyer chỉ được trực tiếp `CANCELLED` khi order ở `PENDING_PAYMENT` hoặc `PAID`; từ `CONFIRMED` trở đi phải dùng `CANCEL_REQUESTED`. Nếu buyer gửi status không được phép → `403 ORDER_BUYER_NOT_PARTICIPANT`.
+- **Seller (non-admin)**: KHÔNG được tự chuyển sang `COMPLETED` (bước này phải do buyer hoặc system thực hiện). Seller CÓ THỂ chuyển sang `DELIVERING` và `DELIVERED`. Nếu vi phạm → `403 ORDER_SELLER_CANNOT_DELIVER`.
+- **Admin**: bỏ qua mọi role-based restriction (vẫn phải tuân state machine).
 
 ---
 

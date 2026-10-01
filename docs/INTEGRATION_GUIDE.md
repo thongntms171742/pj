@@ -71,8 +71,8 @@ VITE_API_URL=http://localhost:4000/api
    - Xem bảng đầy đủ tại `docs/ERROR_CODES.md`.
 
 3. **Seller onboarding qua API**:
-   - Hiện tại KHÔNG CÓ endpoint `POST /api/auth/seller/apply`. User muốn thành seller phải được admin set thủ công trong DB.
-   - Nếu cần flow "Đăng ký bán hàng" trên UI, hỏi BE để bổ sung endpoint.
+   - Endpoint `POST /api/auth/seller/apply` **ĐÃ CÓ** (từ 2026-09-29). User tự apply, admin duyệt/từ chối qua `/api/admin/sellers/:id/{approve,reject}`.
+   - Xem contract chi tiết tại `API_CONTRACT.md` § Auth → `POST /api/auth/seller/apply`.
 
 4. **Cart merge có 2 endpoint**:
    - `/api/cart/merge` ← **CHÍNH THỨC**, dùng cái này.

@@ -50,6 +50,8 @@ export interface IUser extends Document {
   passwordHash: string;
   roles: ("buyer" | "seller" | "admin")[];
   addresses: IAddress[];
+  accountStatus: "active" | "suspended";
+  accountStatusReason: string;
   sellerProfile?: {
     handle: string;
     shopName: string;
@@ -75,6 +77,8 @@ const UserSchema = new Schema<IUser>(
       default: ["buyer"],
     },
     addresses: { type: [AddressSchema], default: [] },
+    accountStatus: { type: String, enum: ["active", "suspended"], default: "active" },
+    accountStatusReason: { type: String, default: "" },
     sellerProfile: { type: SellerProfileSchema, default: undefined },
   },
   { timestamps: true }

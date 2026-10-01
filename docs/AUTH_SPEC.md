@@ -148,7 +148,7 @@ Token hết hạn sau `JWT_EXPIRES_IN` (mặc định `7d`, cấu hình qua env)
 
 Available roles: `buyer`, `seller`, `admin`.
 
-User mới đăng ký luôn có `roles: ["buyer"]`. Role `seller` được cấp qua admin script (chưa có endpoint API public cho việc này). Role `admin` được set thủ công trong DB.
+User mới đăng ký luôn có `roles: ["buyer"]`. Role `seller` được cấp tự động khi user apply qua `POST /api/auth/seller/apply` (status = `pending_approval`, chờ admin duyệt). Role `admin` được set thủ công trong DB.
 
 ### Role-Based Access Matrix
 
@@ -159,10 +159,14 @@ User mới đăng ký luôn có `roles: ["buyer"]`. Role `seller` được cấp
 | `GET /api/orders/seller` | ❌ | ✅ | ✅ |
 | `GET /api/admin/*` | ❌ | ❌ | ✅ |
 | `PATCH /api/admin/listings/:id/approve` | ❌ | ❌ | ✅ |
-| `PATCH /api/orders/:code/status` | ✅ (CAN only) | ✅ (limited) | ✅ |
+| `PATCH /api/orders/:code/status` | ✅ (CAN/CR/DEL/COM/DIS) | ✅ (no COMPLETED) | ✅ |
 | `POST /api/payments/checkout` | ✅ | ❌ | ❌ |
+| `GET/POST/PATCH/DELETE /api/users/me/addresses` | ✅ | ✅ | ✅ |
+| `POST /api/auth/seller/apply` | ✅ | N/A (already seller) | ❌ |
 
 > **Lưu ý**: cột "Seller" yêu cầu `user.roles.includes("seller")` **VÀ** `user.sellerProfile.status === "active"`. Nếu seller bị `suspended` hoặc `pending_approval`, mọi endpoint chỉ-cho-seller sẽ trả `403 SELLER_NOT_APPROVED`.
+
+> **Lưu ý (Order status)**: Buyer được dùng: `CANCELLED`, `CANCEL_REQUESTED`, `DELIVERED`, `COMPLETED`, `DISPUTED`. Buyer chỉ được trực tiếp `CANCELLED` khi order ở `PENDING_PAYMENT`/`PAID`; từ `CONFIRMED` trở đi phải dùng `CANCEL_REQUESTED`. Seller KHÔNG được tự chuyển sang `COMPLETED`.
 
 > **Khuyến nghị cho FE**: bảng này dùng cho UI/UX rendering (ẩn/hiện nút, route guard). Backend vẫn enforce validation độc lập ở controller — không bao giờ chỉ dựa vào bảng này để bảo vệ route.
 
@@ -175,7 +179,7 @@ User mới đăng ký luôn có `roles: ["buyer"]`. Role `seller` được cấp
 | Value | Ý nghĩa |
 | :--- | :--- |
 | `active` | Được phép tạo sản phẩm, đăng ký bán hàng thành công |
-| `pending_approval` | Đang chờ admin duyệt (chưa có endpoint API để set status này) |
+| `pending_approval` | Đang chờ admin duyệt (set qua `POST /api/auth/seller/apply`) |
 | `suspended` | Bị admin tạm khóa — bị ẩn khỏi `GET /api/sellers` |
 
 User mới đăng ký KHÔNG có `sellerProfile` (field không tồn tại). FE check `user.sellerProfile?.status === "active"` để biết user có quyền seller.

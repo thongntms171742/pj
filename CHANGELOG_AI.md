@@ -1,11 +1,27 @@
 # AI Changelog
 
 ## [2026-10-01]
-### Added (Backend - Users)
+### Added (Backend - Users & Admin)
+- Added `accountStatus` (`"active"` | `"suspended"`) and `accountStatusReason` fields to `User` model.
+- Updated `auth.ts` middleware (`requireAuth` and `optionalAuth`) to fetch the user from the database and reject requests with `403 FORBIDDEN` if `accountStatus === "suspended"`.
+- Added `GET /api/admin/users` (List users with pagination, search, role filters) in `adminController.ts`.
+- Added `PATCH /api/admin/users/:id/status` (Ban / Unban users) in `adminController.ts`.
+- Added `GET /api/admin/users/:id/details` (View user transaction history, orders, spent) in `adminController.ts`.
+- Added User Management routes to `routes/admin.ts`.
 - Added `AddressSchema` embedded in `User` model to support persistent buyer and seller addresses.
 - Added `GET /api/users/me/addresses`, `POST /api/users/me/addresses`, `PATCH /api/users/me/addresses/:id`, and `DELETE /api/users/me/addresses/:id` endpoints in `userController.ts`.
 - Registered `/api/users` routes in `app.ts`.
-- Updated `docs/API_CONTRACT.md` and `docs/API_MATRIX.md` with the new Users endpoints.
+- Updated `docs/API_CONTRACT.md` and `docs/API_MATRIX.md` with the new Users and Admin User Management endpoints.
+
+### Fixed (BE DOC Inconsistencies — P0 Audit)
+- **`docs/ENUMS.md`**: Added `CANCEL_REQUESTED` to Order Status table, updated state machine transitions (`CONFIRMED/PACKING → CANCEL_REQUESTED`), and corrected role-based restrictions to match actual code (buyer now allowed `CANCELLED`, `CANCEL_REQUESTED`, `DELIVERED`, `COMPLETED`, `DISPUTED`; seller now allowed `DELIVERING` and `DELIVERED`, only blocked from `COMPLETED`).
+- **`docs/INTEGRATION_GUIDE.md`**: Fixed incorrect claim "KHÔNG CÓ endpoint `POST /api/auth/seller/apply`" — endpoint has been live since 2026-09-29.
+- **`docs/AUTH_SPEC.md`**: Updated Role Matrix with Users/Address endpoints and `POST /api/auth/seller/apply`. Fixed seller role assignment description. Added Order status permission note. Fixed Seller Status `pending_approval` description.
+- **`docs/API_CONTRACT.md`**: Fixed incorrect note on notification `markAsRead` claiming "không kiểm tra ownership" — IDOR was already fixed in 2026-09-29 refactor.
+- **`docs/API_MATRIX.md`**: Marked `POST /api/ai/search` and `POST /api/ai/analyze-listing` as FE ✅ DONE.
+
+### Added (UI/UX Audit Plan)
+- Created comprehensive 10-phase UI/UX acceptance testing plan covering: BE DOC contract audit, API/UI Contract Matrix (40+ endpoints), Login/Register P0 checklists (34 test cases), responsive test matrix (8 viewports × 12 checks), validation contract audit (26 fields), error handling audit (16 critical codes), route protection matrix (13 routes × 4 roles), and 7 end-to-end user journeys.
 
 ### Frontend & Mobile Sync (Reported 2026-10-01)
 - **Mobile TS**: Noted pre-existing TS error in `SearchScreen.tsx` (waiting for FE to pass `category` param to `useProducts`).

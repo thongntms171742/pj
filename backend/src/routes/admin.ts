@@ -7,6 +7,9 @@ import {
   approveSeller,
   rejectSeller,
   getAdminStats,
+  getAllUsers,
+  updateUserStatus,
+  getUserDetails,
 } from "../controllers/adminController";
 import { requireAuth, requireAdmin } from "../middleware/auth";
 
@@ -20,6 +23,11 @@ router.patch("/listings/:id/reject", requireAuth, requireAdmin, rejectListing);
 // ── Platform stats (Admin Dashboard) ─────────────────────────────────────────
 // FE AdminScreen calls `GET /api/admin/stats` → reads `res.stats`.
 router.get("/stats", requireAuth, requireAdmin, getAdminStats);
+
+// ── User Management ────────────────────────────────────────────────────────────
+router.get("/users", requireAuth, requireAdmin, getAllUsers);
+router.patch("/users/:id/status", requireAuth, requireAdmin, updateUserStatus);
+router.get("/users/:id/details", requireAuth, requireAdmin, getUserDetails);
 
 // ── Seller application moderation — canonical paths ──────────────────────────
 // FE AdminScreen calls:

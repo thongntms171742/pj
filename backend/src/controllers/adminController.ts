@@ -6,6 +6,7 @@ import { Notification } from "../models/Notification";
 import { mapProduct } from "./productController";
 import { mapSeller } from "./sellerController";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
+import { Types } from "mongoose";
 
 // ── GET /api/admin/pending-listings ───────────────────────────────────────────
 export const getPendingListings = async (_req: Request, res: Response): Promise<void> => {
@@ -234,5 +235,127 @@ export const getAdminStats = async (_req: Request, res: Response): Promise<void>
     });
   } catch (err) {
     handleInternalError(res, err, "[admin] getAdminStats error");
+  }
+};
+
+// ── GET /api/admin/users ─────────────────────────────────────────────────────
+export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const search = req.query.search as string;
+    const role = req.query.role as string;
+
+    const query: any = {};
+    if (search) {
+      query.$or = [
+        { email: { $regex: search, $options: "i" } },
+        { name: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    if (role) {
+      const rolesArray = role.split(",").map((r) => r.trim());
+      query.roles = { $in: rolesArray };
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [users, total] = await Promise.all([
+      User.find(query)
+        .select("-passwordHash")
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 })
+        .lean(),
+      User.countDocuments(query),
+    ]);
+
+    res.json({
+      users,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] getAllUsers error");
+  }
+};
+
+// ── PATCH /api/admin/users/:id/status ────────────────────────────────────────
+export const updateUserStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { status, reason } = req.body as { status?: "active" | "suspended"; reason?: string };
+
+    if (!status || !["active", "suspended"].includes(status)) {
+      sendError(res, ErrorCode.INVALID_INPUT, "Trạng thái không hợp lệ");
+      return;
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      sendError(res, ErrorCode.ACCOUNT_NOT_FOUND, "Không tìm thấy người dùng");
+      return;
+    }
+
+    if (user._id.toString() === req.user!.id) {
+      sendError(res, ErrorCode.FORBIDDEN, "Không thể khóa tài khoản của chính mình");
+      return;
+    }
+
+    user.accountStatus = status;
+    if (reason !== undefined) {
+      user.accountStatusReason = reason;
+    }
+
+    await user.save();
+
+    res.json({
+      success: true,
+      user: {
+        _id: user._id,
+        accountStatus: user.accountStatus,
+        accountStatusReason: user.accountStatusReason,
+      },
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] updateUserStatus error");
+  }
+};
+
+// ── GET /api/admin/users/:id/details ─────────────────────────────────────────
+export const getUserDetails = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id).select("-passwordHash").lean();
+
+    if (!user) {
+      sendError(res, ErrorCode.ACCOUNT_NOT_FOUND, "Không tìm thấy người dùng");
+      return;
+    }
+
+    const [totalOrders, cancelledOrders, totalSpent] = await Promise.all([
+      Order.countDocuments({ buyerId: id }),
+      Order.countDocuments({ buyerId: id, status: "CANCELLED" }),
+      Order.aggregate([
+        { $match: { buyerId: new Types.ObjectId(id as string), status: "COMPLETED" } },
+        { $group: { _id: null, total: { $sum: "$totalAmount" } } },
+      ]),
+    ]);
+
+    const spent = totalSpent.length > 0 ? totalSpent[0].total : 0;
+
+    res.json({
+      user,
+      stats: {
+        totalOrders,
+        cancelledOrders,
+        totalSpent: spent,
+      },
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] getUserDetails error");
   }
 };

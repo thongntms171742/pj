@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { sendError, ErrorCode } from "../utils/errors";
+import { User } from "../models/User";
 
 const JWT_SECRET = process.env.JWT_SECRET || "thriftit_super_secret_key_change_me";
 
@@ -22,7 +23,7 @@ declare global {
 /**
  * Mandatory auth — returns 401 if no valid token.
  */
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
     sendError(res, ErrorCode.UNAUTHORIZED, "Chưa đăng nhập");
@@ -32,6 +33,18 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   try {
     const token = header.slice(7);
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    
+    // Verify user in DB to check accountStatus
+    const user = await User.findById(decoded.id).select("accountStatus");
+    if (!user) {
+      sendError(res, ErrorCode.UNAUTHORIZED, "Tài khoản không tồn tại");
+      return;
+    }
+    if (user.accountStatus === "suspended") {
+      sendError(res, ErrorCode.FORBIDDEN, "Tài khoản của bạn đã bị khóa");
+      return;
+    }
+
     req.user = decoded;
     next();
   } catch {
@@ -43,14 +56,18 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
  * Optional auth — attaches `req.user` if a valid token is present,
  * but does NOT reject the request when there's no token.
  */
-export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+export async function optionalAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
   if (header?.startsWith("Bearer ")) {
     try {
       const token = header.slice(7);
-      req.user = jwt.verify(token, JWT_SECRET) as JwtPayload;
+      const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+      const user = await User.findById(decoded.id).select("accountStatus");
+      if (user && user.accountStatus !== "suspended") {
+        req.user = decoded;
+      }
     } catch {
-      // invalid token → treat as anonymous
+      // invalid token or user suspended → treat as anonymous
     }
   }
   next();
