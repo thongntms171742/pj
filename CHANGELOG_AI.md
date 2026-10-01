@@ -1,6 +1,18 @@
 # AI Changelog
 
 ## [2026-10-01]
+### Added (Backend - Users)
+- Added `AddressSchema` embedded in `User` model to support persistent buyer and seller addresses.
+- Added `GET /api/users/me/addresses`, `POST /api/users/me/addresses`, `PATCH /api/users/me/addresses/:id`, and `DELETE /api/users/me/addresses/:id` endpoints in `userController.ts`.
+- Registered `/api/users` routes in `app.ts`.
+- Updated `docs/API_CONTRACT.md` and `docs/API_MATRIX.md` with the new Users endpoints.
+
+### Frontend & Mobile Sync (Reported 2026-10-01)
+- **Mobile TS**: Noted pre-existing TS error in `SearchScreen.tsx` (waiting for FE to pass `category` param to `useProducts`).
+- **AI Endpoints**: Frontend has successfully integrated `POST /api/ai/search` and `POST /api/ai/analyze-listing`.
+- **Order State Machine**: FE was using a workaround (`DELIVERED -> COMPLETED`) due to `ORDER_BUYER_NOT_PARTICIPANT`. The backend has now fixed this bug, allowing buyers to set `DELIVERED` directly. FE can remove the workaround.
+- **Address Book**: FE noted a limitation where buyers/sellers have to re-type addresses. The backend has now implemented the `Address` API to resolve this.
+
 ### Added
 - Added `CANCEL_REQUESTED` to `ORDER_STATUSES` enum and updated `VALID_TRANSITIONS` in `Order.ts` to support buyer cancellation requests.
 - Added `cancelReason` and `cancelRequestedAt` fields to the `Order` model and `mapOrder` response.

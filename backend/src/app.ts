@@ -3,6 +3,7 @@ import cors from "cors";
 
 import "./models"; // Ensure all Mongoose models are registered
 import authRoutes from "./routes/auth";
+import userRoutes from "./routes/users";
 import productRoutes from "./routes/products";
 import sellerRoutes from "./routes/sellers";
 import cartRoutes from "./routes/cart";
@@ -26,6 +27,7 @@ app.get("/api/health", (_req, res) => {
 
 // ── API Routes ─────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/sellers", sellerRoutes);
 app.use("/api/cart", cartRoutes);

@@ -16,6 +16,7 @@
 10. [Admin](#admin)
 11. [AI](#ai)
 12. [Health](#health)
+13. [Users](#users)
 
 ---
 
@@ -252,6 +253,111 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
 - `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
 
 > **Deprecation note (2026-09-29)**: Endpoint này giữ để tương thích ngược với FE clients cũ. BE đã log warning mỗi lần gọi để theo dõi traffic. Sẽ bị xóa trong release tiếp theo. FE mới **KHÔNG ĐƯỢC** gọi endpoint này — dùng `/api/cart/merge`.
+
+---
+
+## Users
+
+### GET `/api/users/me/addresses`
+
+**Mục đích**: Lấy danh sách địa chỉ (sổ địa chỉ) của user hiện tại.
+
+**Auth**: Required (Any authenticated user).
+
+**Success (200)**:
+```json
+{
+  "addresses": [
+    {
+      "_id": "string",
+      "name": "string",
+      "phone": "string",
+      "address": "string",
+      "province": "string",
+      "district": "string",
+      "ward": "string",
+      "isDefault": "boolean"
+    }
+  ]
+}
+```
+
+**Errors**: `401` `UNAUTHORIZED`, `500` `INTERNAL_ERROR`
+
+---
+
+### POST `/api/users/me/addresses`
+
+**Mục đích**: Thêm một địa chỉ mới.
+
+**Auth**: Required (Any authenticated user).
+
+**Request**:
+```json
+{
+  "name": "string",
+  "phone": "string",
+  "address": "string",
+  "province": "string",
+  "district": "string",
+  "ward": "string",
+  "isDefault": "boolean (optional)"
+}
+```
+
+**Success (201)**:
+```json
+{
+  "address": { /* ApiAddress mới */ }
+}
+```
+
+**Errors**: `400` `MISSING_FIELD`, `401` `UNAUTHORIZED`, `500` `INTERNAL_ERROR`
+
+---
+
+### PATCH `/api/users/me/addresses/:id`
+
+**Mục đích**: Cập nhật thông tin hoặc trạng thái mặc định của một địa chỉ.
+
+**Auth**: Required (Any authenticated user).
+
+**Request**:
+```json
+{
+  "name": "string (optional)",
+  "phone": "string (optional)",
+  "address": "string (optional)",
+  "province": "string (optional)",
+  "district": "string (optional)",
+  "ward": "string (optional)",
+  "isDefault": "boolean (optional)"
+}
+```
+
+**Success (200)**:
+```json
+{
+  "address": { /* ApiAddress đã cập nhật */ }
+}
+```
+
+**Errors**: `401` `UNAUTHORIZED`, `404` `NOT_FOUND`, `500` `INTERNAL_ERROR`
+
+---
+
+### DELETE `/api/users/me/addresses/:id`
+
+**Mục đích**: Xóa một địa chỉ. Nếu xóa địa chỉ mặc định, tự động gán địa chỉ cũ nhất thành mặc định.
+
+**Auth**: Required (Any authenticated user).
+
+**Success (200)**:
+```json
+{ "success": true }
+```
+
+**Errors**: `401` `UNAUTHORIZED`, `404` `NOT_FOUND`, `500` `INTERNAL_ERROR`
 
 ---
 

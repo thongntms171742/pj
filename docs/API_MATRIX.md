@@ -10,6 +10,11 @@ This file tracks the implementation status of API features across teams based on
 | PUT | `/api/auth/me/avatar` | Yes | Any | ✅ | ✅ | Update profile avatar |
 | POST | `/api/auth/seller/apply` | Yes | Any | ✅ | ✅ | Seller onboarding application |
 | POST | `/api/auth/cart/merge` | Yes | Buyer | ✅ | ✅ | Legacy cart merge alias |
+| **Users** | | | | | | |
+| GET | `/api/users/me/addresses` | Yes | Any | ✅ | ⏳ | Get user's saved addresses |
+| POST | `/api/users/me/addresses` | Yes | Any | ✅ | ⏳ | Add a new address |
+| PATCH | `/api/users/me/addresses/:id` | Yes | Any | ✅ | ⏳ | Update an address (incl. default) |
+| DELETE | `/api/users/me/addresses/:id` | Yes | Any | ✅ | ⏳ | Delete an address |
 | **Sellers** | | | | | | |
 | GET | `/api/sellers` | No | Public | ✅ | ✅ | Active seller shops catalog |
 | GET | `/api/sellers/me` | Yes | Seller | ✅ | ✅ | Authenticated seller dashboard profile |
@@ -56,6 +61,6 @@ This file tracks the implementation status of API features across teams based on
 | PATCH | `/api/admin/sellers/:id/reject` | Yes | Admin | ✅ | ✅ | Reject seller application |
 | GET | `/api/admin/stats` | Yes | Admin | ✅ | ✅ | Admin dashboard platform stats |
 | **AI** | | | | | | |
-| POST | `/api/ai/search` | No | Public | ✅ | ⏳ | Natural language search |
-| POST | `/api/ai/analyze-listing` | No | Public | ✅ | ⏳ | Listing valuation and categorization |
+| POST | `/api/ai/search` | No | Public | ✅ | ✅ | Natural language search |
+| POST | `/api/ai/analyze-listing` | No | Public | ✅ | ✅ | Listing valuation and categorization |
 | POST | `/api/ai/recommendations` | No | Public | ✅ | ⏳ | Product recommendations |

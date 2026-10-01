@@ -1,6 +1,27 @@
 import mongoose, { Schema, Document } from "mongoose";
 import bcrypt from "bcryptjs";
 
+// ── Address profile (embedded sub-document) ───────────────────────────────────
+export interface IAddress extends Document {
+  name: string;
+  phone: string;
+  address: string;
+  province: string;
+  district: string;
+  ward: string;
+  isDefault: boolean;
+}
+
+const AddressSchema = new Schema({
+  name: { type: String, required: true },
+  phone: { type: String, required: true },
+  address: { type: String, required: true },
+  province: { type: String, required: true },
+  district: { type: String, required: true },
+  ward: { type: String, required: true },
+  isDefault: { type: Boolean, default: false },
+});
+
 // ── Seller profile (embedded sub-document) ────────────────────────────────────
 const SellerProfileSchema = new Schema(
   {
@@ -28,6 +49,7 @@ export interface IUser extends Document {
   email: string;
   passwordHash: string;
   roles: ("buyer" | "seller" | "admin")[];
+  addresses: IAddress[];
   sellerProfile?: {
     handle: string;
     shopName: string;
@@ -52,6 +74,7 @@ const UserSchema = new Schema<IUser>(
       type: [{ type: String, enum: ["buyer", "seller", "admin"] }],
       default: ["buyer"],
     },
+    addresses: { type: [AddressSchema], default: [] },
     sellerProfile: { type: SellerProfileSchema, default: undefined },
   },
   { timestamps: true }
