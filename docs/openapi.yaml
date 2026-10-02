@@ -49,8 +49,135 @@ tags:
     description: Listing moderation, seller approvals and platform stats
   - name: AI
     description: AI smart search and product analysis
+  - name: Addresses
+    description: CAS Address Kit proxy, caching and administrative divisions (provinces and communes)
 
 paths:
+
+  # ============================================================
+  # ADDRESSES
+  # ============================================================
+
+  /api/addresses/provinces:
+    get:
+      tags:
+        - Addresses
+      summary: Get provinces / cities list
+      operationId: getProvinces
+      parameters:
+        - in: query
+          name: effectiveDate
+          schema:
+            type: string
+            default: latest
+          description: "effectiveDate ('latest' or YYYY-MM-DD)"
+      responses:
+        '200':
+          description: List of provinces
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          example: "79"
+                        name:
+                          type: string
+                          example: "Thành phố Hồ Chí Minh"
+                  effectiveDate:
+                    type: string
+                    example: "latest"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '502':
+          description: CAS Address Kit upstream error
+        '504':
+          description: CAS Address Kit upstream timeout
+
+  /api/addresses/provinces/{provinceId}/communes:
+    get:
+      tags:
+        - Addresses
+      summary: Get communes by province
+      operationId: getCommunesByProvince
+      parameters:
+        - in: path
+          name: provinceId
+          required: true
+          schema:
+            type: string
+          example: "79"
+        - in: query
+          name: effectiveDate
+          schema:
+            type: string
+            default: latest
+      responses:
+        '200':
+          description: List of communes in province
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          example: "25747"
+                        name:
+                          type: string
+                          example: "Phường Thủ Dầu Một"
+                  effectiveDate:
+                    type: string
+                    example: "latest"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/addresses/communes:
+    get:
+      tags:
+        - Addresses
+      summary: Get all communes
+      operationId: getAllCommunes
+      parameters:
+        - in: query
+          name: effectiveDate
+          schema:
+            type: string
+            default: latest
+      responses:
+        '200':
+          description: List of all communes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        provinceId:
+                          type: string
+                  effectiveDate:
+                    type: string
 
   # ============================================================
   # HEALTH

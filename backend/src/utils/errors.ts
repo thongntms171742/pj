@@ -22,6 +22,12 @@ export const ErrorCode = {
   UPSTREAM_ERROR: "UPSTREAM_ERROR",
   SERVICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
 
+  // ── Address ───────────────────────────────────────────────────────────────
+  INVALID_EFFECTIVE_DATE: "INVALID_EFFECTIVE_DATE",
+  PROVINCE_NOT_FOUND: "PROVINCE_NOT_FOUND",
+  ADDRESS_UPSTREAM_TIMEOUT: "ADDRESS_UPSTREAM_TIMEOUT",
+  ADDRESS_UPSTREAM_ERROR: "ADDRESS_UPSTREAM_ERROR",
+
   // ── Auth ──────────────────────────────────────────────────────────────────
   EMAIL_ALREADY_USED: "EMAIL_ALREADY_USED",
   INVALID_CREDENTIALS: "INVALID_CREDENTIALS",
@@ -156,6 +162,12 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
 
   // Account
   ACCOUNT_NOT_FOUND: 404,
+
+  // Address
+  INVALID_EFFECTIVE_DATE: 400,
+  PROVINCE_NOT_FOUND: 404,
+  ADDRESS_UPSTREAM_TIMEOUT: 504,
+  ADDRESS_UPSTREAM_ERROR: 502,
 };
 
 // ── Helper chính: sendError ───────────────────────────────────────────────────

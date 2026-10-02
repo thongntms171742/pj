@@ -1,5 +1,23 @@
 # AI Changelog
 
+## [2026-10-03]
+### Added (Backend - CAS Address Kit Proxy & Order Snapshot)
+- Created `backend/src/services/addressService.ts`:
+  - Proxies CAS Address Kit (`https://production.cas.so/address-kit`).
+  - In-memory cache with 24-hour TTL for provinces and communes.
+  - 5-second request timeout via `AbortController`.
+  - Normalization of upstream CAS data to `{ data: [{ id, name }], effectiveDate }`.
+  - Validation for `effectiveDate` (`latest` or `YYYY-MM-DD`).
+- Created `backend/src/controllers/addressController.ts` and `backend/src/routes/addresses.ts`:
+  - `GET /api/addresses/provinces` (query: `effectiveDate`)
+  - `GET /api/addresses/provinces/:provinceId/communes` (param: `provinceId`, query: `effectiveDate`)
+  - `GET /api/addresses/communes` (query: `effectiveDate`)
+- Mounted `/api/addresses` in `backend/src/app.ts`.
+- Updated double-layer Order snapshot in `Order.ts` and `orderController.ts` with `shippingProvinceId`, `shippingProvinceName`, `shippingCommuneId`, `shippingCommuneName`, `addressEffectiveDate`.
+- Added address error codes (`INVALID_EFFECTIVE_DATE: 400`, `PROVINCE_NOT_FOUND: 404`, `ADDRESS_UPSTREAM_TIMEOUT: 504`, `ADDRESS_UPSTREAM_ERROR: 502`) in `utils/errors.ts`.
+- Added test suite `backend/src/tests/address.test.ts` (16 tests passed).
+- Updated `docs/API_CONTRACT.md`, `docs/openapi.yaml`, and `docs/API_MATRIX.md`.
+
 ## [2026-10-01]
 ### Added (Backend - Users & Admin)
 - Added `accountStatus` (`"active"` | `"suspended"`) and `accountStatusReason` fields to `User` model.

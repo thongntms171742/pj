@@ -133,6 +133,11 @@ export interface IOrder extends Document {
   shippingName: string;
   shippingPhone: string;
   shippingAddress: string;
+  shippingProvinceId?: string;
+  shippingProvinceName?: string;
+  shippingCommuneId?: string;
+  shippingCommuneName?: string;
+  addressEffectiveDate?: string;
   trackingNumber: string;
   shippingProvider: string;
   trackingUrl: string;
@@ -168,6 +173,11 @@ const OrderSchema = new Schema<IOrder>(
     shippingName: { type: String, default: "" },
     shippingPhone: { type: String, default: "" },
     shippingAddress: { type: String, default: "" },
+    shippingProvinceId: { type: String, default: "" },
+    shippingProvinceName: { type: String, default: "" },
+    shippingCommuneId: { type: String, default: "" },
+    shippingCommuneName: { type: String, default: "" },
+    addressEffectiveDate: { type: String, default: "latest" },
     trackingNumber: { type: String, default: "" },
     shippingProvider: { type: String, default: "" },
     trackingUrl: { type: String, default: "" },

@@ -67,3 +67,7 @@ This file tracks the implementation status of API features across teams based on
 | POST | `/api/ai/search` | No | Public | ✅ | ✅ | Natural language search |
 | POST | `/api/ai/analyze-listing` | No | Public | ✅ | ✅ | Listing valuation and categorization |
 | POST | `/api/ai/recommendations` | No | Public | ✅ | ⏳ | Product recommendations |
+| **Addresses** | | | | | | |
+| GET | `/api/addresses/provinces` | No | Public | ✅ | ⏳ | CAS proxy: list provinces/cities (cached 24h) |
+| GET | `/api/addresses/provinces/:provinceId/communes` | No | Public | ✅ | ⏳ | CAS proxy: list communes by province (cached 24h) |
+| GET | `/api/addresses/communes` | No | Public | ✅ | ⏳ | CAS proxy: list all communes nationwide (cached 24h) |

@@ -10,7 +10,8 @@
     "test": "ts-node --transpile-only src/tests/errorContract.test.ts",
     "test:auth": "ts-node --transpile-only src/tests/productAuth.test.ts",
     "test:order": "ts-node --transpile-only src/tests/orderAuth.test.ts",
-    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/productAuth.test.ts && ts-node --transpile-only src/tests/orderAuth.test.ts"
+    "test:address": "ts-node --transpile-only src/tests/address.test.ts",
+    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/productAuth.test.ts && ts-node --transpile-only src/tests/orderAuth.test.ts && ts-node --transpile-only src/tests/address.test.ts"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",

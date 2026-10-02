@@ -12,6 +12,7 @@ import paymentRoutes from "./routes/payments";
 import notificationRoutes from "./routes/notifications";
 import adminRoutes from "./routes/admin";
 import aiRoutes from "./routes/ai";
+import addressRoutes from "./routes/addresses";
 import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 
 const app = express();
@@ -28,6 +29,7 @@ app.get("/api/health", (_req, res) => {
 // ── API Routes ─────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/addresses", addressRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/sellers", sellerRoutes);
 app.use("/api/cart", cartRoutes);

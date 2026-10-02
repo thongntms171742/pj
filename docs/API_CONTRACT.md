@@ -1657,7 +1657,101 @@ Mỗi array tối đa 30 id (ObjectId hợp lệ).
 ```
 
 **Errors**:
-- `500` `Không thể tải gợi ý sản phẩm`
+---
+
+## Addresses (CAS Address Kit Proxy & Cache)
+
+Backend cung cấp API danh mục hành chính 2 cấp chuẩn hóa sau sáp nhập cho Frontend, làm proxy và cache bộ dữ liệu từ CAS Address Kit (`https://production.cas.so/address-kit`). Frontend không gọi trực tiếp CAS.
+
+### GET `/api/addresses/provinces`
+
+**Mục đích**: Lấy danh sách Tỉnh/Thành phố.
+
+**Auth**: Public.
+
+**Query Parameters**:
+- `effectiveDate` (optional, default `"latest"`): `"latest"` hoặc `YYYY-MM-DD` (VD: `2025-07-01`).
+
+**Success (200)**:
+```json
+{
+  "data": [
+    {
+      "id": "01",
+      "name": "Thành phố Hà Nội"
+    },
+    {
+      "id": "79",
+      "name": "Thành phố Hồ Chí Minh"
+    }
+  ],
+  "effectiveDate": "latest"
+}
+```
+
+**Errors**:
+- `400` `INVALID_EFFECTIVE_DATE` — `effectiveDate must be 'latest' or YYYY-MM-DD`
+- `502` `ADDRESS_UPSTREAM_ERROR` — Lỗi kết nối tới CAS
+- `504` `ADDRESS_UPSTREAM_TIMEOUT` — Quá thời gian chờ (5s)
+
+---
+
+### GET `/api/addresses/provinces/:provinceId/communes`
+
+**Mục đích**: Lấy danh sách Xã/Phường theo mã Tỉnh/Thành phố.
+
+**Auth**: Public.
+
+**Path Parameters**:
+- `provinceId`: Mã tỉnh (VD: `79`).
+
+**Query Parameters**:
+- `effectiveDate` (optional, default `"latest"`): `"latest"` hoặc `YYYY-MM-DD`.
+
+**Success (200)**:
+```json
+{
+  "data": [
+    {
+      "id": "25747",
+      "name": "Phường Thủ Dầu Một"
+    }
+  ],
+  "effectiveDate": "latest"
+}
+```
+
+**Errors**:
+- `400` `INVALID_INPUT` — `provinceId không hợp lệ`
+- `400` `INVALID_EFFECTIVE_DATE` — `effectiveDate must be 'latest' or YYYY-MM-DD`
+- `404` `PROVINCE_NOT_FOUND` — `Không tìm thấy thông tin đơn vị hành chính`
+- `502` `ADDRESS_UPSTREAM_ERROR`
+- `504` `ADDRESS_UPSTREAM_TIMEOUT`
+
+---
+
+### GET `/api/addresses/communes`
+
+**Mục đích**: Lấy toàn bộ danh sách Xã/Phường trên toàn quốc.
+
+**Auth**: Public.
+
+**Query Parameters**:
+- `effectiveDate` (optional, default `"latest"`).
+
+**Success (200)**:
+```json
+{
+  "data": [
+    {
+      "id": "00004",
+      "name": "Phường Ba Đình",
+      "provinceId": "01"
+    }
+  ],
+  "effectiveDate": "latest"
+}
+```
 
 ---
 
