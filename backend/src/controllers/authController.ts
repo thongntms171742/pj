@@ -52,6 +52,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         name: user.name,
         email: user.email,
         roles: user.roles,
+        avatarUrl: user.avatarUrl ?? "",
       },
     });
   } catch (err) {
@@ -95,6 +96,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         email: user.email,
         roles: user.roles,
         sellerStatus: user.sellerProfile?.status ?? null,
+        avatarUrl: user.avatarUrl || user.sellerProfile?.avatarUrl || "",
       },
     });
   } catch (err) {
@@ -204,11 +206,13 @@ export const applySeller = async (req: Request, res: Response): Promise<void> =>
     }
 
     // ── Build new sellerProfile ──────────────────────────────────────────────────
+    const finalAvatar = avatarUrl?.trim() || existingUser.avatarUrl || "";
+
     const newSellerProfile = {
       handle: finalHandle,
       shopName: trimmedShopName,
       description: description?.trim() || "",
-      avatarUrl: avatarUrl?.trim() || "",
+      avatarUrl: finalAvatar,
       coverImages: coverImages || [],
       rating: 5.0,
       totalTransactions: 0,
@@ -223,6 +227,9 @@ export const applySeller = async (req: Request, res: Response): Promise<void> =>
 
     if (!existingUser.roles.includes("seller")) {
       existingUser.roles.push("seller");
+    }
+    if (!existingUser.avatarUrl && finalAvatar) {
+      existingUser.avatarUrl = finalAvatar;
     }
     existingUser.sellerProfile = newSellerProfile;
     await existingUser.save();
@@ -244,6 +251,7 @@ export const applySeller = async (req: Request, res: Response): Promise<void> =>
         email: existingUser.email,
         roles: existingUser.roles,
         sellerStatus: existingUser.sellerProfile?.status ?? null,
+        avatarUrl: existingUser.avatarUrl || existingUser.sellerProfile?.avatarUrl || "",
       },
     });
   } catch (err) {
@@ -286,12 +294,12 @@ export function mapCartItem(ci: any): any {
       likes: prod?.likes ?? 0,
       sellerId: seller
         ? {
-            _id: seller._id.toString(),
-            handle: seller.sellerProfile?.handle ?? seller.email?.split("@")[0] ?? "",
-            shopName: seller.sellerProfile?.shopName ?? seller.name ?? "",
-            avatarUrl: seller.sellerProfile?.avatarUrl ?? "",
-            rating: seller.sellerProfile?.rating ?? 5,
-          }
+          _id: seller._id.toString(),
+          handle: seller.sellerProfile?.handle ?? seller.email?.split("@")[0] ?? "",
+          shopName: seller.sellerProfile?.shopName ?? seller.name ?? "",
+          avatarUrl: seller.sellerProfile?.avatarUrl ?? "",
+          rating: seller.sellerProfile?.rating ?? 5,
+        }
         : { _id: "", handle: "", shopName: "", avatarUrl: "", rating: 5 },
       categoryId: prod?.categoryId ?? null,
     },
@@ -318,6 +326,8 @@ export const updateAvatar = async (req: Request, res: Response): Promise<void> =
       sendError(res, ErrorCode.ACCOUNT_NOT_FOUND, "Không tìm thấy người dùng");
       return;
     }
+
+    user.avatarUrl = avatarUrl;
 
     if (user.sellerProfile) {
       user.sellerProfile.avatarUrl = avatarUrl;
