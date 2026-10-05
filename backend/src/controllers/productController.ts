@@ -8,6 +8,64 @@ import { Order } from "../models/Order";
 import { Review } from "../models/Review";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 
+// ── Helpers: per-size stock & price delta normalization ────────────────────────
+
+// Normalize a raw value (potentially coming from JSON body) into a
+// Record<string, number>. Returns null when the input is invalid.
+function normalizeSizeMap(
+  raw: unknown,
+  fieldName: string
+): Record<string, number> | null {
+  if (raw == null) return {};
+  if (typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof k !== "string" || k.length === 0) return null;
+    const n = typeof v === "number" ? v : Number(v);
+    if (!Number.isFinite(n) || n < 0) return null;
+    out[k] = n;
+  }
+  return out;
+}
+
+// Returns true iff the value is a plain object whose values are finite numbers
+// (price deltas may be negative).
+function isValidPriceDeltaMap(raw: unknown): raw is Record<string, number> {
+  if (raw == null) return true;
+  if (typeof raw !== "object" || Array.isArray(raw)) return false;
+  for (const v of Object.values(raw as Record<string, unknown>)) {
+    const n = typeof v === "number" ? v : Number(v);
+    if (!Number.isFinite(n)) return false;
+  }
+  return true;
+}
+
+// Build the FE-facing `sizeQuantities` view for a product.
+//
+// - When the DB has an explicit non-empty sizeQuantities map → return it as-is.
+// - When the DB only has the legacy single-size+quantity fields → synthesize
+//   `{ [p.size]: p.quantity }` so the FE fallback path keeps working but the
+//   legacy "all sizes 0 except the single size" behavior is preserved.
+//
+// We deliberately do NOT zero out other sizes here: that would silently change
+// the UX of existing products. Frontend already falls back to "only product.size
+// has stock" when sizeQuantities is missing, and existing products keep that
+// exact behavior.
+function deriveSizeQuantities(p: any): Record<string, number> {
+  const stored = p.sizeQuantities;
+  if (
+    stored &&
+    typeof stored === "object" &&
+    !Array.isArray(stored) &&
+    Object.keys(stored).length > 0
+  ) {
+    return stored as Record<string, number>;
+  }
+  const single = String(p.size ?? "").trim();
+  const qty = Number(p.quantity ?? 0);
+  return single ? { [single]: qty } : {};
+}
+
 // ── Helper: Map Product document to frontend-compatible shape ─────────────────
 export function mapProduct(p: any) {
   const seller = p.sellerId;
@@ -27,6 +85,11 @@ export function mapProduct(p: any) {
     condition: p.condition,
     size: p.size,
     quantity: p.quantity,
+    sizeQuantities: deriveSizeQuantities(p),
+    sizePriceDeltas:
+      p.sizePriceDeltas && typeof p.sizePriceDeltas === "object" && !Array.isArray(p.sizePriceDeltas)
+        ? (p.sizePriceDeltas as Record<string, number>)
+        : {},
     status: p.status,
     reservedUntil: p.reservedUntil,
     reservedByOrderId: p.reservedByOrderId,
@@ -171,7 +234,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const { title, name, price, condition, size, quantity, description, coverImage, image, categoryId } = req.body;
+    const { title, name, price, condition, size, quantity, description, coverImage, image, categoryId, sizeQuantities, sizePriceDeltas } = req.body;
 
     const productTitle = title || name;
     const productImage = coverImage || image || "";
@@ -199,6 +262,41 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    // Validate optional per-size stock map. Empty / null is fine and means
+    // "derive from single size + quantity". Invalid shapes fail with a
+    // dedicated error code so FE can surface a useful message.
+    let parsedSizeQuantities: Record<string, number> | undefined;
+    if (sizeQuantities != null) {
+      const normalized = normalizeSizeMap(sizeQuantities, "sizeQuantities");
+      if (normalized === null) {
+        sendError(
+          res,
+          ErrorCode.PRODUCT_SIZE_DATA_INVALID,
+          "sizeQuantities không hợp lệ — phải là object {size: stockNumber} với stockNumber >= 0"
+        );
+        return;
+      }
+      // Only persist when caller explicitly provided at least one entry.
+      if (Object.keys(normalized).length > 0) {
+        parsedSizeQuantities = normalized;
+      }
+    }
+
+    let parsedSizePriceDeltas: Record<string, number> | undefined;
+    if (sizePriceDeltas != null) {
+      if (!isValidPriceDeltaMap(sizePriceDeltas)) {
+        sendError(
+          res,
+          ErrorCode.PRODUCT_SIZE_DATA_INVALID,
+          "sizePriceDeltas không hợp lệ — phải là object {size: number}"
+        );
+        return;
+      }
+      if (Object.keys(sizePriceDeltas as Record<string, number>).length > 0) {
+        parsedSizePriceDeltas = sizePriceDeltas as Record<string, number>;
+      }
+    }
+
     let finalCategoryId = categoryId;
     if (!finalCategoryId && req.body.category) {
       const catDoc = await Category.findOne({ name: req.body.category });
@@ -212,6 +310,8 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       condition,
       size,
       quantity: finalQuantity,
+      sizeQuantities: parsedSizeQuantities,
+      sizePriceDeltas: parsedSizePriceDeltas,
       status: "pending",
       coverImage: productImage,
       sellerId: userId,
@@ -296,6 +396,173 @@ export const archiveProduct = async (req: Request, res: Response): Promise<void>
     });
   } catch (err) {
     handleInternalError(res, err, "[products] archiveProduct error");
+  }
+};
+
+// ── PATCH /api/products/:id ──────────────────────────────────────────────────
+// Partial update for a product (owner seller only). Supports updating title,
+// description, price, condition, coverImage, location, categoryId, quantity
+// and the per-size stock / price delta fields introduced for the size-aware
+// product detail UI.
+//
+// Notes on inventory semantics (intentionally NOT changed):
+//   - `quantity` remains the total stock across all sizes. Existing order /
+//     cart decrement logic (COD + reservation flows) continues to operate on
+//     this aggregate counter, so this endpoint must NOT silently rescale it
+//     based on `sizeQuantities`.
+//   - If caller sends BOTH `quantity` and `sizeQuantities`, we keep `quantity`
+//     as the authoritative aggregate and only persist `sizeQuantities` for
+//     display. We do NOT auto-recompute one from the other — that would make
+//     the contract surprising. A follow-up migration should derive quantity
+//     from sizeQuantities once checkout reduces over a specific size.
+//
+// Allowed body fields:
+//   { title?, name?, description?, price?, condition?, size?, quantity?,
+//     coverImage?, image?, location?, categoryId?, category?,
+//     sizeQuantities?, sizePriceDeltas? }
+export const updateProduct = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Sản phẩm không tồn tại");
+      return;
+    }
+
+    const userId = req.user!.id;
+    const userRoles = req.user!.roles || [];
+
+    const product = await Product.findById(id);
+    if (!product) {
+      sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Sản phẩm không tồn tại");
+      return;
+    }
+
+    const isOwner = product.sellerId.toString() === userId;
+    const isAdmin = userRoles.includes("admin");
+    if (!isOwner && !isAdmin) {
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền chỉnh sửa sản phẩm này");
+      return;
+    }
+
+    const {
+      title,
+      name,
+      description,
+      price,
+      condition,
+      size,
+      quantity,
+      coverImage,
+      image,
+      location,
+      categoryId,
+      category,
+      sizeQuantities,
+      sizePriceDeltas,
+    } = req.body as Record<string, unknown>;
+
+    if (title !== undefined || name !== undefined) {
+      const nextTitle = (title ?? name) as string | undefined;
+      if (!nextTitle || !String(nextTitle).trim()) {
+        sendError(res, ErrorCode.PRODUCT_TITLE_REQUIRED, "Thiếu tiêu đề sản phẩm (title hoặc name)");
+        return;
+      }
+      product.title = String(nextTitle);
+    }
+    if (description !== undefined) product.description = String(description ?? "");
+    if (price !== undefined) {
+      const n = Number(price);
+      if (!Number.isFinite(n) || n < 0) {
+        sendError(res, ErrorCode.PRODUCT_PRICE_REQUIRED, "Giá sản phẩm không hợp lệ");
+        return;
+      }
+      product.price = n;
+    }
+    if (condition !== undefined) {
+      const n = Number(condition);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        sendError(
+          res,
+          ErrorCode.PRODUCT_CONDITION_REQUIRED,
+          "Tình trạng sản phẩm phải nằm trong khoảng 0–100"
+        );
+        return;
+      }
+      product.condition = n;
+    }
+    if (size !== undefined) {
+      if (!size || !String(size).trim()) {
+        sendError(res, ErrorCode.PRODUCT_SIZE_REQUIRED, "Thiếu kích thước sản phẩm (size)");
+        return;
+      }
+      product.size = String(size);
+    }
+    if (quantity !== undefined) {
+      const n = Number(quantity);
+      if (!Number.isFinite(n) || n < 0) {
+        sendError(
+          res,
+          ErrorCode.PRODUCT_QUANTITY_INVALID,
+          "Số lượng sản phẩm phải >= 0"
+        );
+        return;
+      }
+      product.quantity = n;
+    }
+    if (coverImage !== undefined || image !== undefined) {
+      product.coverImage = String((coverImage ?? image) ?? "");
+    }
+    if (location !== undefined) product.location = String(location ?? "");
+
+    if (categoryId !== undefined || category !== undefined) {
+      if (categoryId) {
+        product.categoryId = new mongoose.Types.ObjectId(String(categoryId));
+      } else if (category) {
+        const catDoc = await Category.findOne({ name: String(category) });
+        if (catDoc) product.categoryId = catDoc._id;
+      }
+    }
+
+    if (sizeQuantities !== undefined) {
+      const normalized = normalizeSizeMap(sizeQuantities, "sizeQuantities");
+      if (normalized === null) {
+        sendError(
+          res,
+          ErrorCode.PRODUCT_SIZE_DATA_INVALID,
+          "sizeQuantities không hợp lệ — phải là object {size: stockNumber} với stockNumber >= 0"
+        );
+        return;
+      }
+      // Persist only when caller provided at least one entry; an empty object
+      // means "fall back to derived view on read".
+      product.sizeQuantities =
+        Object.keys(normalized).length > 0 ? normalized : undefined;
+    }
+    if (sizePriceDeltas !== undefined) {
+      if (!isValidPriceDeltaMap(sizePriceDeltas)) {
+        sendError(
+          res,
+          ErrorCode.PRODUCT_SIZE_DATA_INVALID,
+          "sizePriceDeltas không hợp lệ — phải là object {size: number}"
+        );
+        return;
+      }
+      product.sizePriceDeltas =
+        sizePriceDeltas && Object.keys(sizePriceDeltas as Record<string, number>).length > 0
+          ? (sizePriceDeltas as Record<string, number>)
+          : undefined;
+    }
+
+    await product.save();
+
+    const populated = await Product.findById(product._id)
+      .populate({ path: "sellerId", select: "name email sellerProfile" })
+      .populate({ path: "categoryId", select: "name slug" })
+      .lean();
+
+    res.json({ product: mapProduct(populated) });
+  } catch (err) {
+    handleInternalError(res, err, "[products] updateProduct error");
   }
 };
 

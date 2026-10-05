@@ -72,6 +72,7 @@
 | `PRODUCT_CONDITION_REQUIRED` | 400 | Thiếu condition | Highlight condition field |
 | `PRODUCT_SIZE_REQUIRED` | 400 | Thiếu size | Highlight size field |
 | `PRODUCT_QUANTITY_INVALID` | 400 | quantity < 1 | Highlight quantity field |
+| `PRODUCT_SIZE_DATA_INVALID` | 400 | sizeQuantities / sizePriceDeltas không hợp lệ (không phải object, value không phải number, hoặc stock < 0) | Highlight size fields |
 
 ### Cart
 
@@ -98,6 +99,13 @@
 | `ORDER_ALREADY_SHIPPED` | 400 | Đơn đã được ship | Ẩn nút "Tạo vận đơn" |
 | `ORDER_ALREADY_CANCELLED` | 400 | Đơn đã bị hủy | Ẩn mọi action |
 | `ORDER_PAYMENT_INVALID_STATE` | 422 | Checkout khi order không phải PENDING_PAYMENT | Refresh order status |
+
+### Commission / Platform fee
+
+| Code | HTTP | Mô tả | FE action |
+| :--- | :---: | :--- | :--- |
+| `COMMISSION_RATE_INVALID` | 400 | `commissionRate` không phải số hoặc ngoài khoảng `[0, 1]` | Highlight commission field |
+| `SELLER_NOT_FOUND` | 404 | User (seller) không tồn tại | Hiển thị "Không tìm thấy người bán" |
 
 ### AI
 

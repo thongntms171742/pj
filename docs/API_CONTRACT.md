@@ -630,18 +630,26 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
   "coverImage": "string (hoặc 'image', optional)",
   "image": "string (alias coverImage)",
   "categoryId": "string (ObjectId, optional)",
-  "category": "string (tên category, fallback nếu không có categoryId)"
+  "category": "string (tên category, fallback nếu không có categoryId)",
+  "sizeQuantities": "Record<string, number> (optional, ≥ 0, vd: {\"XS\":0,\"S\":0,\"M\":65,\"L\":0,\"XL\":0,\"XXL\":0})",
+  "sizePriceDeltas": "Record<string, number> (optional, có thể âm, vd: {\"XS\":-10000,\"L\":20000})"
 }
 ```
 
+> **Note về per-size stock**:
+> - Khi `sizeQuantities` được cung cấp (ít nhất 1 entry), backend lưu trực tiếp vào DB.
+> - Khi bị bỏ qua / rỗng, BE vẫn trả `sizeQuantities` synthesized `{ [size]: quantity }` cho mọi response — FE nhận được một map tối thiểu thay vì `undefined`, fix được bug stock = 0 ở product detail page.
+> - `quantity` tổng KHÔNG tự động được tính lại từ `sizeQuantities` ở bước này (giữ aggregate counter là source of truth cho checkout / order flow).
+
 **Success (201)**:
 ```json
-{ "product": { /* ApiProduct */ } }
+{ "product": { /* ApiProduct — bao gồm sizeQuantities, sizePriceDeltas */ } }
 ```
 
 **Errors**:
 - `400` `Thiếu thông tin sản phẩm bắt buộc (title/name, price, condition, size)`
 - `400` `Số lượng sản phẩm phải lớn hơn hoặc bằng 1`
+- `400` `PRODUCT_SIZE_DATA_INVALID` — `sizeQuantities` / `sizePriceDeltas` không hợp lệ (phải là object với value là number)
 - `401` `Chưa đăng nhập` hoặc `Token không hợp lệ hoặc đã hết hạn`
 - `403` `SELLER_NOT_APPROVED` — user không có role seller hoặc `sellerProfile.status !== "active"`
 - `500` `Lỗi hệ thống`
@@ -662,13 +670,81 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
 **Success (200)**:
 ```json
 {
-  "product": { /* ApiProduct */ }
+  "product": {
+    "_id": "string",
+    "title": "string",
+    "name": "string (alias title)",
+    "description": "string",
+    "price": "number",
+    "condition": "number",
+    "size": "string",
+    "quantity": "number (tổng stock)",
+    "sizeQuantities": { "XS": 0, "S": 0, "M": 65, "L": 0, "XL": 0, "XXL": 0 },
+    "sizePriceDeltas": { "XS": -10000, "L": 20000 },
+    "status": "active",
+    "coverImage": "string",
+    "image": "string (alias coverImage)",
+    "sellerId": { /* seller info inline */ },
+    "categoryId": { "_id": "string", "name": "string", "slug": "string" } | null
+  }
 }
 ```
+
+> **Backward-compat note**: `sizeQuantities` luôn được trả (không `undefined`). Với sản phẩm cũ không có data → trả `{ [product.size]: product.quantity }` (chỉ size đó có stock, các size khác = 0 — đúng với hành vi legacy trước đây).
 
 **Errors**:
 - `404` `PRODUCT_NOT_FOUND` — `Sản phẩm không tồn tại`
 - `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+
+---
+
+### PATCH `/api/products/:id`
+
+**Mục đích**: Cập nhật một phần thông tin sản phẩm (owner-seller hoặc Admin). Cho phép cập nhật per-size stock / price-delta để fix bug product detail hiển thị stock = 0 ở các size không phải size mặc định.
+
+**Auth**: Required (Owner Seller hoặc Admin).
+
+**Path Params**:
+| Param | Type | Required | Description |
+| :--- | :--- | :---: | :--- |
+| `id` | string | Yes | MongoDB ObjectId của sản phẩm |
+
+**Request** (tất cả fields optional — chỉ update field được gửi):
+```json
+{
+  "title": "string",
+  "name": "string (alias title)",
+  "description": "string",
+  "price": "number (≥ 0)",
+  "condition": "number (0–100)",
+  "size": "string",
+  "quantity": "number (≥ 0, tổng stock)",
+  "coverImage": "string",
+  "image": "string (alias coverImage)",
+  "location": "string",
+  "categoryId": "string (ObjectId)",
+  "category": "string (tên category, fallback)",
+  "sizeQuantities": "Record<string, number> ≥ 0 — truyền {} để reset về derived view",
+  "sizePriceDeltas": "Record<string, number> — truyền {} để reset"
+}
+```
+
+**Success (200)**:
+```json
+{ "product": { /* ApiProduct — bao gồm sizeQuantities, sizePriceDeltas */ } }
+```
+
+**Errors**:
+- `400` `PRODUCT_TITLE_REQUIRED` — title rỗng
+- `400` `PRODUCT_PRICE_REQUIRED` — price < 0
+- `400` `PRODUCT_CONDITION_REQUIRED` — condition ngoài 0–100
+- `400` `PRODUCT_SIZE_REQUIRED` — size rỗng
+- `400` `PRODUCT_QUANTITY_INVALID` — quantity < 0
+- `400` `PRODUCT_SIZE_DATA_INVALID` — `sizeQuantities` / `sizePriceDeltas` không hợp lệ
+- `401` `UNAUTHORIZED`
+- `403` `FORBIDDEN` — không phải owner / admin
+- `404` `PRODUCT_NOT_FOUND`
+- `500` `INTERNAL_ERROR`
 
 ---
 
@@ -1375,6 +1451,47 @@ REFUNDED        → (terminal)
 **Errors**:
 - `400` `INVALID_INPUT` — User chưa đăng ký seller (chưa có `sellerProfile`)
 - `404` `ACCOUNT_NOT_FOUND` — User không tồn tại
+- `500` `INTERNAL_ERROR` — Lỗi hệ thống
+
+---
+
+### PATCH `/api/admin/sellers/:id/commission-rate`
+
+**Mục đích**: Admin cập nhật tỉ lệ hoa hồng (`commissionRate`) cho một seller cụ thể. Rate mới chỉ áp dụng cho **đơn hàng tạo SAU** khi update — các đơn hàng đã tồn tại giữ nguyên rate đã snapshot trên `OrderItem.commissionRate` tại lúc checkout.
+
+**Auth**: Required + role `admin`.
+
+**Path Params**:
+| Param | Type | Required | Description |
+| :--- | :--- | :---: | :--- |
+| `id` | string | Yes | MongoDB ObjectId của user (seller) |
+
+**Request**:
+```json
+{
+  "commissionRate": "number ∈ [0, 1], vd: 0.1 = 10% phí sàn, 0.15 = 15% phí sàn"
+}
+```
+
+**Success (200)**:
+```json
+{
+  "success": true,
+  "seller": { /* ApiSeller — bao gồm commissionRate mới */ },
+  "previousRate": 0.1,
+  "newRate": 0.15
+}
+```
+
+**Side effects**:
+- Cập nhật `User.sellerProfile.commissionRate`.
+- KHÔNG ảnh hưởng đến các đơn hàng đã tạo (snapshot đã được lưu trên `OrderItem.commissionRate`).
+- KHÔNG gửi notification (admin action, không cần thông báo seller).
+
+**Errors**:
+- `400` `COMMISSION_RATE_INVALID` — `commissionRate` không phải số, hoặc ngoài khoảng `[0, 1]`
+- `400` `INVALID_INPUT` — User chưa đăng ký seller, hoặc không có role `"seller"`
+- `404` `SELLER_NOT_FOUND` — User không tồn tại
 - `500` `INTERNAL_ERROR` — Lỗi hệ thống
 
 ---

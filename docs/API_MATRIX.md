@@ -26,8 +26,9 @@ This file tracks the implementation status of API features across teams based on
 | GET | `/api/products` | No | Public | ✅ | ✅ | Catalog with filter (category, seller, status) |
 | GET | `/api/products/mine` | Yes | Seller | ✅ | ✅ | Seller listings + live metrics |
 | GET | `/api/products/seller` | Yes | Seller | ✅ | ✅ | Alias for `/api/products/mine` |
-| GET | `/api/products/:id` | No | Public | ✅ | ✅ | Single product detail |
-| POST | `/api/products` | Yes | Approved Seller | ✅ | ✅ | Create new product listing |
+| GET | `/api/products/:id` | No | Public | ✅ | ✅ | Single product detail (incl. `sizeQuantities`, `sizePriceDeltas`) |
+| POST | `/api/products` | Yes | Approved Seller | ✅ | ✅ | Create listing (accepts `sizeQuantities`, `sizePriceDeltas`) |
+| PATCH | `/api/products/:id` | Yes | Owner/Admin | ✅ | ⏳ | Partial update (incl. per-size stock & price deltas) |
 | PATCH | `/api/products/:id/archive` | Yes | Owner/Admin | ✅ | ✅ | Archive product |
 | POST | `/api/products/:id/reviews` | Yes | Buyer | ✅ | ✅ | Submit review for delivered product |
 | GET | `/api/products/:id/reviews` | No | Public | ✅ | ✅ | Reviews for product |
@@ -62,6 +63,7 @@ This file tracks the implementation status of API features across teams based on
 | GET | `/api/admin/pending-sellers` | Yes | Admin | ✅ | ✅ | Pending seller applications (`res.users`) |
 | PATCH | `/api/admin/sellers/:id/approve` | Yes | Admin | ✅ | ✅ | Approve seller application |
 | PATCH | `/api/admin/sellers/:id/reject` | Yes | Admin | ✅ | ✅ | Reject seller application |
+| PATCH | `/api/admin/sellers/:id/commission-rate` | Yes | Admin | ✅ | ⏳ | Update per-seller commission rate |
 | GET | `/api/admin/stats` | Yes | Admin | ✅ | ✅ | Admin dashboard platform stats |
 | **AI** | | | | | | |
 | POST | `/api/ai/search` | No | Public | ✅ | ✅ | Natural language search |

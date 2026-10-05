@@ -1249,6 +1249,59 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/admin/sellers/{id}/commission-rate:
+    patch:
+      tags:
+        - Admin
+      summary: Update per-seller commission rate
+      description: |
+        Admin sets the seller's `commissionRate` (0..1). Applies only to
+        orders created AFTER this update — existing orders keep the rate
+        snapshotted on `OrderItem.commissionRate` at checkout.
+      operationId: updateSellerCommission
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - commissionRate
+              properties:
+                commissionRate:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                  example: 0.1
+      responses:
+        '200':
+          description: Commission rate updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  seller:
+                    $ref: '#/components/schemas/Seller'
+                  previousRate:
+                    type: number
+                  newRate:
+                    type: number
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   # ============================================================
   # ADMIN — STATS
   # ============================================================
@@ -1673,6 +1726,17 @@ components:
           type: string
         quantity:
           type: integer
+        sizeQuantities:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+          description: Per-size stock. Always present in responses. Synthesized as `{ [product.size]: product.quantity }` for legacy products without explicit per-size stock.
+        sizePriceDeltas:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Per-size price adjustments in VND added to `price`. Empty object `{}` if not set.
         status:
           $ref: '#/components/schemas/ProductStatus'
         coverImage:
@@ -1990,6 +2054,15 @@ components:
           type: number
         quantity:
           type: integer
+        commissionRate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Commission rate (0..1) snapshotted at the time the order was created.
+        commissionAmount:
+          type: integer
+          minimum: 0
+          description: Platform commission in VND for this line item. Snapshotted.
         sellerAmount:
           type: number
 

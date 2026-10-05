@@ -48,6 +48,7 @@ export const ErrorCode = {
   PRODUCT_CONDITION_REQUIRED: "PRODUCT_CONDITION_REQUIRED",
   PRODUCT_SIZE_REQUIRED: "PRODUCT_SIZE_REQUIRED",
   PRODUCT_QUANTITY_INVALID: "PRODUCT_QUANTITY_INVALID",
+  PRODUCT_SIZE_DATA_INVALID: "PRODUCT_SIZE_DATA_INVALID",
 
   // ── Cart ──────────────────────────────────────────────────────────────────
   CART_EMPTY: "CART_EMPTY",
@@ -73,6 +74,10 @@ export const ErrorCode = {
   REVIEW_NOT_ALLOWED: "REVIEW_NOT_ALLOWED",
   REVIEW_ALREADY_EXISTS: "REVIEW_ALREADY_EXISTS",
   REVIEW_RATING_INVALID: "REVIEW_RATING_INVALID",
+
+  // ── Commission / Platform fee ────────────────────────────────────────────────
+  COMMISSION_RATE_INVALID: "COMMISSION_RATE_INVALID",
+  SELLER_NOT_FOUND: "SELLER_NOT_FOUND",
 
   // ── AI ────────────────────────────────────────────────────────────────────
   AI_QUERY_INVALID_LENGTH: "AI_QUERY_INVALID_LENGTH",
@@ -125,6 +130,7 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   PRODUCT_CONDITION_REQUIRED: 400,
   PRODUCT_SIZE_REQUIRED: 400,
   PRODUCT_QUANTITY_INVALID: 400,
+  PRODUCT_SIZE_DATA_INVALID: 400,
 
   // Cart
   CART_EMPTY: 400,
@@ -150,6 +156,10 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   REVIEW_NOT_ALLOWED: 403,
   REVIEW_ALREADY_EXISTS: 409,
   REVIEW_RATING_INVALID: 400,
+
+  // Commission / Platform fee
+  COMMISSION_RATE_INVALID: 400,
+  SELLER_NOT_FOUND: 404,
 
   // AI
   AI_QUERY_INVALID_LENGTH: 400,

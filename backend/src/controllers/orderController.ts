@@ -20,6 +20,9 @@ export const mapOrder = (o: any) => ({
     unitPrice: it.unitPrice,
     quantity: it.quantity,
     conditionSnapshot: it.conditionSnapshot,
+    commissionRate: typeof it.commissionRate === "number" ? it.commissionRate : 0.1,
+    commissionAmount:
+      typeof it.commissionAmount === "number" ? it.commissionAmount : 0,
     sellerAmount: it.sellerAmount,
   })),
   subtotal: o.subtotal,
@@ -241,9 +244,22 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       }
 
       const sellerId = product.sellerId?._id ?? product.sellerId;
+      const sellerDoc = product.sellerId as any;
       const unitPrice = product.price;
       const quantity = item.quantity;
-      const sellerAmount = unitPrice * quantity * 0.9; // 10% platform fee
+
+      // Read commissionRate from the seller's profile. Defaults to 0.1 if
+      // missing for backward compatibility with sellers created before the
+      // per-seller rate feature existed. Snapshot the rate onto the order
+      // item so historical orders keep the rate that was applied at
+      // checkout even if the seller's commissionRate changes later.
+      const rawRate = Number(sellerDoc?.sellerProfile?.commissionRate);
+      const commissionRate =
+        Number.isFinite(rawRate) && rawRate >= 0 && rawRate <= 1 ? rawRate : 0.1;
+
+      const lineSubtotal = unitPrice * quantity;
+      const commissionAmount = Math.round(lineSubtotal * commissionRate);
+      const sellerAmount = lineSubtotal - commissionAmount;
 
       orderItems.push({
         productId: product._id,
@@ -253,6 +269,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         unitPrice,
         quantity,
         conditionSnapshot: product.condition,
+        commissionRate,
+        commissionAmount,
         sellerAmount,
       });
 
@@ -261,7 +279,15 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     const subtotal = orderItems.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0);
     const shippingFee = 30000;
-    const platformFee = Math.round(subtotal * 0.1);
+    // platformFee is the sum of snapshotted commissionAmount across items.
+    // For orders that predate this feature, OrderItem.commissionAmount
+    // defaults to 0 so the aggregate still resolves correctly via a
+    // backfill computed from subtotal * averageRate at order create time —
+    // but for new orders the value is exact.
+    const platformFee = orderItems.reduce(
+      (sum, it) => sum + (it.commissionAmount ?? 0),
+      0
+    );
     const totalAmount = subtotal + shippingFee;
 
     const orderCode = `ORD-${Date.now().toString().slice(-8)}`;

@@ -4,6 +4,7 @@ import {
   getMyProducts,
   getProductById,
   createProduct,
+  updateProduct,
   archiveProduct,
   createReview,
 } from "../controllers/productController";
@@ -22,5 +23,6 @@ router.post("/:id/reviews", requireAuth, createReview);
 
 // Product by ID
 router.get("/:id", getProductById);
+router.patch("/:id", requireAuth, updateProduct);
 
 export default router;

@@ -238,6 +238,65 @@ export const getAdminStats = async (_req: Request, res: Response): Promise<void>
   }
 };
 
+// ── PATCH /api/admin/sellers/:id/commission-rate ─────────────────────────────
+// Admin updates the per-seller commission rate. The new rate applies to
+// orders created AFTER this change — existing orders keep the rate that was
+// stored on their OrderItem at checkout (see OrderItem.commissionRate).
+//
+// Validation: rate ∈ [0, 1] where 0 = no commission, 1 = seller earns nothing.
+// Common values: 0.1 (10% platform fee) or 0.15 (15% platform fee).
+export const updateSellerCommission = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { commissionRate } = req.body as { commissionRate?: number };
+
+    const n = Number(commissionRate);
+    if (!Number.isFinite(n) || n < 0 || n > 1) {
+      sendError(
+        res,
+        ErrorCode.COMMISSION_RATE_INVALID,
+        "commissionRate phải là số trong khoảng [0, 1] (vd: 0.1 = 10% phí sàn)"
+      );
+      return;
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      sendError(res, ErrorCode.SELLER_NOT_FOUND, "Không tìm thấy người bán");
+      return;
+    }
+    if (!user.sellerProfile) {
+      sendError(
+        res,
+        ErrorCode.INVALID_INPUT,
+        "Người dùng chưa đăng ký làm người bán (chưa có sellerProfile)"
+      );
+      return;
+    }
+    if (!user.roles.includes("seller")) {
+      sendError(
+        res,
+        ErrorCode.INVALID_INPUT,
+        "Người dùng không có role seller — không thể đặt commission"
+      );
+      return;
+    }
+
+    const previousRate = user.sellerProfile.commissionRate ?? 0.1;
+    user.sellerProfile.commissionRate = n;
+    await user.save();
+
+    res.json({
+      success: true,
+      seller: mapSeller(user.toObject()),
+      previousRate,
+      newRate: n,
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] updateSellerCommission error");
+  }
+};
+
 // ── GET /api/admin/users ─────────────────────────────────────────────────────
 export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
   try {

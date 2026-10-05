@@ -236,3 +236,75 @@ The project follows a strict API contract model between the Frontend and Backend
   - Added `backend/src/controllers/addressController.ts` and `backend/src/routes/addresses.ts`: Registered endpoints `GET /api/addresses/provinces`, `GET /api/addresses/provinces/:provinceId/communes`, and `GET /api/addresses/communes`.
   - Added order address snapshot fields (`shippingProvinceId`, `shippingProvinceName`, `shippingCommuneId`, `shippingCommuneName`, `addressEffectiveDate`) to `IOrder`, `OrderSchema`, `createOrder`, and `mapOrder` so historical orders retain unchanging address snapshots at the time of purchase.
   - Added `test:address` in `package.json` and integrated into `test:all`. Verified with 16/16 address tests passing.
+
+## Backend Iteration (2026-10-06) — Per-size stock & price-delta for Products
+
+### Problem
+- `GET /api/products/:id` không trả `sizeQuantities` / `sizePriceDeltas` → FE hiển thị stock = 0 cho mọi size khác `product.size`. Product detail page bị unusable.
+
+### Changes
+1. **`models/Product.ts`** — Thêm 2 optional fields:
+   - `sizeQuantities?: Record<string, number>` (`Schema.Types.Mixed`)
+   - `sizePriceDeltas?: Record<string, number>` (`Schema.Types.Mixed`)
+   - Tương thích ngược: cũ (không có data) vẫn hoạt động.
+
+2. **`controllers/productController.ts`**:
+   - Helper `normalizeSizeMap` / `isValidPriceDeltaMap` validate input.
+   - `deriveSizeQuantities(p)` — synthesize `{ [p.size]: p.quantity }` khi DB thiếu data, đảm bảo response luôn có `sizeQuantities` (không undefined).
+   - `mapProduct` — luôn trả `sizeQuantities` + `sizePriceDeltas`.
+   - `createProduct` — accept + validate 2 field mới.
+   - **`updateProduct` (MỚI)** — partial update cho owner seller / admin.
+
+3. **`routes/products.ts`** — Thêm `router.patch("/:id", requireAuth, updateProduct)` trước `/:id` wildcard.
+
+4. **`utils/errors.ts`** — Thêm error code `PRODUCT_SIZE_DATA_INVALID` (400).
+
+5. **Docs** — Updated `docs/API_CONTRACT.md`, `docs/openapi.yaml`, `docs/API_MATRIX.md`, `docs/ERROR_CODES.md`, `docs/API_CHANGELOG.md`.
+
+### Inventory semantics (intentional)
+- `quantity` (tổng) **vẫn là source of truth** cho order/cart decrement. `sizeQuantities` hiện chỉ là **display**.
+- Không tự động derive `quantity` từ `sizeQuantities` ở create/update — sẽ làm breaking change cho checkout flow.
+- Follow-up: nếu FE/BE muốn giảm stock theo size cụ thể, cần thêm `size` vào `OrderItem` + refactor `orderController.ts`.
+
+### Verification
+- ✅ `npx tsc --noEmit` pass (exit 0).
+- ✅ `npm run build` pass (exit 0).
+- ✅ `npm test` (errorContract) — **38/38 PASS** (catalog now 57 codes, bao gồm `PRODUCT_SIZE_DATA_INVALID`).
+- ⚠️ Integration tests (`test:auth`, `test:order`) **không chạy** vì cần `MONGODB_URI_TEST` — xem `docs/INTEGRATION_GUIDE.md`.
+
+### Known limitations
+- `sizeQuantities` chưa enforce consistency với `quantity` tổng — nếu seller nhập sizeQuantities có tổng ≠ `quantity`, BE không cảnh báo. Có thể thêm check trong tương lai.
+- `sizePriceDeltas` hiện không affect `unitPrice` khi checkout — `OrderItem.unitPrice = product.price`. Cần refactor nếu muốn áp dụng.
+
+## Backend Iteration (2026-10-06) — Per-seller Commission Rate
+
+### Problem
+- `orderController.ts` hardcode `* 0.9` / `* 0.1` cho commission → không thể admin chỉnh hoa hồng theo từng seller dù schema đã có `User.sellerProfile.commissionRate`.
+
+### Changes
+1. **`models/Order.ts`**: thêm `commissionRate` (0..1) + `commissionAmount` (VND) vào `IOrderItem` & `OrderItemSchema`. Snapshot tại lúc tạo order → historical orders giữ đúng rate đã áp dụng.
+2. **`controllers/orderController.ts`** (`createOrder`):
+   - Populate `sellerId`, đọc `sellerProfile.commissionRate` (default `0.1` nếu missing/invalid).
+   - Tính `commissionAmount = round(unitPrice × qty × commissionRate)` và `sellerAmount = lineSubtotal − commissionAmount` cho mỗi item.
+   - `order.platformFee = Σ item.commissionAmount` (aggregate).
+   - `mapOrder` expose `commissionRate` + `commissionAmount` trên mỗi item.
+3. **`controllers/adminController.ts`**: thêm `updateSellerCommission`. Validate `0 ≤ rate ≤ 1`. Idempotent + audit-friendly (trả `previousRate` + `newRate`).
+4. **`routes/admin.ts`**: `PATCH /api/admin/sellers/:id/commission-rate` (requireAdmin).
+5. **`utils/errors.ts`**: thêm `COMMISSION_RATE_INVALID` (400) + `SELLER_NOT_FOUND` (404). Catalog giờ 59 codes.
+6. **Docs**: updated `docs/API_CONTRACT.md` (endpoint + OrderItem shape), `docs/openapi.yaml` (PATCH + OrderItem), `docs/API_MATRIX.md`, `docs/ERROR_CODES.md`, `docs/API_CHANGELOG.md` (entry 2026-10-06 commission).
+
+### Snapshot semantics
+- Rate mới chỉ áp dụng cho đơn hàng **tạo sau** khi admin update.
+- Đơn cũ giữ rate snapshot trên `OrderItem.commissionRate`. Nếu cần re-rate đơn cũ → phải viết migration script riêng (TODO backlog).
+- Admin KHÔNG nhận notification cho action này (admin-only, không cần thông báo seller). Có thể bật notification trong tương lai nếu nghiệp vụ cần.
+
+### Verification
+- ✅ `npx tsc --noEmit` pass (exit 0).
+- ✅ `npm run build` pass (exit 0).
+- ✅ `npm test` (errorContract) — **38/38 PASS** (catalog giờ 59 codes, bao gồm `COMMISSION_RATE_INVALID`, `SELLER_NOT_FOUND`).
+- ⚠️ Integration tests (`test:auth`, `test:order`) **không chạy** vì cần `MONGODB_URI_TEST` — xem `docs/INTEGRATION_GUIDE.md`.
+
+### Known limitations / Backlog
+- `platformFee` cho đơn hàng tạo trước feature này sẽ hiển thị `commissionAmount = 0` trên items → aggregate `order.platformFee` cũng = 0. `getAdminStats` vẫn aggregate từ `Order.platformFee` đã có sẵn, không drift.
+- `Ledger.ts` vẫn chưa được implement → commission chỉ được record trên `OrderItem.commissionAmount`, chưa có double-entry bookkeeping. Khi `Ledger` ready, cần refactor `paymentController.checkout` để ghi 4 entries (PLATFORM_CASH debit, PLATFORM_REVENUE credit, SELLER_PAYABLE credit, BUYER_PAYMENT credit) với amount snapshotted từ `OrderItem.commissionAmount`.
+- `PlatformFeeConfig.ts` chưa được implement → không có global default rate override. Per-seller rate là single source of truth hiện tại.

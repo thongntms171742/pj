@@ -10,6 +10,14 @@ const OrderItemSchema = new Schema(
     unitPrice: { type: Number, required: true },
     quantity: { type: Number, required: true, min: 1 },
     conditionSnapshot: { type: Number, default: 0 },
+    // Commission snapshot at the time the order was created.
+    // Stored on the item so historical orders keep the rate that was
+    // applied at checkout, even if the seller's commissionRate changes later.
+    // commissionRate ∈ [0, 1] — e.g. 0.1 means 10% platform fee, seller keeps 90%.
+    commissionRate: { type: Number, default: 0.1, min: 0, max: 1 },
+    // Platform commission earned on this line item, in VND. Snapshotted so
+    // financial reports don't drift when the seller rate changes.
+    commissionAmount: { type: Number, default: 0, min: 0 },
     sellerAmount: { type: Number, default: 0 },
   },
   { _id: false }
@@ -95,6 +103,8 @@ export interface IOrderItem {
   unitPrice: number;
   quantity: number;
   conditionSnapshot?: number;
+  commissionRate: number;
+  commissionAmount: number;
   sellerAmount: number;
 }
 

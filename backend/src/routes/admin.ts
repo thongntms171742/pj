@@ -10,6 +10,7 @@ import {
   getAllUsers,
   updateUserStatus,
   getUserDetails,
+  updateSellerCommission,
 } from "../controllers/adminController";
 import { requireAuth, requireAdmin } from "../middleware/auth";
 
@@ -40,6 +41,12 @@ router.get("/users/:id/details", requireAuth, requireAdmin, getUserDetails);
 router.get("/pending-sellers", requireAuth, requireAdmin, getPendingSellers);
 router.patch("/sellers/:id/approve", requireAuth, requireAdmin, approveSeller);
 router.patch("/sellers/:id/reject", requireAuth, requireAdmin, rejectSeller);
+router.patch(
+  "/sellers/:id/commission-rate",
+  requireAuth,
+  requireAdmin,
+  updateSellerCommission
+);
 
 // ── Deprecated aliases (kept for backward compatibility) ─────────────────────
 // TODO: remove after FE team migrates all clients.

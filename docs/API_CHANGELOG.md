@@ -3,6 +3,61 @@
 Track changes to the API contract over time to ensure synchronization between Backend and Frontend.
 
 ---
+## 2026-10-06
+
+### Added — Per-size stock & price delta for Products
+
+**`GET /api/products/:id`**, **`POST /api/products`**, **`GET /api/products`**, **`GET /api/products/mine`**, **`GET /api/sellers/:idOrHandle/products`** — every product response now includes:
+
+- `sizeQuantities: Record<string, number>` — per-size stock. Falls back to `{ [product.size]: product.quantity }` for legacy products that don't have explicit per-size stock, so FE always receives a usable map (no more `undefined` causing stock = 0 on product detail).
+- `sizePriceDeltas: Record<string, number>` — per-size price adjustments in VND added to `product.price`. Empty object `{}` if not set.
+
+**New endpoint**:
+
+**`PATCH /api/products/:id`** — Partial update for a product listing (owner seller or admin). Supports updating `title`, `name`, `description`, `price`, `condition`, `size`, `quantity`, `coverImage`, `location`, `categoryId`, `sizeQuantities`, `sizePriceDeltas`. All fields optional.
+
+- `404 PRODUCT_NOT_FOUND` if the id is invalid / not found.
+- `403 FORBIDDEN` if the caller is not the owner or admin.
+- `400 PRODUCT_SIZE_DATA_INVALID` when `sizeQuantities` / `sizePriceDeltas` is not a plain object or contains non-numeric values (negative stock not allowed).
+
+### New error code
+
+- `PRODUCT_SIZE_DATA_INVALID` (HTTP 400) — see `docs/ERROR_CODES.md`.
+
+### Backward compatibility
+
+- `POST /api/products` — new fields are optional. Existing clients continue to work unchanged.
+- `GET /api/products/:id` — `sizeQuantities` and `sizePriceDeltas` are always present in the response (synthesized when missing). Non-breaking.
+- Inventory decrement semantics in `POST /api/orders` and `POST /api/payments/checkout` are NOT changed. `quantity` remains the aggregate counter; `sizeQuantities` is currently display-only.
+
+---
+
+## 2026-10-06 (commission)
+
+### Added — Per-seller commission rate + admin endpoint
+
+**`PATCH /api/admin/sellers/:id/commission-rate`** — Admin cập nhật tỉ lệ hoa hồng cho từng seller (`commissionRate ∈ [0, 1]`). Rate mới chỉ áp dụng cho đơn hàng tạo sau khi update; các đơn hàng đã tồn tại giữ nguyên rate đã snapshot trên `OrderItem.commissionRate` tại lúc checkout.
+
+**`POST /api/orders` (logic change, contract preserved)**
+- `orderController.ts` từng hardcode `unitPrice * quantity * 0.9` để tính `sellerAmount` và `Math.round(subtotal * 0.1)` cho `platformFee`. Giờ BE đọc `seller.sellerProfile.commissionRate` (default `0.1` nếu thiếu) và snapshot rate + commissionAmount vào từng `OrderItem`. Aggregate `order.platformFee` = tổng `commissionAmount` của các items.
+- Đơn hàng cũ (đã tạo trước feature này) sẽ hiển thị `commissionRate = 0.1`, `commissionAmount = 0` trên items vì schema mới default là `0` cho `commissionAmount` — FE vẫn có thể tính ngược từ `unitPrice × quantity` nếu cần hiển thị.
+
+**OrderItem response shape (extended, backward compat)**
+- Mỗi item trong `ApiOrder.items` giờ có thêm:
+  - `commissionRate: number` (0..1) — rate snapshotted tại lúc tạo order
+  - `commissionAmount: number` (VND) — phí sàn tương ứng với line item
+
+### New error codes
+
+- `COMMISSION_RATE_INVALID` (HTTP 400)
+- `SELLER_NOT_FOUND` (HTTP 404)
+
+### Backward compatibility
+
+- API contract cho `GET /api/orders` / `POST /api/orders` không breaking — chỉ **mở rộng** response shape.
+- Tất cả error codes mới đều có HTTP status rõ ràng.
+
+---
 ## [Template] YYYY-MM-DD
 
 ### Changed

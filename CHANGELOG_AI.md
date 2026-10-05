@@ -1,5 +1,48 @@
 # AI Changelog
 
+## [2026-10-06] (commission)
+### Added (Backend - Per-seller Commission Rate)
+- **Models** (`backend/src/models/Order.ts`): added `commissionRate` (0..1, default 0.1) + `commissionAmount` (VND, default 0) to `IOrderItem` & `OrderItemSchema`. Snapshotted at order creation so historical orders keep the rate that was applied at checkout.
+- **Controller** (`backend/src/controllers/orderController.ts`):
+  - `createOrder` now reads `seller.sellerProfile.commissionRate` (defaults to 0.1 if missing/invalid) and snapshots it onto each `OrderItem`. `platformFee` on the order = aggregate of item `commissionAmount`.
+  - `mapOrder` exposes `commissionRate` and `commissionAmount` on every item.
+- **Admin Controller** (`backend/src/controllers/adminController.ts`):
+  - **NEW** `updateSellerCommission` — validates `0 ≤ rate ≤ 1`, updates `User.sellerProfile.commissionRate`, returns `previousRate` + `newRate` for audit.
+- **Route** (`backend/src/routes/admin.ts`): `PATCH /api/admin/sellers/:id/commission-rate` (admin-only).
+- **Errors** (`backend/src/utils/errors.ts`): new codes `COMMISSION_RATE_INVALID` (400) + `SELLER_NOT_FOUND` (404). Catalog now 59 codes.
+- **Docs**: updated `docs/API_CONTRACT.md`, `docs/openapi.yaml` (PATCH + OrderItem), `docs/API_MATRIX.md`, `docs/ERROR_CODES.md`, `docs/API_CHANGELOG.md`, `AI_CONTEXT.md`.
+### Snapshot semantics
+- Rate mới chỉ áp dụng cho orders tạo SAU khi admin update.
+- Orders cũ giữ nguyên rate đã snapshot trên `OrderItem.commissionRate`.
+- Admin KHÔNG nhận notification cho action này.
+### Verification
+- ✅ `npx tsc --noEmit` (exit 0)
+- ✅ `npm run build` (exit 0)
+- ✅ `npm test` (errorContract) — **38/38 PASS** (catalog 59 codes)
+### Backlog
+- Migration script cho orders cũ (re-rate) — chưa cần thiết nếu nghiệp vụ OK với snapshot cũ.
+- `Ledger.ts` double-entry refactor cho commission flow.
+
+## [2026-10-06]
+### Added (Backend - Per-size stock & price-delta for Products)
+- **Schema** (`backend/src/models/Product.ts`): added optional `sizeQuantities` and `sizePriceDeltas` (`Schema.Types.Mixed`, default `undefined`).
+- **Controller** (`backend/src/controllers/productController.ts`):
+  - `deriveSizeQuantities` synthesizes `{ [p.size]: p.quantity }` for legacy products so FE always receives a usable map.
+  - `mapProduct` now always returns `sizeQuantities` + `sizePriceDeltas` (empty object `{}` when not set).
+  - `createProduct` accepts + validates `sizeQuantities` / `sizePriceDeltas`.
+  - **NEW** `updateProduct` — partial update (owner-seller or admin) supporting all editable fields including per-size stock/price.
+- **Route** (`backend/src/routes/products.ts`): `PATCH /api/products/:id` registered before `/:id` wildcard.
+- **Errors** (`backend/src/utils/errors.ts`): new code `PRODUCT_SIZE_DATA_INVALID` (400) — added to catalog (now 57 codes).
+- **Docs**: updated `docs/API_CONTRACT.md` (POST + GET + new PATCH), `docs/openapi.yaml` (Product schema), `docs/API_MATRIX.md`, `docs/ERROR_CODES.md`, `docs/API_CHANGELOG.md` (new 2026-10-06 entry), `AI_CONTEXT.md`.
+### Verification
+- ✅ `npx tsc --noEmit` (exit 0)
+- ✅ `npm run build` (exit 0)
+- ✅ `npm test` (errorContract) — **38/38 PASS**
+### Inventory semantics (intentionally unchanged)
+- `quantity` (aggregate counter) remains the source of truth for order/cart decrement.
+- `sizeQuantities` is currently display-only — checkout still reduces `quantity`, not a per-size bucket.
+- `sizePriceDeltas` does NOT affect `OrderItem.unitPrice` yet (still `product.price`).
+
 ## [2026-10-03]
 ### Added (Backend - CAS Address Kit Proxy & Order Snapshot)
 - Created `backend/src/services/addressService.ts`:
