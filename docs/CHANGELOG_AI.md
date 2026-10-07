@@ -1,5 +1,78 @@
 # AI Changelog
 
+## [2026-10-07] (Build Your Christmas — Marketplace → Single-brand Christmas Tree Editor)
+
+> **PIVOT** toàn bộ backend từ thrift it! marketplace sang **Build Your Christmas** (single-brand Christmas e-commerce). FE đã có sẵn, plan tập trung BE + docs. Chi tiết plan: `c:\Users\HP\.cursor\plans\build_your_christmas_backend_adaptation_fc23001c.plan.md`.
+
+### Removed (marketplace code xoá hoàn toàn)
+- `models/Product.ts`, `Category.ts`, `Review.ts` — XOÁ FILE.
+- `models/User.ts`: bỏ `SellerProfileSchema` + `sellerProfile`; `roles` chỉ còn `("buyer" | "admin")`.
+- `controllers/productController.ts`, `sellerController.ts`, `aiController.ts` — XOÁ FILE.
+- `controllers/authController.ts`: bỏ `applySeller`, `mapCartItem`, `/auth/cart/merge`, các trường `sellerStatus`/`sellerProfile` trong response.
+- `controllers/paymentController.ts`: bỏ phần trừ kho (đã chuyển sang `orderController`) + thông báo seller. Giữ `PENDING_PAYMENT → PAID → CONFIRMED` + idempotent.
+- `routes/products.ts`, `sellers.ts`, `ai.ts` — XOÁ FILE.
+- `routes/auth.ts`: bỏ `/auth/cart/merge` alias.
+- `routes/admin.ts`: bỏ pending-listings, pending-sellers, commission-rate. Admin mới chỉ làm catalog + orders + stats + users.
+- `seed.ts`, `seed-sellers.ts`, `add-products.ts` — XOÁ FILE.
+- `tests/productAuth.test.ts`, `orderAuth.test.ts` — XOÁ FILE (legacy marketplace).
+- `src/server.ts` reference các route cũ, cập nhật sang routes mới.
+
+### Added (Christmas-specific)
+- **Models mới**:
+  - `Tree.ts`: SKU cây thông với size S/M/L unique, height/diameter/material, price/stock, isActive.
+  - `Style.ts`: 6 concept (CLASSIC, MINIMAL, GINGERBREAD, WINTER, CUTE, LUXURY) với palette + coverImage.
+  - `Accessory.ts`: 10 loại phụ kiện (LIGHT_STRING, BAUBLE, BELL, CANDY, FIGURINE, BOW, STOCKING, STAR, NAME_TAG, NAME_ORNAMENT) × 4 group (LIGHTS/ORNAMENT/DECOR/PERSONAL) với `styleCodes` + `maxQtyBySize` + `isPersonalizable` + `personalizationMaxLength` + `productionDays`.
+  - `TreeDesign.ts`: thiết kế của user với `ownerId` (null cho preset), `slug` unique, `config: DesignConfig`, `isPublic`, `isPreset`, `duplicatedFrom`, `previewImage`.
+- **CartItem + Order viết lại**:
+  - `CartItem`: `designId`, `config: DesignConfig`, `priceSnapshot`, `quantity`, `checked`.
+  - `OrderItem`: `designId`, `designName`, `previewImage`, `tree` (snapshot), `style` (snapshot), `lines[]` (ACCESSORY/SERVICE), `unitTotal`, `quantity`, `lineTotal`, `deliveryOption`, `hasPersonalization`, `productionDays`.
+  - `Order`: thêm `designConfirmedAt` + `designLockedAt`. Bỏ `platformFee`.
+- **Services mới**:
+  - `services/pricingService.ts`: pure function `priceDesign(config, catalog)` với full validation (active, style match, qty bound, personalization, dup accessory, deliveryOption). Trả `PriceBreakdown` (lines, decorationFee, unitTotal, productionDays, hasPersonalization, hasService). Throws `DesignValidationError` với ErrorCode.
+  - `services/catalogService.ts`: `loadCatalogForConfig` (1 query tree + 1 style + 1 accessories) → `CatalogSnapshot`. `buildPricedDesign` = load + price. `safelyBuildPricedDesign` wrap catch → `sendError`.
+  - `services/inventoryService.ts`: `reserveStock` (atomic `$inc` với `stock: { $gte: qty }`, rollback khi lỗi), `restoreStock`, `restoreTreeStock`.
+  - `services/designService.ts`: `loadCatalogForDesign` (recompute pricing), `buildDesignResponse` (FE-facing shape), `generateDesignSlug` + `findUniqueSlug`.
+- **Controllers/Routes mới**:
+  - `catalogController.ts` + `routes/catalog.ts` (public): `/trees`, `/styles`, `/accessories` (filter), `/presets`, `/delivery-options`, `POST /quote`.
+  - `designController.ts` + `routes/designs.ts`: `POST /quote` (public), `POST /` (auth), `GET /mine`, `GET /share/:slug`, `GET /:id`, `PATCH /:id`, `DELETE /:id`, `POST /:id/duplicate`.
+  - `orderController.ts` (rewrite): `POST /` yêu cầu `designConfirmed: true` + `shippingProvinceId === "79"`, recompute pricing, atomic reserve stock, snapshot đầy đủ. `PATCH /:id/status` với Q5 (block cancel cá nhân hóa khi `PACKING`). `POST /:id/shipment` (admin only).
+  - `cartController.ts` (rewrite): bỏ `/merge`. Items kèm `currentUnitTotal` + `priceChanged`.
+  - `adminController.ts` (rewrite): CRUD trees/styles/accessories (PATCH only, không DELETE — soft delete qua `isActive=false`), CRUD presets (có DELETE), `GET /orders?status=`, `GET /stats` với KPIs Christmas, user management.
+- **Config** (`config/business.ts`): `SHIPPING_FEE = 30_000`, `DECORATION_FEE_BY_SIZE = { S: 50_000, M: 80_000, L: 120_000 }`, `SERVICE_PROVINCE_ID = "79"` (TP.HCM), `DELIVERY_OPTIONS`, `PERSONALIZATION_REGEX`.
+- **Seed** (`seed-christmas.ts`): idempotent upsert theo `size`/`code`/`name`/`slug`. Cờ `--confirm-seed`. **Từ chối chạy nếu DB là `thriftit`**. 3 trees + 6 styles + ~25 accessories + 8 presets + admin + buyer demo. Passwords từ env `SEED_ADMIN_PASSWORD`/`SEED_BUYER_PASSWORD`.
+- **Tests**:
+  - `tests/pricing.test.ts` (MỚI): 25 test cases — concept example (~475k), qty bound, style match, personalization (required/invalid/too long/forbidden chars/non-personalizable), dup accessory, invalid deliveryOption, STAR qty 1, inactive catalog, missing accessory, DIY_KIT/SEPARATE = 0 decoration, S/M/L decoration 50k/80k/120k.
+  - `tests/errorContract.test.ts` (REWRITTEN): 61 tests — 47 codes có status mapping, contract shape, redaction, critical Christmas codes tồn tại, **legacy marketplace codes bị xoá** (assertNotPresent).
+  - `tests/address.test.ts`: **giữ nguyên** (CAS Address Kit vẫn dùng cho HCM delivery).
+
+### Changed
+- `utils/errors.ts` (REWRITTEN): 47 codes mới. Xoá: `SELLER_*`, `PRODUCT_*`, `SELF_PURCHASE_NOT_ALLOWED`, `PRODUCT_ALREADY_NOT_FOR_SALE`, `ORDER_SELLER_CANNOT_DELIVER`, `REVIEW_*`, `COMMISSION_RATE_INVALID`, `AI_*`. Thêm 19 codes Christmas (xem docs/ERROR_CODES.md).
+- `package.json`:
+  - `name`: `thriftit-backend` → `buildyourchristmas-backend`.
+  - Scripts: `seed` → `seed-christmas.ts`. Xoá `seed:sellers`, `add:products`, `test:auth`, `test:order`. Thêm `test:pricing`. Cập nhật `test:all`.
+  - **Không thêm dependency nào**.
+
+### Verification
+- ✅ `npx tsc --noEmit` pass (exit 0).
+- ✅ `npm run build` pass (exit 0).
+- ✅ `npm test` (errorContract) pass — **61/61 PASS**.
+- ✅ `npm run test:pricing` pass — **25/25 PASS**.
+
+### Snapshot decisions
+- Database: dùng DB `buildyourchristmas` (user tự đổi URI). Collection `users`, `orders`, `carts`, `cartitems`, `notifications` giữ trong cùng cluster nhưng tách DB name.
+- Admin user mới: `admin@buildyourchristmas.vn`, lấy từ env `SEED_ADMIN_PASSWORD`.
+- Frontend: user tự quản lý; BE đảm bảo contract match.
+
+### Backlog (Christmas)
+- [ ] FE review lại response shape (sau khi plan chốt).
+- [ ] "Your 2026 Christmas" duplicate flow year filter (FE tự handle).
+- [ ] Email/SMS confirmation (chưa có).
+- [ ] Stock rollback thủ công (chưa dùng MongoDB transaction) — đủ cho MVP.
+- [ ] Lint/format: project không có sẵn, không thêm dependency theo plan.
+- [ ] Docs (`docs/API_CONTRACT.md`, `docs/openapi.yaml`, `docs/ENUMS.md`, `docs/ERROR_CODES.md`, `docs/API_MATRIX.md`, `docs/INTEGRATION_GUIDE.md`): viết lại theo Christmas.
+
+---
+
 ## [2026-10-06] (commission)
 ### Added (Backend - Per-seller Commission Rate)
 - **Models** (`backend/src/models/Order.ts`): added `commissionRate` (0..1, default 0.1) + `commissionAmount` (VND, default 0) to `IOrderItem` & `OrderItemSchema`. Snapshotted at order creation so historical orders keep the rate that was applied at checkout.

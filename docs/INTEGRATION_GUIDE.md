@@ -1,89 +1,112 @@
-# Frontend Integration Guide
+# Frontend Integration Guide — Build Your Christmas
 
 > **Source of Truth:** Accounts & env được sync với `AI_CONTEXT.md` và `backend/.env`.
 > Nếu có xung đột, tin file này vì nó là instruction cho FE integration.
 
 ## Backend Environments
 
-**Local**:
-`http://localhost:4000`
+**Local**: `http://localhost:4000`
 
-**Production**:
-`https://api.thriftit.com`
+**Production**: `https://api.buildyourchristmas.vn` (TBD khi deploy)
 
 Health check: `GET /api/health` → `{ status: "ok", timestamp: ISO }`
 
 ## Frontend Environments
 
-**Local**:
-`http://localhost:5173`
+**Local**: `http://localhost:5173`
 
 **Environment Variables (`.env`)**:
 ```
 VITE_API_URL=http://localhost:4000/api
 ```
 
-## Test Accounts
+## Test Accounts (sau khi seed)
 
-> ⚠️ **KHÔNG commit password thật vào Git.** Tài khoản dưới đây là demo, an toàn để dùng cho development.
-> Password production thì KHÔNG BAO GIỜ được nhúng vào code hay docs.
-
-### Buyer
-
-- **email**: `linh.nguyen@gmail.com`
-- **password**: `123456`
-- **role**: `buyer` (default, không có seller profile)
-- **purpose**: Test cart, checkout, order history, profile UI.
-
-### Seller (APPROVED)
-
-- **email**: `shop.minhtu@thriftit.vn`
-- **password**: `shop123`
-- **role**: `seller` + `sellerProfile.status === "active"` ← **đã được admin duyệt**
-- **purpose**: Test tạo sản phẩm (`POST /api/products`), seller dashboard (`GET /api/products/mine`), xử lý đơn, tạo vận đơn.
-
-### Demo (APPROVED Seller + Buyer)
-
-- **email**: `demo@thriftit.vn`
-- **password**: `demo123`
-- **role**: `seller` + `sellerProfile.status === "active"`
-- **purpose**: Dùng thay thế nếu seller account bị rate-limit hoặc cần test với data khác.
+> ⚠️ **KHÔNG commit password thật vào Git.** Tài khoản dưới đây là demo, an toàn cho development.
+> Password lấy từ `SEED_ADMIN_PASSWORD` và `SEED_BUYER_PASSWORD` env vars (xem `backend/.env`).
 
 ### Admin
 
-- **email**: `admin@thriftit.vn`
-- **password**: `admin`
+- **email**: `admin@buildyourchristmas.vn`
+- **password**: value of `SEED_ADMIN_PASSWORD` env
 - **role**: `admin`
-- **purpose**: Test admin endpoints (`/api/admin/*`), duyệt listing.
+- **purpose**: Test admin endpoints (`/api/admin/*`) — CRUD trees/styles/accessories/presets, view all orders, stats, user management.
+
+### Buyer demo
+
+- **email**: `buyer@buildyourchristmas.vn`
+- **password**: value of `SEED_BUYER_PASSWORD` env
+- **role**: `buyer`
+- **purpose**: Test full flow — catalog, editor, save design, cart, checkout, order history, profile.
+
+> Khi user mới đăng ký qua `POST /api/auth/register` → tự động role `buyer` (single-brand, không có seller concept).
 
 ---
 
 ## Notes quan trọng cho FE
 
-1. **JWT token**:
-   - Lưu `token` vào `localStorage` (key: `token`).
-   - Gửi kèm header `Authorization: Bearer <token>` cho mọi request cần auth.
-   - Token hết hạn sau `JWT_EXPIRES_IN` (mặc định 7 ngày). Backend trả `401 TOKEN_INVALID` khi hết hạn — FE phải clear localStorage + redirect về login.
+### 1. JWT token
+- Lưu `token` vào `localStorage` (key: `token`).
+- Gửi kèm `Authorization: Bearer <token>` cho mọi request cần auth.
+- Token hết hạn sau `JWT_EXPIRES_IN` (default 7 ngày). BE trả `401 TOKEN_INVALID` khi hết hạn → FE phải `localStorage.removeItem("token")` + redirect về `/login`.
 
-2. **Error response format**:
-   - Mọi error từ BE có dạng `{ error: { code: string, message: string } }`.
-   - **Branch logic dựa trên `code`, KHÔNG dựa trên `message`** (message có thể đổi tiếng Việt sau).
-   - Xem bảng đầy đủ tại `docs/ERROR_CODES.md`.
+### 2. Error response format
+- Mọi error từ BE có dạng `{ error: { code: string, message: string } }`.
+- **Branch logic dựa trên `code`, KHÔNG dựa trên `message`** (message có thể đổi tiếng Việt sau).
+- Xem bảng đầy đủ 47 codes Christmas tại `docs/ERROR_CODES.md`.
 
-3. **Seller onboarding qua API**:
-   - Endpoint `POST /api/auth/seller/apply` **ĐÃ CÓ** (từ 2026-09-29). User tự apply, admin duyệt/từ chối qua `/api/admin/sellers/:id/{approve,reject}`.
-   - Xem contract chi tiết tại `API_CONTRACT.md` § Auth → `POST /api/auth/seller/apply`.
+### 3. Christmas flow chính (CREATE → CUSTOMIZE → PREVIEW → ORDER)
 
-4. **Cart merge có 2 endpoint**:
-   - `/api/cart/merge` ← **CHÍNH THỨC**, dùng cái này.
-   - `/api/auth/cart/merge` ← legacy, sẽ bị xóa trong release sau.
-   - Hai endpoint có cùng chức năng, FE chỉ nên gọi `/api/cart/merge`.
+```
+1. CREATE   → GET /api/catalog/trees + /styles + /accessories
+2. CUSTOMIZE → POST /api/catalog/quote (live preview) hoặc /api/designs/quote
+3. PREVIEW   → response { pricing: { unitTotal, productionDays, hasPersonalization, lines[] } }
+4. SAVE     → POST /api/designs (auth) → shareUrl
+5. CART     → POST /api/cart/items { designId | config, quantity }
+6. CHECKOUT → POST /api/orders { designConfirmed: true, shippingProvinceId: "79", items[] | cartItemIds[] }
+7. PAYMENT  → POST /api/payments/checkout (online) hoặc COD đã confirmed tự động
+8. TRACK    → GET /api/orders/:id + /api/orders/:id/shipment
+```
 
-5. **Admin response shape**:
-   - `PATCH /api/admin/listings/:id/approve` và `.../reject` giờ trả response qua `mapProduct`, **CÙNG shape với `GET /api/products`**. Trước đây trả raw Mongoose document — đã fix.
+### 4. HCM-only delivery
+- `POST /api/orders` reject nếu `shippingProvinceId !== "79"` với code `DELIVERY_AREA_NOT_SUPPORTED` (HTTP 422).
+- FE có thể check trước: gọi `GET /api/addresses/provinces` → chỉ cho phép chọn province id `79` (TP.HCM).
+- Nếu user chọn tỉnh khác → disable nút checkout + show banner "Hiện Build Your Christmas chỉ giao tại TP.HCM".
 
-6. **Notification ownership**:
-   - `PATCH /api/notifications/:id/read` hiện enforce ownership (user chỉ mark được notification của mình). Trước đây có thể mark của người khác — đã fix (IDOR).
+### 5. Accessory maxQty bound input
+- Gọi `GET /api/catalog/accessories?size=L` để nhận `maxQty` là **number** (cho size đó). FE dùng để bound `<input type="number" max={maxQty} />` ngay.
+- Gọi `GET /api/catalog/accessories` (không `size`) → `maxQty` là object `{ S, M, L }` (cho editor chưa chọn size).
+
+### 6. Personalization
+- Accessory có `isPersonalizable: true` (vd: `NAME_TAG`, `NAME_ORNAMENT`) → bắt buộc nhập `personalizationText` 1–20 chars, regex `^[A-Za-z0-9 ]{1,20}$`.
+- Nếu thiếu → `PERSONALIZATION_REQUIRED` (400). Nếu sai format → `PERSONALIZATION_INVALID` (400).
+- Nếu design có `hasPersonalization: true` và `currentStatus === PACKING` → buyer không thể `CANCEL_REQUESTED` (sẽ nhận `ORDER_CANCEL_NOT_ALLOWED`).
+
+### 7. Cart priceChanged warning
+- `GET /api/cart` trả `currentUnitTotal` (recompute live) + `priceSnapshot` (giá lúc add).
+- Nếu `priceChanged: true` → FE hiển thị banner "Giá đã thay đổi từ {priceSnapshot} → {currentUnitTotal}. Bạn có muốn tiếp tục?"
+- Nếu `warning` có giá trị → config không còn hợp lệ với catalog hiện tại (admin vừa tắt tree/style/accessory). FE yêu cầu user chỉnh lại.
+
+### 8. Order status machine (buyer-side actions)
+| Current status | Buyer có thể chuyển sang |
+| :--- | :--- |
+| `PENDING_PAYMENT` | `CANCELLED` |
+| `PAID` | `CANCELLED` |
+| `CONFIRMED` | `CANCEL_REQUESTED`, `DELIVERED` (early) |
+| `PACKING` | `CANCEL_REQUESTED` (trừ khi personalization) |
+| `SHIPPING` | `CANCEL_REQUESTED`, `DELIVERED` |
+| `DELIVERING` | `DELIVERED`, `COMPLETED` |
+| `DELIVERED` | `COMPLETED`, `DISPUTED` |
+| `CANCEL_REQUESTED` | (chờ admin xử lý) |
+| `COMPLETED`, `CANCELLED`, `DISPUTED` | (terminal) |
+
+> Trừ khi admin, role `seller` KHÔNG tồn tại (single-brand).
+
+### 9. Notification ownership
+- `PATCH /api/notifications/:id/read` enforce ownership (user chỉ mark được notification của mình). Trước đây có thể mark của người khác — đã fix (IDOR).
+
+### 10. Admin response shape
+- Tất cả admin CRUD (trees, styles, accessories, presets) trả resource dạng camelCase với `_id` stringified. Tương thích trực tiếp với admin form của FE.
 
 ---
 
@@ -93,35 +116,45 @@ VITE_API_URL=http://localhost:4000/api
 
 ```bash
 cd backend
-npm run test
+npm test              # errorContract (61 tests, 47 codes + status mapping)
+npm run test:pricing  # pricing logic (25 tests)
+npm run test:address  # CAS address proxy (16 tests)
 ```
 
-Test `errorContract.test.ts` verify:
-- Toàn bộ `ErrorCode` enum có HTTP status mapping (`46/46`).
-- `sendError` produce đúng shape `{ error: { code, message } }`.
-- `handleInternalError` không leak internal message ra client.
-- Critical error codes tồn tại.
-
-**Hiện tại: 35/35 PASS ✅**
-
-### Integration tests (cần MongoDB test DB)
-
-```bash
-cd backend
-npm run test:auth    # POST /api/products authorization matrix
-npm run test:order   # GET /orders/:code/shipment + PATCH /orders/:code/status
-```
-
-**Setup**:
-1. Copy `backend/.env.test.example` thành `backend/.env.test`
-2. Điền `MONGODB_URI_TEST` trỏ đến database riêng (khuyến nghị: cùng cluster nhưng DB name `thriftit_test`)
-3. Test sẽ tự `dropDatabase()` trước khi chạy — **ĐẢM BẢO** URI là test DB, không phải production
-
-**⚠️ QUAN TRỌNG**: Nếu không có `MONGODB_URI_TEST`, các test này sẽ fail. Tuyệt đối KHÔNG dùng production URI làm fallback.
-
-### Chạy tất cả tests
+### Tổng hợp
 
 ```bash
 cd backend
 npm run test:all
 ```
+
+> Hiện tại: **102/102 PASS ✅** (61 + 25 + 16).
+
+### Integration tests
+
+> Hiện không có integration tests với DB thật (legacy `test:auth`/`test:order` đã bỏ theo pivot Christmas). Tất cả business logic đã cover qua:
+> - 25 pricing tests (validate config + compute price)
+> - 61 error contract tests (catalog + status mapping)
+> - 16 address tests (CAS proxy + cache + timeout)
+
+### Khi nào cần DB thật
+
+Để test end-to-end (FE ↔ BE ↔ MongoDB):
+1. Đảm bảo `backend/.env` có `MONGODB_URI` trỏ tới MongoDB Atlas hoặc local MongoDB.
+2. Chạy `npm run seed -- --confirm-seed` để có data (3 trees, 6 styles, ~25 accessories, 3 presets, 1 admin, 1 buyer demo).
+3. Khởi động BE: `npm run dev` → `http://localhost:4000`.
+4. Test FE bằng Postman/Insomnia hoặc từ chính FE app.
+
+---
+
+## Common Pitfalls
+
+| Vấn đề | Cách tránh |
+| :--- | :--- |
+| `DELIVERY_AREA_NOT_SUPPORTED` khi test ở tỉnh khác | Hard-code `shippingProvinceId: "79"` cho mọi test |
+| `PERSONALIZATION_REQUIRED` khi test NAME_TAG | Luôn gửi `personalizationText` cho accessories `isPersonalizable: true` |
+| `OUT_OF_STOCK` khi test 2 đơn liên tiếp | Stock đã bị reserve ở đơn 1, đơn 2 phải chờ cancel đơn 1 hoặc tăng stock |
+| `DESIGN_NOT_CONFIRMED` khi checkout | Luôn gửi `designConfirmed: true` trong body `POST /api/orders` |
+| `ORDER_INVALID_TRANSITION` khi PATCH status | Đọc state machine ở `docs/ENUMS.md` § OrderStatus, chỉ gửi transition hợp lệ |
+| Token 401 sau 7 ngày | FE nên check `error.code === "TOKEN_INVALID"` → logout + redirect login |
+| `priceChanged: true` cảnh báo | Catalog admin có thể đã đổi giá; user confirm trước khi checkout |

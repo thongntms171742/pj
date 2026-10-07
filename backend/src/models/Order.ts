@@ -1,27 +1,40 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
+import type { DeliveryOption, ResolvedTreeRef, ResolvedStyleRef, ResolvedAccessoryRef } from "./TreeDesign";
 
-// ── Order item (embedded sub-document) ────────────────────────────────────────
-const OrderItemSchema = new Schema(
-  {
-    productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
-    sellerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    productName: { type: String, required: true },
-    productImageUrl: { type: String, default: "" },
-    unitPrice: { type: Number, required: true },
-    quantity: { type: Number, required: true, min: 1 },
-    conditionSnapshot: { type: Number, default: 0 },
-    // Commission snapshot at the time the order was created.
-    // Stored on the item so historical orders keep the rate that was
-    // applied at checkout, even if the seller's commissionRate changes later.
-    // commissionRate ∈ [0, 1] — e.g. 0.1 means 10% platform fee, seller keeps 90%.
-    commissionRate: { type: Number, default: 0.1, min: 0, max: 1 },
-    // Platform commission earned on this line item, in VND. Snapshotted so
-    // financial reports don't drift when the seller rate changes.
-    commissionAmount: { type: Number, default: 0, min: 0 },
-    sellerAmount: { type: Number, default: 0 },
-  },
-  { _id: false }
-);
+// ── Order line item ──────────────────────────────────────────────────────────
+// `tree` + `style` + `lines[]` = the fully-resolved, immutable snapshot of
+// what the customer agreed to buy. Even if the catalog later changes price,
+// goes out of stock, or deletes an accessory, the order still renders
+// correctly. `personalizationText` lives on each personalizable line so
+// staff can hand it off to production.
+
+export type OrderLineKind = "ACCESSORY" | "SERVICE";
+
+export interface IOrderLine {
+  kind: OrderLineKind;
+  refId: Types.ObjectId | null;
+  type: string;
+  name: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+  personalizationText?: string;
+}
+
+export interface IOrderItem {
+  designId: Types.ObjectId | null;
+  designName: string;
+  previewImage: string;
+  tree: ResolvedTreeRef & { unitPrice: number };
+  style: ResolvedStyleRef;
+  lines: IOrderLine[];
+  deliveryOption: DeliveryOption;
+  unitTotal: number;
+  quantity: number;
+  lineTotal: number;
+  hasPersonalization: boolean;
+  productionDays: number;
+}
 
 // ── Status history event ──────────────────────────────────────────────────────
 const StatusEventSchema = new Schema(
@@ -52,7 +65,6 @@ export const ORDER_STATUSES = [
 
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
-// Valid transitions from each status
 export const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   PENDING_PAYMENT: ["PAID", "CONFIRMED", "CANCELLED"],
   PAID: ["CONFIRMED", "PACKING", "CANCELLED", "REFUNDED"],
@@ -68,7 +80,7 @@ export const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   REFUNDED: [],
 };
 
-// ── Shipment timeline event ───────────────────────────────────────────────────
+// ── Shipment timeline event ──────────────────────────────────────────────────
 const ShippingEventSchema = new Schema(
   {
     status: { type: String, required: true },
@@ -79,7 +91,7 @@ const ShippingEventSchema = new Schema(
   { _id: false }
 );
 
-// ── Pickup address information ────────────────────────────────────────────────
+// ── Pickup address information ───────────────────────────────────────────────
 const PickupInfoSchema = new Schema(
   {
     name: { type: String, default: "" },
@@ -93,20 +105,6 @@ const PickupInfoSchema = new Schema(
   },
   { _id: false }
 );
-
-// ── Order document ────────────────────────────────────────────────────────────
-export interface IOrderItem {
-  productId: Types.ObjectId;
-  sellerId: Types.ObjectId;
-  productName: string;
-  productImageUrl?: string;
-  unitPrice: number;
-  quantity: number;
-  conditionSnapshot?: number;
-  commissionRate: number;
-  commissionAmount: number;
-  sellerAmount: number;
-}
 
 export interface IPickupInfo {
   name?: string;
@@ -132,7 +130,7 @@ export interface IOrder extends Document {
   items: IOrderItem[];
   subtotal: number;
   shippingFee: number;
-  platformFee: number;
+  decorationFee: number;
   discount: number;
   totalAmount: number;
   status: OrderStatus;
@@ -140,6 +138,10 @@ export interface IOrder extends Document {
   paymentMethod: string;
   paymentId: string;
   paidAt: Date | null;
+  // Set when buyer confirms "Tôi đồng ý với thiết kế này" at checkout.
+  designConfirmedAt: Date | null;
+  // Set when the order is created (= when the snapshot was locked).
+  designLockedAt: Date | null;
   shippingName: string;
   shippingPhone: string;
   shippingAddress: string;
@@ -161,6 +163,53 @@ export interface IOrder extends Document {
   cancelRequestedAt?: Date | null;
 }
 
+const OrderItemSchema = new Schema<IOrderItem>(
+  {
+    designId: { type: Schema.Types.ObjectId, ref: "TreeDesign", default: null },
+    designName: { type: String, required: true, default: "My Christmas" },
+    previewImage: { type: String, default: "" },
+    tree: {
+      _id: { type: String, required: true },
+      size: { type: String, enum: ["S", "M", "L"], required: true },
+      name: { type: String, required: true },
+      unitPrice: { type: Number, required: true, min: 0 },
+      price: { type: Number, required: true, min: 0 },
+      bareImage: { type: String, default: "" },
+    },
+    style: {
+      _id: { type: String, required: true },
+      code: { type: String, required: true },
+      name: { type: String, required: true },
+      coverImage: { type: String, default: "" },
+      palette: { type: [String], default: [] },
+    },
+    lines: [
+      {
+        _id: false,
+        kind: { type: String, enum: ["ACCESSORY", "SERVICE"], required: true },
+        refId: { type: Schema.Types.ObjectId, default: null },
+        type: { type: String, required: true },
+        name: { type: String, required: true },
+        unitPrice: { type: Number, required: true, min: 0 },
+        quantity: { type: Number, required: true, min: 1 },
+        lineTotal: { type: Number, required: true, min: 0 },
+        personalizationText: { type: String, default: "" },
+      },
+    ],
+    deliveryOption: {
+      type: String,
+      enum: ["READY_TO_DISPLAY", "DIY_KIT", "SEPARATE"],
+      required: true,
+    },
+    unitTotal: { type: Number, required: true, min: 0 },
+    quantity: { type: Number, required: true, min: 1, default: 1 },
+    lineTotal: { type: Number, required: true, min: 0 },
+    hasPersonalization: { type: Boolean, default: false },
+    productionDays: { type: Number, default: 0, min: 0 },
+  },
+  { _id: false }
+);
+
 const OrderSchema = new Schema<IOrder>(
   {
     orderCode: { type: String, required: true, unique: true },
@@ -168,7 +217,7 @@ const OrderSchema = new Schema<IOrder>(
     items: { type: [OrderItemSchema], required: true },
     subtotal: { type: Number, default: 0 },
     shippingFee: { type: Number, default: 30000 },
-    platformFee: { type: Number, default: 0 },
+    decorationFee: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
     status: {
@@ -180,6 +229,8 @@ const OrderSchema = new Schema<IOrder>(
     paymentMethod: { type: String, default: "" },
     paymentId: { type: String, default: "" },
     paidAt: { type: Date, default: null },
+    designConfirmedAt: { type: Date, default: null },
+    designLockedAt: { type: Date, default: null },
     shippingName: { type: String, default: "" },
     shippingPhone: { type: String, default: "" },
     shippingAddress: { type: String, default: "" },
@@ -204,6 +255,7 @@ const OrderSchema = new Schema<IOrder>(
 );
 
 OrderSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
-OrderSchema.index({ "items.sellerId": 1 });
+OrderSchema.index({ buyerId: 1, createdAt: -1 });
+OrderSchema.index({ status: 1, createdAt: -1 });
 
 export const Order = mongoose.model<IOrder>("Order", OrderSchema);

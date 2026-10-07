@@ -1,66 +1,60 @@
 import { Router } from "express";
+import { requireAuth, requireAdmin } from "../middleware/auth";
 import {
-  getPendingListings,
-  approveListing,
-  rejectListing,
-  getPendingSellers,
-  approveSeller,
-  rejectSeller,
+  listTrees,
+  createTree,
+  updateTree,
+  listStyles,
+  createStyle,
+  updateStyle,
+  listAccessories,
+  createAccessory,
+  updateAccessory,
+  listPresets,
+  createPreset,
+  updatePreset,
+  deletePreset,
+  listAllOrders,
   getAdminStats,
   getAllUsers,
   updateUserStatus,
   getUserDetails,
-  updateSellerCommission,
 } from "../controllers/adminController";
-import { requireAuth, requireAdmin } from "../middleware/auth";
 
 const router = Router();
 
-// ── Listing moderation ────────────────────────────────────────────────────────
-router.get("/pending-listings", requireAuth, requireAdmin, getPendingListings);
-router.patch("/listings/:id/approve", requireAuth, requireAdmin, approveListing);
-router.patch("/listings/:id/reject", requireAuth, requireAdmin, rejectListing);
+router.use(requireAuth, requireAdmin);
 
-// ── Platform stats (Admin Dashboard) ─────────────────────────────────────────
-// FE AdminScreen calls `GET /api/admin/stats` → reads `res.stats`.
-router.get("/stats", requireAuth, requireAdmin, getAdminStats);
+// ── Trees ────────────────────────────────────────────────────────────────────
+router.get("/trees", listTrees);
+router.post("/trees", createTree);
+router.patch("/trees/:id", updateTree);
 
-// ── User Management ────────────────────────────────────────────────────────────
-router.get("/users", requireAuth, requireAdmin, getAllUsers);
-router.patch("/users/:id/status", requireAuth, requireAdmin, updateUserStatus);
-router.get("/users/:id/details", requireAuth, requireAdmin, getUserDetails);
+// ── Styles ───────────────────────────────────────────────────────────────────
+router.get("/styles", listStyles);
+router.post("/styles", createStyle);
+router.patch("/styles/:id", updateStyle);
 
-// ── Seller application moderation — canonical paths ──────────────────────────
-// FE AdminScreen calls:
-//   GET   /admin/pending-sellers                → reads `res.users`
-//   PATCH /admin/sellers/:id/approve            → approve seller
-//   PATCH /admin/sellers/:id/reject             → reject seller
-//
-// Legacy paths (`/admin/users/:id/{approve,reject}-seller`) are kept below as
-// deprecated aliases so older clients keep working.
-router.get("/pending-sellers", requireAuth, requireAdmin, getPendingSellers);
-router.patch("/sellers/:id/approve", requireAuth, requireAdmin, approveSeller);
-router.patch("/sellers/:id/reject", requireAuth, requireAdmin, rejectSeller);
-router.patch(
-  "/sellers/:id/commission-rate",
-  requireAuth,
-  requireAdmin,
-  updateSellerCommission
-);
+// ── Accessories ─────────────────────────────────────────────────────────────
+router.get("/accessories", listAccessories);
+router.post("/accessories", createAccessory);
+router.patch("/accessories/:id", updateAccessory);
 
-// ── Deprecated aliases (kept for backward compatibility) ─────────────────────
-// TODO: remove after FE team migrates all clients.
-router.patch("/users/:id/approve-seller", requireAuth, requireAdmin, (req, res, next) => {
-  console.warn(
-    "[admin] DEPRECATED /admin/users/:id/approve-seller — use /admin/sellers/:id/approve"
-  );
-  next();
-}, approveSeller);
-router.patch("/users/:id/reject-seller", requireAuth, requireAdmin, (req, res, next) => {
-  console.warn(
-    "[admin] DEPRECATED /admin/users/:id/reject-seller — use /admin/sellers/:id/reject"
-  );
-  next();
-}, rejectSeller);
+// ── Presets ──────────────────────────────────────────────────────────────────
+router.get("/presets", listPresets);
+router.post("/presets", createPreset);
+router.patch("/presets/:id", updatePreset);
+router.delete("/presets/:id", deletePreset);
+
+// ── Orders ───────────────────────────────────────────────────────────────────
+router.get("/orders", listAllOrders);
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+router.get("/stats", getAdminStats);
+
+// ── Users ────────────────────────────────────────────────────────────────────
+router.get("/users", getAllUsers);
+router.patch("/users/:id/status", updateUserStatus);
+router.get("/users/:id/details", getUserDetails);
 
 export default router;

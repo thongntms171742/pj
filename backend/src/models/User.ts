@@ -22,49 +22,19 @@ const AddressSchema = new Schema({
   isDefault: { type: Boolean, default: false },
 });
 
-// ── Seller profile (embedded sub-document) ────────────────────────────────────
-const SellerProfileSchema = new Schema(
-  {
-    handle: { type: String, required: true },
-    shopName: { type: String, required: true },
-    description: { type: String, default: "" },
-    avatarUrl: { type: String, default: "" },
-    coverImages: { type: [String], default: [] },
-    rating: { type: Number, default: 5.0 },
-    totalTransactions: { type: Number, default: 0 },
-    totalRevenue: { type: Number, default: 0 },
-    commissionRate: { type: Number, default: 0.1 },
-    status: {
-      type: String,
-      enum: ["active", "pending_approval", "suspended"],
-      default: "active",
-    },
-  },
-  { _id: false }
-);
-
-// ── User ──────────────────────────────────────────────────────────────────────
+// ── User (Build Your Christmas) ──────────────────────────────────────────────
+// Single-brand: there is no `sellerProfile` / per-seller commission. The
+// only roles are `buyer` and `admin`. Staff log in as buyers with the
+// `admin` role on top — the existing requireAdmin middleware handles that.
 export interface IUser extends Document {
   name: string;
   email: string;
   passwordHash: string;
   avatarUrl?: string;
-  roles: ("buyer" | "seller" | "admin")[];
+  roles: ("buyer" | "admin")[];
   addresses: IAddress[];
   accountStatus: "active" | "suspended";
   accountStatusReason: string;
-  sellerProfile?: {
-    handle: string;
-    shopName: string;
-    description?: string;
-    avatarUrl?: string;
-    coverImages: string[];
-    rating: number;
-    totalTransactions: number;
-    totalRevenue: number;
-    commissionRate: number;
-    status: "active" | "pending_approval" | "suspended";
-  };
   comparePassword(plain: string): Promise<boolean>;
 }
 
@@ -75,13 +45,12 @@ const UserSchema = new Schema<IUser>(
     passwordHash: { type: String, required: true },
     avatarUrl: { type: String, default: "" },
     roles: {
-      type: [{ type: String, enum: ["buyer", "seller", "admin"] }],
+      type: [{ type: String, enum: ["buyer", "admin"] }],
       default: ["buyer"],
     },
     addresses: { type: [AddressSchema], default: [] },
     accountStatus: { type: String, enum: ["active", "suspended"], default: "active" },
     accountStatusReason: { type: String, default: "" },
-    sellerProfile: { type: SellerProfileSchema, default: undefined },
   },
   { timestamps: true }
 );

@@ -1,123 +1,135 @@
-# Enums
+# Enums — Build Your Christmas
 
-> **Source of Truth:** Enums đồng bộ với code BE thực tế (`backend/src/models/`) và `API_CONTRACT.md`.
-> Mọi string enum mà backend trả về PHẢI nằm trong file này. Nếu BE thêm giá trị mới, phải cập nhật file này trước khi release.
+> **Source of Truth:** Enums đồng bộ với code BE thực tế (`backend/src/models/`, `backend/src/config/business.ts`) và `docs/API_CONTRACT.md`.
+> Mọi string enum BE trả về PHẢI nằm trong file này. Nếu BE thêm giá trị mới → update file này trước khi release.
 
-## Order Status
+---
 
-> Xem định nghĩa: `Order.ts` → `ORDER_STATUSES`. State machine: `VALID_TRANSITIONS`.
+## TreeSize (S/M/L)
+
+> Xem `backend/src/models/Tree.ts` → `TreeSize`. Unique.
+
+| Value | Ý nghĩa | Approx. dimension (FE hint) |
+| :--- | :--- | :--- |
+| `S` | Cây nhỏ | height ~80–120cm, max decoration fee 50k |
+| `M` | Cây vừa | height ~150cm, max decoration fee 80k |
+| `L` | Cây lớn | height ~180–220cm, max decoration fee 120k |
+
+Decoration fee per size: `{ S: 50_000, M: 80_000, L: 120_000 }` (chỉ áp dụng khi `deliveryOption = READY_TO_DISPLAY`).
+
+---
+
+## StyleCode (6 concepts)
+
+> Xem `backend/src/models/Style.ts` → `Style.code`. Unique.
+
+| Value | Name (VI) | Description hint |
+| :--- | :--- | :--- |
+| `CLASSIC` | Classic | Đỏ + xanh + vàng truyền thống |
+| `MINIMAL` | Minimal | Trắng + be + tự nhiên |
+| `GINGERBREAD` | Gingerbread | Nâu + trắng + đỏ, mood cookie |
+| `WINTER` | Winter Wonderland | Xanh nhạt + bạc + trắng |
+| `CUTE` | Cute | Pastel + hồng + tím nhẹ |
+| `LUXURY` | Luxury Luxury | Đỏ ruby + vàng champagne + đen |
+
+---
+
+## AccessoryGroup (4 nhóm)
+
+> Xem `backend/src/models/Accessory.ts` → `Accessory.group`. Filter UI: tabs.
+
+| Value | Ý nghĩa |
+| :--- | :--- |
+| `LIGHTS` | Đèn trang trí (dây đèn, LED, candle lights) |
+| `ORNAMENT` | Quả cầu, chuông, candy, figurine, bow |
+| `DECOR` | Sao đỉnh, stocking, snowflake, ribbon |
+| `PERSONAL` | Name tag, custom ornament — có personalization text |
+
+---
+
+## AccessoryType (10 loại cụ thể)
+
+> Xem `backend/src/models/Accessory.ts` → `Accessory.type`. Cùng thuộc 1 `group` có thể có nhiều `type`.
+
+| Type | Group | Ví dụ |
+| :--- | :--- | :--- |
+| `LIGHT_STRING` | LIGHTS | Dây LED warm/cool white |
+| `CANDLE` | LIGHTS | LED candles |
+| `BAUBLE` | ORNAMENT | Quả cầu nhiều màu/size |
+| `BELL` | ORNAMENT | Chuông vàng/bạc |
+| `CANDY` | ORNAMENT | Gậy candy cane |
+| `FIGURINE` | ORNAMENT | Ông già Noel, tuần lộc, người tuyết |
+| `BOW` | ORNAMENT | Nơ ruy băng |
+| `STAR` | DECOR | Sao đỉnh cây |
+| `STOCKING` | DECOR | Tất treo quà |
+| `NAME_TAG` | PERSONAL | Thẻ tên cá nhân hóa (yêu cầu personalization text) |
+| `NAME_ORNAMENT` | PERSONAL | Quả cầu khắc tên (yêu cầu personalization text) |
+
+> Cập nhật đầy đủ từ catalog. BE filter qua `?type=`, FE render từ catalog response.
+
+---
+
+## DeliveryOption (3 lựa chọn)
+
+> Xem `backend/src/config/business.ts` → `DELIVERY_OPTIONS`.
+
+| Value | Ý nghĩa | Decoration fee |
+| :--- | :--- | :---: |
+| `READY_TO_DISPLAY` | Đội ngũ Build Your Christmas trang trí sẵn, giao tận nơi | 50k/80k/120k theo size |
+| `DIY_KIT` | Giao cây + phụ kiện rời, khách tự trang trí | 0 |
+| `SEPARATE` | Giao cây trước, phụ kiện giao sau (cho trường hợp muốn setup theo từng giai đoạn) | 0 |
+
+> Shipping fee = `30_000 VND` flat cho cả 3 option.
+
+---
+
+## OrderStatus (state machine — 11 values)
+
+> Xem `backend/src/models/Order.ts` → `ORDER_STATUSES` + `VALID_TRANSITIONS`.
 
 | Value | Ý nghĩa | Terminal? |
 | :--- | :--- | :---: |
-| `PENDING_PAYMENT` | Đơn online, chờ thanh toán (reserved 30 phút) | ❌ |
-| `PAID` | Đã thanh toán online (chưa confirm vận chuyển) | ❌ |
+| `PENDING_PAYMENT` | Đơn online, chờ thanh toán | ❌ |
+| `PAID` | Đã thanh toán online (chưa xác nhận) | ❌ |
 | `CONFIRMED` | Đơn COD = confirmed ngay, hoặc sau khi `payments/checkout` thành công | ❌ |
-| `PACKING` | Seller đang đóng gói | ❌ |
+| `PACKING` | Đội BYC đang đóng gói | ❌ |
 | `SHIPPING` | Đã tạo vận đơn, đang giao | ❌ |
 | `DELIVERING` | Shipper đang giao đến buyer | ❌ |
 | `DELIVERED` | Đã giao thành công | ❌ |
-| `COMPLETED` | Buyer xác nhận hoàn tất (terminal revenue) | ✅ |
-| `CANCELLED` | Hủy đơn (stock được restore nếu trước SHIPPING) | ✅ |
-| `CANCEL_REQUESTED` | Buyer yêu cầu hủy (chờ seller accept/reject) | ❌ |
+| `COMPLETED` | Buyer xác nhận hoàn tất | ✅ |
+| `CANCEL_REQUESTED` | Buyer yêu cầu hủy (chờ admin accept) | ❌ |
+| `CANCELLED` | Hủy đơn (stock được restore) | ✅ |
 | `DISPUTED` | Buyer mở tranh chấp | ❌ |
-| `REFUNDED` | Hoàn tiền sau tranh chấp | ✅ |
 
-### State Machine
+### State machine
 
 ```
 PENDING_PAYMENT  → PAID, CONFIRMED, CANCELLED
-PAID             → CONFIRMED, PACKING, CANCELLED, REFUNDED
-CONFIRMED        → PACKING, SHIPPING, CANCELLED, CANCEL_REQUESTED
-PACKING          → SHIPPING, CANCELLED, CANCEL_REQUESTED
+PAID             → CONFIRMED, PACKING, CANCELLED
+CONFIRMED        → PACKING, SHIPPING, CANCEL_REQUESTED, CANCELLED
+PACKING          → SHIPPING, CANCELLED
 SHIPPING         → DELIVERING, DELIVERED, CANCELLED
 DELIVERING       → DELIVERED, COMPLETED
 DELIVERED        → COMPLETED, DISPUTED
 COMPLETED        → (terminal)
 CANCELLED        → (terminal)
 CANCEL_REQUESTED → CANCELLED, CONFIRMED
-DISPUTED         → REFUNDED, COMPLETED
-REFUNDED         → (terminal)
+DISPUTED         → COMPLETED
 ```
 
 ### Role-based restrictions (ngoài state machine)
 
-- **Buyer-only**: chỉ được chuyển sang `CANCELLED`, `CANCEL_REQUESTED`, `DELIVERED`, `COMPLETED`, hoặc `DISPUTED`. Lưu ý: buyer chỉ được trực tiếp `CANCELLED` khi order ở `PENDING_PAYMENT` hoặc `PAID`; từ `CONFIRMED` trở đi phải dùng `CANCEL_REQUESTED`. Nếu buyer gửi status không được phép → `403 ORDER_BUYER_NOT_PARTICIPANT`.
-- **Seller (non-admin)**: KHÔNG được tự chuyển sang `COMPLETED` (bước này phải do buyer hoặc system thực hiện). Seller CÓ THỂ chuyển sang `DELIVERING` và `DELIVERED`. Nếu vi phạm → `403 ORDER_SELLER_CANNOT_DELIVER`.
-- **Admin**: bỏ qua mọi role-based restriction (vẫn phải tuân state machine).
+- **Buyer** (non-admin): được phép chuyển sang `CANCELLED` (chỉ khi `PENDING_PAYMENT`/`PAID`), `CANCEL_REQUESTED` (khi ≥ `CONFIRMED`), `DELIVERED`, `COMPLETED`, `DISPUTED`. Nếu `hasPersonalization && currentStatus === PACKING` → `ORDER_CANCEL_NOT_ALLOWED`.
+- **Admin**: bỏ qua role-based restriction (vẫn phải tuân state machine).
+- **Seller**: KHÔNG tồn tại (single-brand — không có seller concept).
 
 ---
 
-## Product Status
+## ShipmentStatus (derived từ OrderStatus — KHÔNG lưu DB)
 
-> Xem định nghĩa: `Product.ts` → enum field `status`.
+> Xem `getOrderShipment` trong `orderController.ts`.
 
-| Value | Ý nghĩa |
-| :--- | :--- |
-| `pending` | Seller vừa tạo, chờ admin duyệt |
-| `active` | Đang hiển thị trên shop — buyer có thể mua |
-| `reserved` | Đang được giữ cho đơn online (chờ thanh toán 30 phút) |
-| `sold` | Đã bán hết (quantity = 0) |
-| `archived` | Bị admin từ chối hoặc chủ sở hữu archive |
-
----
-
-## Product Condition
-
-`condition` là **number 0–100** (integer hoặc float), đại diện % tình trạng sản phẩm.
-
-- `0` = rách/hỏng nặng
-- `100` = như mới
-
-> FE nên hiển thị text mapping (vd: `90–100` = "Như mới", `70–89` = "Rất tốt", `50–69` = "Tốt", `<50` = "Đã qua sử dụng") ở UI — mapping này do FE tự quyết theo design system, không cần BE confirm.
-
----
-
-## Seller Status
-
-> Xem định nghĩa: `User.ts` → `SellerProfileSchema.status`.
-
-| Value | Ý nghĩa |
-| :--- | :--- |
-| `active` | Được phép tạo sản phẩm, hiển thị trên `GET /api/sellers` |
-| `pending_approval` | Đang chờ admin duyệt |
-| `suspended` | Bị admin tạm khóa — bị ẩn khỏi `GET /api/sellers`, không thể tạo sản phẩm |
-
----
-
-## Payment Methods
-
-> Free-form string trong DB nhưng convention thống nhất (xem `createOrder` trong `orderController.ts`):
-
-| Value | Ý nghĩa | Order status khi tạo |
-| :--- | :--- | :--- |
-| `COD` | Cash on Delivery — thanh toán khi nhận hàng | `CONFIRMED` ngay |
-| `ONLINE` / `card` / `wallet` / `banking` | Thanh toán online qua gateway mock | `PENDING_PAYMENT` (reserved 30 phút) |
-
-> **Lưu ý quan trọng**: code BE hiện chỉ test `paymentMethod.toUpperCase() === "COD"`. Mọi giá trị khác (case-insensitive) đều dẫn đến flow online payment → `PENDING_PAYMENT`. FE có thể gửi `card`, `ONLINE`, `WALLET`... đều OK về mặt logic, nhưng nên thống nhất dùng `"ONLINE"` cho rõ ràng trong API call.
-
-> **`POST /api/payments/checkout`** dùng field `method` riêng (không phải `paymentMethod`):
-> - `method` default = `"card"`
-> - `cardLast4` default = `"1234"` (chỉ để log)
-
----
-
-## Notification Type
-
-> Xem định nghĩa: `Notification.ts` → field `type`.
-
-| Value | Ý nghĩa |
-| :--- | :--- |
-| `order` | Liên quan đến đơn hàng (tạo mới, thanh toán, giao hàng, hủy, hoàn tất) |
-
-> Hiện tại chỉ có `order`. BE có thể mở rộng thêm (`system`, `promotion`...) — khi đó phải update enum này.
-
----
-
-## Shipment Status
-
-> Derived từ `Order.status` trong `getOrderShipment`. KHÔNG lưu trong DB.
-
-| Value | Mapping từ Order.status |
+| Value | Mapping từ `Order.status` |
 | :--- | :--- |
 | `PENDING` | Order mới tạo, chưa có tracking |
 | `CREATED` | Có `trackingNumber` nhưng status < `SHIPPING` |
@@ -129,21 +141,95 @@ REFUNDED         → (terminal)
 
 ---
 
-## API Error Code
+## PaymentMethod
 
-> Xem định nghĩa đầy đủ: `backend/src/utils/errors.ts` → `ErrorCode` constant.
-> Mọi error response từ BE đều có dạng `{ error: { code, message } }`.
+| Value | Ý nghĩa | Initial order status |
+| :--- | :--- | :--- |
+| `COD` | Cash on Delivery — thanh toán khi nhận | `CONFIRMED` ngay |
+| `ONLINE` | Thanh toán online (mock — chưa integrate gateway) | `PENDING_PAYMENT` |
 
-Danh sách đầy đủ xem `docs/ERROR_CODES.md`. Một số code chính:
+> Code BE: `if (paymentMethod.toUpperCase() === "COD")` → COD; mọi giá trị khác → online. Nên thống nhất dùng `"COD"` hoặc `"ONLINE"` trong API call.
+
+---
+
+## NotificationType (5 values)
+
+> Xem `backend/src/models/Notification.ts` → `type`. Hiện chỉ thực sự emit `order`.
+
+| Value | Ý nghĩa | Hiện trạng |
+| :--- | :--- | :--- |
+| `order` | Liên quan đến đơn hàng | ✅ Đang emit khi tạo order |
+| `chat` | Tin nhắn từ support (placeholder) | 🚧 Chưa có channel thật |
+| `promo` | Khuyến mãi | 🚧 Reserved |
+| `system` | Thông báo hệ thống | 🚧 Reserved |
+| `review` | Phản hồi review (placeholder) | 🚧 Chưa dùng |
+
+> FE có thể show generic icon cho mỗi type; chỉ cần handle thực tế `order` cho MVP.
+
+---
+
+## UserRole
+
+> Xem `backend/src/models/User.ts` → `roles`. Single-brand: chỉ 2 roles.
+
+| Value | Ý nghĩa |
+| :--- | :--- |
+| `buyer` | Default — mọi user mới đăng ký |
+| `admin` | Nhân viên Build Your Christmas (set thủ công trong DB) |
+
+> KHÔNG còn role `seller` (single-brand marketplace đã được pivot bỏ 2026-10-07).
+
+---
+
+## AccountStatus
+
+> Xem `backend/src/models/User.ts` → `accountStatus`.
+
+| Value | Ý nghĩa |
+| :--- | :--- |
+| `active` | Tài khoản hoạt động bình thường |
+| `suspended` | Admin khóa — không thể login / call protected API |
+
+---
+
+## Province / Commune (HCM focus)
+
+> Xem `backend/src/services/addressService.ts` (CAS Address Kit proxy). Province `id = "79"` là TP.HCM (service area duy nhất).
+
+| Province ID | Name | Service? |
+| :--- | :--- | :---: |
+| `79` | Thành phố Hồ Chí Minh | ✅ |
+| Other | All other 62 provinces | ❌ → `DELIVERY_AREA_NOT_SUPPORTED` (422) |
+
+---
+
+## Christmas-specific Enums (Customization)
+
+> Xem `backend/src/models/Accessory.ts` → `isPersonalizable` + `personalizationMaxLength`.
+
+- `isPersonalizable: boolean` — nếu true → bắt buộc nhập `personalizationText` (1–20 chars, chỉ chữ cái + số + space, regex `^[A-Za-z0-9 ]{1,20}$`).
+- `productionDays: number` — số ngày sản xuất. `max(productionDays)` của tất cả line items → `order.items[].productionDays` → `order.estimatedDeliveryAt` (placeholder).
+
+---
+
+## API Error Code (47 codes)
+
+> Xem `backend/src/utils/errors.ts` → `ErrorCode` constant. Mọi error response từ BE đều có dạng `{ error: { code, message } }`. Danh sách đầy đủ + FE action mapping xem `docs/ERROR_CODES.md`.
+
+Một số code chính:
 
 - `INVALID_INPUT`, `MISSING_FIELD` — request body thiếu/sai
 - `UNAUTHORIZED`, `TOKEN_INVALID`, `INVALID_CREDENTIALS` — auth issues
-- `FORBIDDEN` — không đủ quyền
-- `NOT_FOUND` — resource không tồn tại
-- `CONFLICT` — xung đột (vd duplicate email)
-- `SELLER_NOT_APPROVED` — user không phải seller active
-- `PRODUCT_NOT_FOUND`, `PRODUCT_NOT_AVAILABLE`, `PRODUCT_OUT_OF_STOCK` — product issues
-- `CART_EMPTY`, `NO_ITEMS_CHECKED`, `QUANTITY_EXCEEDS_STOCK`, `SELF_PURCHASE_NOT_ALLOWED` — cart issues
-- `ORDER_NOT_FOUND`, `ORDER_INVALID_TRANSITION`, `ORDER_BUYER_NOT_PARTICIPANT`, `ORDER_SELLER_CANNOT_DELIVER`, `ORDER_ALREADY_SHIPPED`, `ORDER_ALREADY_CANCELLED`, `ORDER_PAYMENT_INVALID_STATE` — order issues
-- `AI_NOT_CONFIGURED`, `AI_UPSTREAM_ERROR`, `AI_QUERY_INVALID_LENGTH`, `AI_IMAGE_TYPE_INVALID` — AI issues
+- `FORBIDDEN`, `NOT_FOUND` — permission / resource
+- `EMAIL_ALREADY_USED` — registration conflict
+- `TREE_NOT_FOUND`, `STYLE_NOT_FOUND`, `ACCESSORY_NOT_FOUND`, `CATALOG_ITEM_UNAVAILABLE` — catalog issues
+- `ACCESSORY_STYLE_MISMATCH`, `ACCESSORY_QUANTITY_INVALID`, `ACCESSORY_DUPLICATED` — design config issues
+- `PERSONALIZATION_REQUIRED`, `PERSONALIZATION_INVALID` — personalization validation
+- `DESIGN_NOT_FOUND`, `DESIGN_CONFIG_INVALID`, `DESIGN_NOT_CONFIRMED`, `DESIGN_NAME_REQUIRED`, `DESIGN_SLUG_TAKEN` — design management
+- `DELIVERY_OPTION_INVALID`, `DELIVERY_AREA_NOT_SUPPORTED` — checkout validation
+- `CART_EMPTY`, `NO_ITEMS_CHECKED`, `CART_NOT_FOUND`, `CART_ITEM_NOT_FOUND` — cart issues
+- `OUT_OF_STOCK` — inventory exhausted
+- `ORDER_NOT_FOUND`, `ORDER_STATUS_REQUIRED`, `ORDER_INVALID_TRANSITION`, `ORDER_ALREADY_SHIPPED`, `ORDER_ALREADY_CANCELLED`, `ORDER_PAYMENT_INVALID_STATE`, `ORDER_ID_REQUIRED`, `ORDER_CANCEL_NOT_ALLOWED` — order issues
 - `INTERNAL_ERROR` — lỗi hệ thống chưa phân loại (HTTP 500)
+- `UPSTREAM_ERROR`, `SERVICE_UNAVAILABLE`, `ADDRESS_UPSTREAM_TIMEOUT`, `ADDRESS_UPSTREAM_ERROR` — upstream CAS issues
+- `ACCOUNT_NOT_FOUND` — user lookup

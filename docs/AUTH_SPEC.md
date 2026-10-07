@@ -1,7 +1,9 @@
-# Authentication Specification
+# Authentication Specification — Build Your Christmas
 
 > **Source of Truth:** Spec này đồng bộ với `docs/API_CONTRACT.md` và code BE thực tế (`backend/src/controllers/authController.ts`, `backend/src/middleware/auth.ts`).
 > Nếu có xung đột, tin `API_CONTRACT.md`.
+
+---
 
 ## Register
 
@@ -12,9 +14,9 @@
 **Request**:
 ```json
 {
-  "name": "string (required)",
-  "email": "string (required, unique, lowercase)",
-  "password": "string (required, plaintext — backend hash với bcrypt)"
+  "name": "string (required, trim)",
+  "email": "string (required, unique, lowercase, trim)",
+  "password": "string (required, plaintext — BE hash với bcrypt)"
 }
 ```
 
@@ -26,15 +28,18 @@
     "_id": "string (ObjectId)",
     "name": "string",
     "email": "string",
-    "roles": ["buyer"]
+    "avatarUrl": "string",
+    "roles": ["buyer"],
+    "accountStatus": "active",
+    "addresses": []
   }
 }
 ```
 
 **Errors**:
-- `400` `MISSING_FIELD` — `Vui lòng điền đầy đủ thông tin`
-- `409` `EMAIL_ALREADY_USED` — `Email đã được sử dụng`
-- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+- `400 MISSING_FIELD` — Thiếu name/email/password
+- `409 EMAIL_ALREADY_USED` — Email đã tồn tại
+- `500 INTERNAL_ERROR`
 
 ---
 
@@ -53,133 +58,113 @@
 **Success (200)**:
 ```json
 {
-  "token": "JWT",
+  "token": "JWT (expires 7d)",
   "user": {
-    "_id": "string (ObjectId)",
+    "_id": "string",
     "name": "string",
     "email": "string",
-    "roles": ["buyer", "seller"],
-    "sellerStatus": "active | pending_approval | suspended | null"
+    "avatarUrl": "string",
+    "roles": ["buyer"],
+    "accountStatus": "active",
+    "addresses": [/* IAddress[] */]
   }
 }
 ```
 
-> **`sellerStatus`**: trả về `user.sellerProfile.status` nếu user có seller profile, ngược lại `null`. FE dùng để quyết định có hiển thị nút "Tạo sản phẩm" không.
+> **Single-brand Christmas**: response KHÔNG có `sellerStatus` / `sellerProfile` (đã bỏ hẳn role seller từ 2026-10-07).
 
 **Errors**:
-- `400` `MISSING_FIELD` — `Vui lòng nhập email và mật khẩu`
-- `401` `INVALID_CREDENTIALS` — `Email hoặc mật khẩu không đúng`
-- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+- `400 MISSING_FIELD` — Thiếu email hoặc password
+- `401 INVALID_CREDENTIALS` — Email hoặc mật khẩu không đúng
+- `403 FORBIDDEN` — Tài khoản bị suspended → "Tài khoản của bạn đã bị khóa"
+- `500 INTERNAL_ERROR`
 
 ---
 
-## Cart Merge
+## Update avatar
 
-**POST /api/auth/cart/merge**
+**PUT /api/auth/me/avatar**
 
-> **Lưu ý**: endpoint này **DEPRECATED** — chỉ giữ để tương thích ngược. Endpoint chính thức là **`POST /api/cart/merge`** (xem `API_CONTRACT.md` § Cart).
-
----
-
-## Seller Application Flow
-
-**POST /api/auth/seller/apply**
-
-User muốn trở thành seller đăng ký qua endpoint này. Trước đây phải admin set thủ công trong DB — giờ user tự apply qua UI.
+**Auth**: Required.
 
 **Request**:
 ```json
 {
-  "shopName": "string (3-100 chars, required)",
-  "handle": "string (3-30 chars, optional - auto-gen từ email)",
-  "description": "string (max 500 chars, optional)",
-  "avatarUrl": "string (optional)",
-  "coverImages": ["string"] (max 5, optional)
+  "avatarUrl": "https://example.com/avatar.jpg"
 }
 ```
 
-**Success (201 first-time / 200 idempotent)**:
+**Success (200)**:
 ```json
-{
-  "application": {
-    "userId": "...",
-    "shopName": "Minh Tú Vintage",
-    "handle": "minhtu_vintage",
-    "status": "pending_approval",
-    "submittedAt": "ISO",
-    "estimatedReviewDays": 3
-  },
-  "user": {
-    "_id": "...",
-    "name": "Minh Tú",
-    "email": "minhtu@gmail.com",
-    "roles": ["buyer", "seller"],
-    "sellerStatus": "pending_approval"
-  }
-}
+{ "user": { /* updated user shape */ } }
 ```
 
 **Errors**:
-- `400 INVALID_INPUT` — shopName/handle không hợp lệ
-- `409 SELLER_ALREADY_APPROVED` — User đã là seller active
-- `409 SELLER_HANDLE_TAKEN` — Handle đã được seller khác dùng
-- `409 SELLER_SHOP_NAME_TAKEN` — Tên shop đã được seller khác dùng
-- `500 INTERNAL_ERROR` — Lỗi hệ thống
+- `400 INVALID_INPUT` — Thiếu `avatarUrl`
+- `401 UNAUTHORIZED`
+- `404 ACCOUNT_NOT_FOUND`
+- `500 INTERNAL_ERROR`
 
-**FE UI flow**:
-1. Show form "Đăng ký bán hàng" cho user có `sellerStatus === null`.
-2. Submit → success → redirect về dashboard với banner "Đang chờ admin duyệt".
-3. Disable nút "Đăng sản phẩm" cho đến khi `sellerStatus === "active"` (sau khi admin duyệt).
-
-**Admin approve flow**:
-- `GET /api/admin/pending-sellers` — list applications.
-- `PATCH /api/admin/users/:id/approve-seller` — duyệt (set status = active).
-- `PATCH /api/admin/users/:id/reject-seller` — từ chối (set status = suspended + remove role).
+---
 
 ## Token storage & usage
 
-*(Frontend lưu token vào `localStorage` (key: `token`) và gửi kèm `Authorization: Bearer <token>` cho mọi request cần auth.)*
+FE lưu `token` vào `localStorage` (key: `token`) và gửi kèm `Authorization: Bearer <token>` cho mọi request cần auth.
 
-Token hết hạn sau `JWT_EXPIRES_IN` (mặc định `7d`, cấu hình qua env). Khi token hết hạn, backend trả `401 TOKEN_INVALID` — FE nên logout + redirect về trang login.
+- Token hết hạn sau `JWT_EXPIRES_IN` (default `7d`, configurable via env).
+- Khi token hết hạn → BE trả `401 TOKEN_INVALID` → FE phải `localStorage.removeItem("token")` + redirect về `/login`.
 
 ---
 
 ## Roles
 
-Available roles: `buyer`, `seller`, `admin`.
+Chỉ 2 roles duy nhất trong Christmas:
 
-User mới đăng ký luôn có `roles: ["buyer"]`. Role `seller` được cấp tự động khi user apply qua `POST /api/auth/seller/apply` (status = `pending_approval`, chờ admin duyệt). Role `admin` được set thủ công trong DB.
+| Role | Mô tả |
+| :--- | :--- |
+| `buyer` | Default — mọi user mới đăng ký |
+| `admin` | Nhân viên Build Your Christmas (set thủ công trong DB) |
 
-### Role-Based Access Matrix
+> ❌ KHÔNG còn role `seller` (single-brand, đã pivot 2026-10-07).
 
-| Endpoint | Buyer | Seller (active) | Admin |
-| :--- | :---: | :---: | :---: |
-| `GET /api/products` | ✅ | ✅ | ✅ |
-| `POST /api/products` | ❌ | ✅ (status=active) | ❌ |
-| `GET /api/orders/seller` | ❌ | ✅ | ✅ |
-| `GET /api/admin/*` | ❌ | ❌ | ✅ |
-| `PATCH /api/admin/listings/:id/approve` | ❌ | ❌ | ✅ |
-| `PATCH /api/orders/:code/status` | ✅ (CAN/CR/DEL/COM/DIS) | ✅ (no COMPLETED) | ✅ |
-| `POST /api/payments/checkout` | ✅ | ❌ | ❌ |
-| `GET/POST/PATCH/DELETE /api/users/me/addresses` | ✅ | ✅ | ✅ |
-| `POST /api/auth/seller/apply` | ✅ | N/A (already seller) | ❌ |
+### Role-based access matrix
 
-> **Lưu ý**: cột "Seller" yêu cầu `user.roles.includes("seller")` **VÀ** `user.sellerProfile.status === "active"`. Nếu seller bị `suspended` hoặc `pending_approval`, mọi endpoint chỉ-cho-seller sẽ trả `403 SELLER_NOT_APPROVED`.
+| Endpoint | Buyer | Admin |
+| :--- | :---: | :---: |
+| `GET /api/catalog/*` (public) | ✅ | ✅ |
+| `GET /api/addresses/*` (public) | ✅ | ✅ |
+| `POST /api/auth/register` (public) | ✅ | ✅ |
+| `POST /api/auth/login` (public) | ✅ | ✅ |
+| `GET /api/cart` | ✅ | ✅ |
+| `POST /api/cart/items` | ✅ | ✅ |
+| `POST /api/designs/quote` (public) | ✅ | ✅ |
+| `POST /api/designs` | ✅ | ✅ |
+| `GET /api/designs/mine` | ✅ | ✅ |
+| `PATCH /api/designs/:id` | ✅ (owner) | ✅ |
+| `DELETE /api/designs/:id` | ✅ (owner) | ✅ |
+| `POST /api/orders` | ✅ | ✅ |
+| `GET /api/orders` | ✅ (own) | ✅ (all) |
+| `PATCH /api/orders/:id/status` | ✅ (own: CAN/CANCEL_REQ/DELIVERED/COMPLETED/DISPUTED) | ✅ (any valid transition) |
+| `POST /api/orders/:id/shipment` | ❌ | ✅ |
+| `POST /api/payments/checkout` | ✅ (own order) | ❌ |
+| `GET /api/notifications` | ✅ (own) | ✅ (own) |
+| `GET /api/users/me/addresses` | ✅ | ✅ |
+| `GET /api/admin/*` | ❌ | ✅ |
+| `GET /api/admin/stats` | ❌ | ✅ |
+| `GET /api/admin/users` | ❌ | ✅ |
+| `PATCH /api/admin/users/:id/status` | ❌ | ✅ |
 
-> **Lưu ý (Order status)**: Buyer được dùng: `CANCELLED`, `CANCEL_REQUESTED`, `DELIVERED`, `COMPLETED`, `DISPUTED`. Buyer chỉ được trực tiếp `CANCELLED` khi order ở `PENDING_PAYMENT`/`PAID`; từ `CONFIRMED` trở đi phải dùng `CANCEL_REQUESTED`. Seller KHÔNG được tự chuyển sang `COMPLETED`.
-
-> **Khuyến nghị cho FE**: bảng này dùng cho UI/UX rendering (ẩn/hiện nút, route guard). Backend vẫn enforce validation độc lập ở controller — không bao giờ chỉ dựa vào bảng này để bảo vệ route.
+> **Khuyến nghị FE**: dùng bảng này cho UI/UX rendering (ẩn/hiện nút, route guard). BE vẫn enforce validation độc lập ở controller — không bao giờ chỉ dựa bảng này để bảo vệ route.
 
 ---
 
-## Seller Status enum
+## Account Status
 
-`user.sellerProfile.status` (embedded subdocument trong `User`):
+`user.accountStatus` (enum trên `User`):
 
-| Value | Ý nghĩa |
-| :--- | :--- |
-| `active` | Được phép tạo sản phẩm, đăng ký bán hàng thành công |
-| `pending_approval` | Đang chờ admin duyệt (set qua `POST /api/auth/seller/apply`) |
-| `suspended` | Bị admin tạm khóa — bị ẩn khỏi `GET /api/sellers` |
+| Value | Ý nghĩa | FE action |
+| :--- | :--- | :--- |
+| `active` | Hoạt động bình thường | Allow login + mọi action |
+| `suspended` | Bị admin khóa | BE trả `403 FORBIDDEN` với message "Tài khoản của bạn đã bị khóa" → FE nên logout + show banner |
 
-User mới đăng ký KHÔNG có `sellerProfile` (field không tồn tại). FE check `user.sellerProfile?.status === "active"` để biết user có quyền seller.
+User mới đăng ký luôn `accountStatus = "active"`.

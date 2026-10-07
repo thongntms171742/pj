@@ -1,16 +1,16 @@
 import { Response } from "express";
 
-// ── Error code catalog ────────────────────────────────────────────────────────
-// Single source of truth cho mọi business error code mà BE trả về.
-// Frontend dựa vào enum này để branch logic UI (xem docs/ERROR_CODES.md).
+// ── Error code catalog (Build Your Christmas) ────────────────────────────────
+// Single source of truth for every business error code BE returns. FE
+// branches UI logic off this enum (see docs/ERROR_CODES.md).
 //
-// Quy tắc:
-//   - HẬU TỐ: _REQUIRED, _INVALID, _NOT_FOUND, _OUT_OF_STOCK, _FORBIDDEN,
+// Rules:
+//   - SUFFIXES: _REQUIRED, _INVALID, _NOT_FOUND, _OUT_OF_STOCK, _FORBIDDEN,
 //     _CONFLICT, _LIMIT, _EXPIRED, _UNAVAILABLE.
-//   - KHÔNG dùng string tiếng Việt làm code (chỉ dùng làm message).
-//   - Mỗi code PHẢI có mapping trong docs/ERROR_CODES.md.
+//   - DO NOT use Vietnamese strings as codes (messages only).
+//   - Every code MUST be documented in docs/ERROR_CODES.md.
 export const ErrorCode = {
-  // ── Generic ────────────────────────────────────────────────────────────────
+  // ── Generic ──────────────────────────────────────────────────────────────
   INTERNAL_ERROR: "INTERNAL_ERROR",
   INVALID_INPUT: "INVALID_INPUT",
   MISSING_FIELD: "MISSING_FIELD",
@@ -22,81 +22,65 @@ export const ErrorCode = {
   UPSTREAM_ERROR: "UPSTREAM_ERROR",
   SERVICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
 
-  // ── Address ───────────────────────────────────────────────────────────────
+  // ── Address ─────────────────────────────────────────────────────────────
   INVALID_EFFECTIVE_DATE: "INVALID_EFFECTIVE_DATE",
   PROVINCE_NOT_FOUND: "PROVINCE_NOT_FOUND",
   ADDRESS_UPSTREAM_TIMEOUT: "ADDRESS_UPSTREAM_TIMEOUT",
   ADDRESS_UPSTREAM_ERROR: "ADDRESS_UPSTREAM_ERROR",
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
+  // ── Auth ────────────────────────────────────────────────────────────────
   EMAIL_ALREADY_USED: "EMAIL_ALREADY_USED",
   INVALID_CREDENTIALS: "INVALID_CREDENTIALS",
   ITEMS_REQUIRED: "ITEMS_REQUIRED",
-  SELLER_HANDLE_TAKEN: "SELLER_HANDLE_TAKEN",
-  SELLER_SHOP_NAME_TAKEN: "SELLER_SHOP_NAME_TAKEN",
-  SELLER_ALREADY_APPROVED: "SELLER_ALREADY_APPROVED",
 
-  // ── Seller ────────────────────────────────────────────────────────────────
-  SELLER_NOT_APPROVED: "SELLER_NOT_APPROVED",
+  // ── Christmas catalog (Tree / Style / Accessory) ────────────────────────
+  TREE_NOT_FOUND: "TREE_NOT_FOUND",
+  STYLE_NOT_FOUND: "STYLE_NOT_FOUND",
+  ACCESSORY_NOT_FOUND: "ACCESSORY_NOT_FOUND",
+  CATALOG_ITEM_UNAVAILABLE: "CATALOG_ITEM_UNAVAILABLE",
+  ACCESSORY_STYLE_MISMATCH: "ACCESSORY_STYLE_MISMATCH",
+  ACCESSORY_QUANTITY_INVALID: "ACCESSORY_QUANTITY_INVALID",
+  ACCESSORY_DUPLICATED: "ACCESSORY_DUPLICATED",
+  OUT_OF_STOCK: "OUT_OF_STOCK",
 
-  // ── Product ──────────────────────────────────────────────────────────────
-  PRODUCT_NOT_FOUND: "PRODUCT_NOT_FOUND",
-  PRODUCT_NOT_AVAILABLE: "PRODUCT_NOT_AVAILABLE",
-  PRODUCT_OUT_OF_STOCK: "PRODUCT_OUT_OF_STOCK",
-  PRODUCT_TITLE_REQUIRED: "PRODUCT_TITLE_REQUIRED",
-  PRODUCT_PRICE_REQUIRED: "PRODUCT_PRICE_REQUIRED",
-  PRODUCT_CONDITION_REQUIRED: "PRODUCT_CONDITION_REQUIRED",
-  PRODUCT_SIZE_REQUIRED: "PRODUCT_SIZE_REQUIRED",
-  PRODUCT_QUANTITY_INVALID: "PRODUCT_QUANTITY_INVALID",
-  PRODUCT_SIZE_DATA_INVALID: "PRODUCT_SIZE_DATA_INVALID",
+  // ── Design (TreeDesign) ─────────────────────────────────────────────────
+  DESIGN_NOT_FOUND: "DESIGN_NOT_FOUND",
+  DESIGN_CONFIG_INVALID: "DESIGN_CONFIG_INVALID",
+  DESIGN_NOT_CONFIRMED: "DESIGN_NOT_CONFIRMED",
+  DESIGN_NAME_REQUIRED: "DESIGN_NAME_REQUIRED",
+  DESIGN_SLUG_TAKEN: "DESIGN_SLUG_TAKEN",
 
-  // ── Cart ──────────────────────────────────────────────────────────────────
+  // ── Personalization ─────────────────────────────────────────────────────
+  PERSONALIZATION_REQUIRED: "PERSONALIZATION_REQUIRED",
+  PERSONALIZATION_INVALID: "PERSONALIZATION_INVALID",
+
+  // ── Delivery ────────────────────────────────────────────────────────────
+  DELIVERY_OPTION_INVALID: "DELIVERY_OPTION_INVALID",
+  DELIVERY_AREA_NOT_SUPPORTED: "DELIVERY_AREA_NOT_SUPPORTED",
+
+  // ── Cart ────────────────────────────────────────────────────────────────
   CART_EMPTY: "CART_EMPTY",
   NO_ITEMS_CHECKED: "NO_ITEMS_CHECKED",
   CART_NOT_FOUND: "CART_NOT_FOUND",
   CART_ITEM_NOT_FOUND: "CART_ITEM_NOT_FOUND",
-  SELF_PURCHASE_NOT_ALLOWED: "SELF_PURCHASE_NOT_ALLOWED",
-  QUANTITY_EXCEEDS_STOCK: "QUANTITY_EXCEEDS_STOCK",
-  PRODUCT_ALREADY_NOT_FOR_SALE: "PRODUCT_ALREADY_NOT_FOR_SALE",
 
-  // ── Order ────────────────────────────────────────────────────────────────
+  // ── Order ───────────────────────────────────────────────────────────────
   ORDER_NOT_FOUND: "ORDER_NOT_FOUND",
   ORDER_STATUS_REQUIRED: "ORDER_STATUS_REQUIRED",
   ORDER_INVALID_TRANSITION: "ORDER_INVALID_TRANSITION",
-  ORDER_BUYER_NOT_PARTICIPANT: "ORDER_BUYER_NOT_PARTICIPANT",
-  ORDER_SELLER_CANNOT_DELIVER: "ORDER_SELLER_CANNOT_DELIVER",
   ORDER_ALREADY_SHIPPED: "ORDER_ALREADY_SHIPPED",
   ORDER_ALREADY_CANCELLED: "ORDER_ALREADY_CANCELLED",
   ORDER_PAYMENT_INVALID_STATE: "ORDER_PAYMENT_INVALID_STATE",
   ORDER_ID_REQUIRED: "ORDER_ID_REQUIRED",
+  ORDER_CANCEL_NOT_ALLOWED: "ORDER_CANCEL_NOT_ALLOWED",
 
-  // ── Review ───────────────────────────────────────────────────────────────
-  REVIEW_NOT_ALLOWED: "REVIEW_NOT_ALLOWED",
-  REVIEW_ALREADY_EXISTS: "REVIEW_ALREADY_EXISTS",
-  REVIEW_RATING_INVALID: "REVIEW_RATING_INVALID",
-
-  // ── Commission / Platform fee ────────────────────────────────────────────────
-  COMMISSION_RATE_INVALID: "COMMISSION_RATE_INVALID",
-  SELLER_NOT_FOUND: "SELLER_NOT_FOUND",
-
-  // ── AI ────────────────────────────────────────────────────────────────────
-  AI_QUERY_INVALID_LENGTH: "AI_QUERY_INVALID_LENGTH",
-  AI_IMAGE_INVALID: "AI_IMAGE_INVALID",
-  AI_IMAGE_TYPE_INVALID: "AI_IMAGE_TYPE_INVALID",
-  AI_QUERY_OR_IMAGE_REQUIRED: "AI_QUERY_OR_IMAGE_REQUIRED",
-  AI_UPSTREAM_ERROR: "AI_UPSTREAM_ERROR",
-  AI_NOT_CONFIGURED: "AI_NOT_CONFIGURED",
-  AI_RECOMMENDATIONS_UNAVAILABLE: "AI_RECOMMENDATIONS_UNAVAILABLE",
-
-  // ── Account ───────────────────────────────────────────────────────────────
+  // ── Account ─────────────────────────────────────────────────────────────
   ACCOUNT_NOT_FOUND: "ACCOUNT_NOT_FOUND",
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 
-// ── HTTP status cho từng ErrorCode ────────────────────────────────────────────
-// Cho phép FE đọc trực tiếp statusCode từ error nếu cần,
-// nhưng helper sendError luôn set HTTP status explicit.
+// ── HTTP status for each ErrorCode ───────────────────────────────────────────
 export const ErrorStatus: Record<ErrorCodeValue, number> = {
   // Generic
   INTERNAL_ERROR: 500,
@@ -114,83 +98,61 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   EMAIL_ALREADY_USED: 409,
   INVALID_CREDENTIALS: 401,
   ITEMS_REQUIRED: 400,
-  SELLER_HANDLE_TAKEN: 409,
-  SELLER_SHOP_NAME_TAKEN: 409,
-  SELLER_ALREADY_APPROVED: 409,
-
-  // Seller
-  SELLER_NOT_APPROVED: 403,
-
-  // Product
-  PRODUCT_NOT_FOUND: 404,
-  PRODUCT_NOT_AVAILABLE: 400,
-  PRODUCT_OUT_OF_STOCK: 400,
-  PRODUCT_TITLE_REQUIRED: 400,
-  PRODUCT_PRICE_REQUIRED: 400,
-  PRODUCT_CONDITION_REQUIRED: 400,
-  PRODUCT_SIZE_REQUIRED: 400,
-  PRODUCT_QUANTITY_INVALID: 400,
-  PRODUCT_SIZE_DATA_INVALID: 400,
-
-  // Cart
-  CART_EMPTY: 400,
-  NO_ITEMS_CHECKED: 400,
-  CART_NOT_FOUND: 404,
-  CART_ITEM_NOT_FOUND: 404,
-  SELF_PURCHASE_NOT_ALLOWED: 400,
-  QUANTITY_EXCEEDS_STOCK: 400,
-  PRODUCT_ALREADY_NOT_FOR_SALE: 400,
-
-  // Order
-  ORDER_NOT_FOUND: 404,
-  ORDER_STATUS_REQUIRED: 400,
-  ORDER_INVALID_TRANSITION: 422,
-  ORDER_BUYER_NOT_PARTICIPANT: 403,
-  ORDER_SELLER_CANNOT_DELIVER: 403,
-  ORDER_ALREADY_SHIPPED: 400,
-  ORDER_ALREADY_CANCELLED: 400,
-  ORDER_PAYMENT_INVALID_STATE: 422,
-  ORDER_ID_REQUIRED: 400,
-
-  // Review
-  REVIEW_NOT_ALLOWED: 403,
-  REVIEW_ALREADY_EXISTS: 409,
-  REVIEW_RATING_INVALID: 400,
-
-  // Commission / Platform fee
-  COMMISSION_RATE_INVALID: 400,
-  SELLER_NOT_FOUND: 404,
-
-  // AI
-  AI_QUERY_INVALID_LENGTH: 400,
-  AI_IMAGE_INVALID: 400,
-  AI_IMAGE_TYPE_INVALID: 400,
-  AI_QUERY_OR_IMAGE_REQUIRED: 400,
-  AI_UPSTREAM_ERROR: 502,
-  AI_NOT_CONFIGURED: 503,
-  AI_RECOMMENDATIONS_UNAVAILABLE: 500,
-
-  // Account
-  ACCOUNT_NOT_FOUND: 404,
 
   // Address
   INVALID_EFFECTIVE_DATE: 400,
   PROVINCE_NOT_FOUND: 404,
   ADDRESS_UPSTREAM_TIMEOUT: 504,
   ADDRESS_UPSTREAM_ERROR: 502,
+
+  // Christmas catalog
+  TREE_NOT_FOUND: 404,
+  STYLE_NOT_FOUND: 404,
+  ACCESSORY_NOT_FOUND: 404,
+  CATALOG_ITEM_UNAVAILABLE: 409,
+  ACCESSORY_STYLE_MISMATCH: 400,
+  ACCESSORY_QUANTITY_INVALID: 400,
+  ACCESSORY_DUPLICATED: 400,
+  OUT_OF_STOCK: 409,
+
+  // Design
+  DESIGN_NOT_FOUND: 404,
+  DESIGN_CONFIG_INVALID: 400,
+  DESIGN_NOT_CONFIRMED: 400,
+  DESIGN_NAME_REQUIRED: 400,
+  DESIGN_SLUG_TAKEN: 409,
+
+  // Personalization
+  PERSONALIZATION_REQUIRED: 400,
+  PERSONALIZATION_INVALID: 400,
+
+  // Delivery
+  DELIVERY_OPTION_INVALID: 400,
+  DELIVERY_AREA_NOT_SUPPORTED: 422,
+
+  // Cart
+  CART_EMPTY: 400,
+  NO_ITEMS_CHECKED: 400,
+  CART_NOT_FOUND: 404,
+  CART_ITEM_NOT_FOUND: 404,
+
+  // Order
+  ORDER_NOT_FOUND: 404,
+  ORDER_STATUS_REQUIRED: 400,
+  ORDER_INVALID_TRANSITION: 422,
+  ORDER_ALREADY_SHIPPED: 400,
+  ORDER_ALREADY_CANCELLED: 400,
+  ORDER_PAYMENT_INVALID_STATE: 422,
+  ORDER_ID_REQUIRED: 400,
+  ORDER_CANCEL_NOT_ALLOWED: 409,
+
+  // Account
+  ACCOUNT_NOT_FOUND: 404,
 };
 
-// ── Helper chính: sendError ───────────────────────────────────────────────────
-// Mọi error response trong BE PHẢI đi qua helper này để đảm bảo format thống nhất.
-//
-// Trả về response với format:
-//   { error: { code: string, message: string } }
-//
-// Sử dụng:
-//   import { sendError, ErrorCode } from "../utils/errors";
-//   sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Không tìm thấy sản phẩm");
-//
-// Nếu không truyền status thì helper tự động lấy từ ErrorStatus map.
+// ── Main helper: sendError ───────────────────────────────────────────────────
+// Every error response in BE MUST go through this helper for consistent
+// format: { error: { code, message } }.
 export function sendError(
   res: Response,
   code: ErrorCodeValue,
@@ -199,17 +161,12 @@ export function sendError(
 ): Response {
   const httpStatus = status ?? ErrorStatus[code] ?? 500;
   return res.status(httpStatus).json({
-    error: {
-      code,
-      message,
-    },
+    error: { code, message },
   });
 }
 
-// ── Helper shorthand cho catch block ──────────────────────────────────────────
-// Dùng trong catch(err) để thống nhất log + trả INTERNAL_ERROR.
-// Trước đây: res.status(500).json({ error: "Lỗi hệ thống" });
-// Bây giờ:   handleInternalError(res, err, "[products] getProducts error");
+// ── Catch-block shorthand ────────────────────────────────────────────────────
+// Use in catch(err) to standardize log + return INTERNAL_ERROR.
 export function handleInternalError(
   res: Response,
   err: unknown,
@@ -217,19 +174,10 @@ export function handleInternalError(
 ): Response {
   const errorMessage = err instanceof Error ? err.message : String(err);
   console.error(`${context}:`, err);
-  return sendError(
-    res,
-    ErrorCode.INTERNAL_ERROR,
-    "Lỗi hệ thống",
-    500
-    // Note: errorMessage đã được log ở trên nhưng KHÔNG trả ra ngoài
-    // để tránh leak thông tin nội bộ (stack trace, DB schema, ...)
-  );
+  return sendError(res, ErrorCode.INTERNAL_ERROR, "Lỗi hệ thống", 500);
 }
 
-// ── Type cho FE consumer ──────────────────────────────────────────────────────
-// FE nên import type này để có type-safe error handling:
-//   type ApiError = { error: { code: ErrorCodeValue; message: string } };
+// ── Type for FE consumer ─────────────────────────────────────────────────────
 export interface ApiErrorBody {
   error: {
     code: ErrorCodeValue;

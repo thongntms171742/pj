@@ -1,75 +1,104 @@
-# API Contract Matrix
+# API Contract Matrix — Build Your Christmas
 
-This file tracks the implementation status of API features across teams based on the actual Backend implementation and Frontend integration progress.
+This file tracks the implementation status of API features across teams based on the **actual** Backend implementation and Frontend integration progress. Last updated to match the Christmas-domain backend after the `thrift it!` pivot.
+
+## Convention
+
+- ✅ — implemented (verified)
+- ⏳ — backend ready, frontend pending integration
+- ❌ — intentionally removed during the Christmas pivot (do NOT use)
+- 🚧 — planned but not started
+
+---
 
 | Method | Endpoint | Auth | Role | BE Status | FE Status | Notes |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
 | **Auth** | | | | | | |
-| POST | `/api/auth/register` | No | Public | ✅ | ✅ | Registration with auto role assignment |
-| POST | `/api/auth/login` | No | Public | ✅ | ✅ | Login returning JWT + user profile |
-| PUT | `/api/auth/me/avatar` | Yes | Any | ✅ | ✅ | Update profile avatar |
-| POST | `/api/auth/seller/apply` | Yes | Any | ✅ | ✅ | Seller onboarding application |
-| POST | `/api/auth/cart/merge` | Yes | Buyer | ✅ | ✅ | Legacy cart merge alias |
-| **Users** | | | | | | |
-| GET | `/api/users/me/addresses` | Yes | Any | ✅ | ⏳ | Get user's saved addresses |
-| POST | `/api/users/me/addresses` | Yes | Any | ✅ | ⏳ | Add a new address |
-| PATCH | `/api/users/me/addresses/:id` | Yes | Any | ✅ | ⏳ | Update an address (incl. default) |
-| DELETE | `/api/users/me/addresses/:id` | Yes | Any | ✅ | ⏳ | Delete an address |
-| **Sellers** | | | | | | |
-| GET | `/api/sellers` | No | Public | ✅ | ✅ | Active seller shops catalog |
-| GET | `/api/sellers/me` | Yes | Seller | ✅ | ✅ | Authenticated seller dashboard profile |
-| GET | `/api/sellers/me/reviews` | Yes | Seller | ✅ | ✅ | Reviews received by current seller |
-| GET | `/api/sellers/:idOrHandle` | No | Public | ✅ | ✅ | Public seller profile lookup |
-| GET | `/api/sellers/:idOrHandle/products` | No | Public | ✅ | ✅ | Products of a specific shop |
-| GET | `/api/sellers/:idOrHandle/reviews` | No | Public | ✅ | ✅ | Customer reviews for a seller |
-| **Products** | | | | | | |
-| GET | `/api/products` | No | Public | ✅ | ✅ | Catalog with filter (category, seller, status) |
-| GET | `/api/products/mine` | Yes | Seller | ✅ | ✅ | Seller listings + live metrics |
-| GET | `/api/products/seller` | Yes | Seller | ✅ | ✅ | Alias for `/api/products/mine` |
-| GET | `/api/products/:id` | No | Public | ✅ | ✅ | Single product detail (incl. `sizeQuantities`, `sizePriceDeltas`) |
-| POST | `/api/products` | Yes | Approved Seller | ✅ | ✅ | Create listing (accepts `sizeQuantities`, `sizePriceDeltas`) |
-| PATCH | `/api/products/:id` | Yes | Owner/Admin | ✅ | ⏳ | Partial update (incl. per-size stock & price deltas) |
-| PATCH | `/api/products/:id/archive` | Yes | Owner/Admin | ✅ | ✅ | Archive product |
-| POST | `/api/products/:id/reviews` | Yes | Buyer | ✅ | ✅ | Submit review for delivered product |
-| GET | `/api/products/:id/reviews` | No | Public | ✅ | ✅ | Reviews for product |
+| POST | `/api/auth/register` | No | Public | ✅ | ⏳ | Email + name; auto-assigns `buyer` role |
+| POST | `/api/auth/login` | No | Public | ✅ | ⏳ | Returns JWT (`7d`) + public user profile |
+| PUT  | `/api/auth/me/avatar` | Yes | Any | ✅ | ⏳ | Update profile avatar URL |
+| ~~POST~~ | ~~`/api/auth/seller/apply`~~ | — | — | ❌ | — | Marketplace endpoint removed |
+| ~~POST~~ | ~~`/api/auth/cart/merge`~~ | — | — | ❌ | — | Guest-cart merge removed (single-brand, no guest cart) |
+| **Users / Saved addresses** | | | | | | |
+| GET    | `/api/users/me/addresses` | Yes | Any | ✅ | ⏳ | List user's saved addresses |
+| POST   | `/api/users/me/addresses` | Yes | Any | ✅ | ⏳ | Add address (first one becomes default) |
+| PATCH  | `/api/users/me/addresses/:id` | Yes | Any | ✅ | ⏳ | Update address, supports `isDefault` swap |
+| DELETE | `/api/users/me/addresses/:id` | Yes | Any | ✅ | ⏳ | Delete address |
+| **Catalog (public)** | | | | | | |
+| GET  | `/api/catalog/trees` | No | Public | ✅ | ⏳ | 3 sizes S/M/L, with `price`, `stock`, `images`, `bareImage` |
+| GET  | `/api/catalog/styles` | No | Public | ✅ | ⏳ | 6 concepts (CLASSIC, MINIMAL, GINGERBREAD, WINTER, CUTE, LUXURY) |
+| GET  | `/api/catalog/accessories` | No | Public | ✅ | ⏳ | Filters: `type`, `group`, `style`, `size`. Returns `maxQty` per size when `size` is passed |
+| GET  | `/api/catalog/presets` | No | Public | ✅ | ⏳ | Ready-made designs (admin-managed), hydrated |
+| GET  | `/api/catalog/delivery-options` | No | Public | ✅ | ⏳ | `READY_TO_DISPLAY` (decorated) vs `FLAT_PACK` (DIY); flat shipping fee |
+| POST | `/api/catalog/quote` | No | Public | ✅ | ⏳ | Live price preview from a `DesignConfig` (no auth needed) |
+| **Designs (auth + public share)** | | | | | | |
+| POST   | `/api/designs/quote` | No | Public | ✅ | ⏳ | Same as `catalog/quote`; kept under designs for editor convenience |
+| POST   | `/api/designs` | Yes | Buyer | ✅ | ⏳ | Save a TreeDesign; returns `{ design, shareUrl }` |
+| GET    | `/api/designs/mine` | Yes | Buyer | ✅ | ⏳ | List my designs |
+| GET    | `/api/designs/share/:slug` | No / auth | Public/owner | ✅ | ⏳ | Public if `isPublic`; otherwise owner/admin only |
+| GET    | `/api/designs/:id` | Yes | Owner/Admin | ✅ | ⏳ | Fetch design by Mongo `_id` |
+| PATCH  | `/api/designs/:id` | Yes | Owner | ✅ | ⏳ | Rename / change `config` / toggle `isPublic`. Re-validates via pricing |
+| DELETE | `/api/designs/:id` | Yes | Owner | ✅ | ⏳ | Delete design (preset cannot be deleted) |
+| POST   | `/api/designs/:id/duplicate` | Yes | Any | ✅ | ⏳ | Clone any design (own / public / preset) |
 | **Cart** | | | | | | |
-| GET | `/api/cart` | Yes | Buyer | ✅ | ✅ | User cart with populated items |
-| POST | `/api/cart/items` | Yes | Buyer | ✅ | ✅ | Add item to cart with stock validation |
-| PATCH | `/api/cart/items/:id` | Yes | Buyer | ✅ | ✅ | Update quantity / checked status |
-| DELETE | `/api/cart/items/:id` | Yes | Buyer | ✅ | ✅ | Remove item from cart |
-| DELETE | `/api/cart/clear` | Yes | Buyer | ✅ | ✅ | Clear all cart items |
-| POST | `/api/cart/merge` | Yes | Buyer | ✅ | ✅ | Merge guest cart upon login |
+| GET    | `/api/cart` | Yes | Buyer | ✅ | ⏳ | List cart items + live `currentUnitTotal` + `priceChanged` flag |
+| POST   | `/api/cart/items` | Yes | Buyer | ✅ | ⏳ | Add design or inline `DesignConfig`; validates via pricing |
+| PATCH  | `/api/cart/items/:id` | Yes | Buyer | ✅ | ⏳ | Update `quantity`, `checked`, or replace `config` |
+| DELETE | `/api/cart/items/:id` | Yes | Buyer | ✅ | ⏳ | Remove one item |
+| DELETE | `/api/cart/clear` | Yes | Buyer | ✅ | ⏳ | Empty cart |
+| ~~POST~~ | ~~`/api/cart/merge`~~ | — | — | ❌ | — | Guest-cart merge removed |
 | **Orders** | | | | | | |
-| GET | `/api/orders` | Yes | Buyer | ✅ | ✅ | Buyer order history |
-| GET | `/api/orders/seller` | Yes | Seller | ✅ | ✅ | Seller orders needing processing |
-| POST | `/api/orders` | Yes | Buyer | ✅ | ✅ | Checkout (checked cart items or custom payload) |
-| GET | `/api/orders/:id` | Yes | Buyer/Seller | ✅ | ✅ | Order details by code or ID |
-| PATCH | `/api/orders/:code/status` | Yes | Buyer/Seller | ✅ | ✅ | State machine transition |
-| GET | `/api/orders/:code/shipment` | Yes | Buyer/Seller | ✅ | ✅ | Live shipment tracking & timeline |
-| POST | `/api/orders/:code/shipment` | Yes | Seller | ✅ | ✅ | Generate GHTK shipping label |
+| GET  | `/api/orders` | Yes | Buyer | ✅ | ⏳ | List my orders; optional `?status=` filter |
+| POST | `/api/orders` | Yes | Buyer | ✅ | ⏳ | Create order. Accepts `items[]` or `cartItemIds[]`. Requires `designConfirmed: true`. HCM-only `79`. Snapshots price into order. |
+| GET  | `/api/orders/:id` | Yes | Buyer/Admin | ✅ | ⏳ | Accepts Mongo `_id` or `orderCode` |
+| PATCH | `/api/orders/:id/status` | Yes | Buyer/Admin | ✅ | ⏳ | State-machine transition. Buyer: `CANCELLED`/`CANCEL_REQUESTED`/`DELIVERED`/`COMPLETED`/`DISPUTED`. Personalization + `PACKING` blocks cancel-request. Restores stock on `CANCELLED`. |
+| POST | `/api/orders/:id/shipment` | Yes | Admin | ✅ | ⏳ | Generate HCM delivery shipment, emits tracking events |
+| GET  | `/api/orders/:id/shipment` | Yes | Buyer/Admin | ✅ | ⏳ | Live shipment + timeline events |
+| ~~GET~~ | ~~`/api/orders/seller`~~ | — | — | ❌ | — | Marketplace endpoint removed |
+| ~~PATCH~~ | ~~`/api/orders/:code/status`~~ | — | — | ❌ | — | Use `/api/orders/:id/status` instead |
+| ~~POST~~ | ~~`/api/orders/:code/shipment`~~ | — | — | ❌ | — | Use `/api/orders/:id/shipment` instead |
 | **Payments** | | | | | | |
-| POST | `/api/payments/checkout` | Yes | Buyer | ✅ | ✅ | Online payment processing & inventory deduction |
-| POST | `/api/payments/:code/cod-collect` | Yes | Admin/System | ✅ | ⏳ | Idempotent COD collection |
+| POST | `/api/payments/checkout` | Yes | Buyer | ✅ | ⏳ | Online-payment advance: `PENDING_PAYMENT → PAID → CONFIRMED` |
+| ~~POST~~ | ~~`/api/payments/:code/cod-collect`~~ | — | — | ❌ | — | COD handled inside order creation (`paymentMethod: "COD"`) |
 | **Notifications** | | | | | | |
-| GET | `/api/notifications` | Yes | Any | ✅ | ✅ | User notification feed |
-| PATCH | `/api/notifications/:id/read` | Yes | Any | ✅ | ✅ | Mark notification as read |
-| **Admin** | | | | | | |
-| GET | `/api/admin/users` | Yes | Admin | ✅ | ⏳ | Users list with pagination & filters |
-| PATCH | `/api/admin/users/:id/status` | Yes | Admin | ✅ | ⏳ | Ban or unban user account |
-| GET | `/api/admin/users/:id/details` | Yes | Admin | ✅ | ⏳ | User details & stats |
-| GET | `/api/admin/pending-listings` | Yes | Admin | ✅ | ✅ | Pending product listings moderation |
-| PATCH | `/api/admin/listings/:id/approve` | Yes | Admin | ✅ | ✅ | Approve listing -> active |
-| PATCH | `/api/admin/listings/:id/reject` | Yes | Admin | ✅ | ✅ | Reject listing -> archived |
-| GET | `/api/admin/pending-sellers` | Yes | Admin | ✅ | ✅ | Pending seller applications (`res.users`) |
-| PATCH | `/api/admin/sellers/:id/approve` | Yes | Admin | ✅ | ✅ | Approve seller application |
-| PATCH | `/api/admin/sellers/:id/reject` | Yes | Admin | ✅ | ✅ | Reject seller application |
-| PATCH | `/api/admin/sellers/:id/commission-rate` | Yes | Admin | ✅ | ⏳ | Update per-seller commission rate |
-| GET | `/api/admin/stats` | Yes | Admin | ✅ | ✅ | Admin dashboard platform stats |
-| **AI** | | | | | | |
-| POST | `/api/ai/search` | No | Public | ✅ | ✅ | Natural language search |
-| POST | `/api/ai/analyze-listing` | No | Public | ✅ | ✅ | Listing valuation and categorization |
-| POST | `/api/ai/recommendations` | No | Public | ✅ | ⏳ | Product recommendations |
-| **Addresses** | | | | | | |
-| GET | `/api/addresses/provinces` | No | Public | ✅ | ⏳ | CAS proxy: list provinces/cities (cached 24h) |
-| GET | `/api/addresses/provinces/:provinceId/communes` | No | Public | ✅ | ⏳ | CAS proxy: list communes by province (cached 24h) |
-| GET | `/api/addresses/communes` | No | Public | ✅ | ⏳ | CAS proxy: list all communes nationwide (cached 24h) |
+| GET   | `/api/notifications` | Yes | Any | ✅ | ⏳ | Last 50; auto-emitted on order create |
+| PATCH | `/api/notifications/:id/read` | Yes | Owner | ✅ | ⏳ | Mark one read; ownership enforced |
+| **Admin (catalog)** | | | | | | |
+| GET   | `/api/admin/trees` | Yes | Admin | ✅ | ⏳ | Optional `?isActive=true|false` |
+| POST  | `/api/admin/trees` | Yes | Admin | ✅ | ⏳ | Create tree SKU |
+| PATCH | `/api/admin/trees/:id` | Yes | Admin | ✅ | ⏳ | Update tree SKU |
+| GET   | `/api/admin/styles` | Yes | Admin | ✅ | ⏳ | List all styles |
+| POST  | `/api/admin/styles` | Yes | Admin | ✅ | ⏳ | Create style |
+| PATCH | `/api/admin/styles/:id` | Yes | Admin | ✅ | ⏳ | Update style |
+| GET   | `/api/admin/accessories` | Yes | Admin | ✅ | ⏳ | List all accessories |
+| POST  | `/api/admin/accessories` | Yes | Admin | ✅ | ⏳ | Create accessory SKU |
+| PATCH | `/api/admin/accessories/:id` | Yes | Admin | ✅ | ⏳ | Update accessory SKU |
+| **Admin (designs / orders / users / stats)** | | | | | | |
+| GET    | `/api/admin/presets` | Yes | Admin | ✅ | ⏳ | List admin presets (hydrated) |
+| POST   | `/api/admin/presets` | Yes | Admin | ✅ | ⏳ | Create preset |
+| PATCH  | `/api/admin/presets/:id` | Yes | Admin | ✅ | ⏳ | Update preset |
+| DELETE | `/api/admin/presets/:id` | Yes | Admin | ✅ | ⏳ | Delete preset |
+| GET    | `/api/admin/orders` | Yes | Admin | ✅ | ⏳ | List all orders; optional `?status=` |
+| GET    | `/api/admin/stats` | Yes | Admin | ✅ | ⏳ | Dashboard counts (orders, users, designs, revenue, AOV, low-stock, personalization count) |
+| GET    | `/api/admin/users` | Yes | Admin | ✅ | ⏳ | Paged + searchable (`?search=&page=&limit=`) |
+| PATCH  | `/api/admin/users/:id/status` | Yes | Admin | ✅ | ⏳ | Ban / unban (cannot self-suspend) |
+| GET    | `/api/admin/users/:id/details` | Yes | Admin | ✅ | ⏳ | Profile + per-user order/spend stats |
+| ~~GET~~ | ~~`/api/admin/pending-listings`~~ | — | — | ❌ | — | Removed |
+| ~~PATCH~~ | ~~`/api/admin/listings/:id/approve`~~ | — | — | ❌ | — | Removed |
+| ~~PATCH~~ | ~~`/api/admin/listings/:id/reject`~~ | — | — | ❌ | — | Removed |
+| ~~GET~~ | ~~`/api/admin/pending-sellers`~~ | — | — | ❌ | — | Removed |
+| ~~PATCH~~ | ~~`/api/admin/sellers/:id/approve`~~ | — | — | ❌ | — | Removed |
+| ~~PATCH~~ | ~~`/api/admin/sellers/:id/reject`~~ | — | — | ❌ | — | Removed |
+| ~~PATCH~~ | ~~`/api/admin/sellers/:id/commission-rate`~~ | — | — | ❌ | — | Removed |
+| **Sellers / Products / Reviews (legacy marketplace)** | | | | | | |
+| — | `/api/sellers/*` | — | — | ❌ | — | Single-brand: no seller concept |
+| — | `/api/products/*` | — | — | ❌ | — | Catalog replaced by `/api/catalog/*` |
+| — | `/api/products/:id/reviews` | — | — | ❌ | — | Reviews removed (not in Christmas MVP) |
+| **AI (legacy)** | | | | | | |
+| — | `/api/ai/*` | — | — | ❌ | — | Gemini AI endpoints removed in favour of explicit FE-side composition |
+| **Addresses (CAS proxy)** | | | | | | |
+| GET | `/api/addresses/provinces` | No | Public | ✅ | ⏳ | Cached 24h; `?effectiveDate=YYYY-MM-DD` or `latest` |
+| GET | `/api/addresses/provinces/:provinceId/communes` | No | Public | ✅ | ⏳ | Cached 24h |
+| GET | `/api/addresses/communes` | No | Public | ✅ | ⏳ | Cached 24h |
+| **Support chat** | | | | | | |
+| — | — | — | — | 🚧 | — | Not implemented yet (uses generic `chat` notification type, no live channel). Use Zalo/email integration post-MVP. |

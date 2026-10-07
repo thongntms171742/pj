@@ -1,22 +1,22 @@
-# API Contract
+# API Contract — Build Your Christmas
 
-> **Source of Truth:** API Contract là source of truth cho giao tiếp giữa FE và BE; Backend implementation và automated tests phải được kiểm tra để bảo đảm contract phản ánh API thực tế. Backend chịu trách nhiệm cập nhật các document này trước khi đánh dấu một tính năng là DONE. Frontend dựa vào các document này để làm thay vì phải tự đoán API behavior.
+> **Source of Truth:** File này mô tả 7 contract fields/endpoint (Method, Auth, Request, Path/Query, Success response, Errors, Side effects) cho mọi endpoint BE đang chạy. Đồng bộ với code (`backend/src/`) và `docs/openapi.yaml`. Nếu có xung đột, **tin code thực tế**.
 
 ## Mục lục
 
 1. [Quy ước chung](#quy-ước-chung)
 2. [Auth](#auth)
-3. [Sellers](#sellers)
-4. [Products](#products)
-5. [Cart](#cart)
-6. [Orders](#orders)
-7. [Shipments](#shipments)
-8. [Payments](#payments)
-9. [Notifications](#notifications)
-10. [Admin](#admin)
-11. [AI](#ai)
-12. [Health](#health)
-13. [Users](#users)
+3. [Users (Saved addresses)](#users-saved-addresses)
+4. [Addresses (CAS proxy)](#addresses-cas-proxy)
+5. [Catalog (public)](#catalog-public)
+6. [Designs](#designs)
+7. [Cart](#cart)
+8. [Orders](#orders)
+9. [Shipments](#shipments)
+10. [Payments](#payments)
+11. [Notifications](#notifications)
+12. [Admin](#admin)
+13. [Health](#health)
 
 ---
 
@@ -25,38 +25,58 @@
 | Mục | Giá trị |
 | :--- | :--- |
 | Base URL (local) | `http://localhost:4000` |
-| Base URL (production) | `https://api.thriftit.com` |
-| API prefix | `/api` (không dùng versioning `/v1` ở MVP) |
+| Base URL (production) | `https://api.buildyourchristmas.vn` (TBD khi deploy) |
+| API prefix | `/api` (không versioning ở MVP) |
 | Content-Type | `application/json` |
 | Auth header | `Authorization: Bearer <JWT>` |
-| Date format | ISO 8601 (`createdAt`, `shippedAt`, ...) |
-| ID format | MongoDB ObjectId (`24 hex chars`) hoặc business code (`ORD-...`, `GHTK...`) |
-| User identification | JWT chứa `{ id, email, roles[] }` (xem `AUTH_SPEC.md`) |
+| Date format | ISO 8601 (`createdAt`, `shippedAt`, …) |
+| ID format | MongoDB ObjectId (24 hex) hoặc business code (`BYC-########` cho order, slug cho design) |
+| User identification | JWT chứa `{ id, email, roles[] }` |
 
 ### Quy ước Response
 
-**Success** — đa số các endpoint trả về object bao bọc:
-
+**Success** — đa số endpoint trả object bao bọc theo resource:
 ```json
-{ "data": {} }
+{ "trees": [...] }
+{ "styles": [...] }
+{ "accessories": [...] }
+{ "presets": [...] }
+{ "design": {...} }
+{ "designs": [...] }
+{ "shareUrl": "/tree/slug-here" }
+{ "cart": {...}, "items": [...] }
+{ "item": {...} }
+{ "order": {...} }
+{ "orders": [...] }
+{ "shipment": {...} }
+{ "notifications": [...] }
+{ "stats": {...} }
+{ "users": [...] }
+{ "options": [...] }
+{ "pricing": {...} }
+{ "data": [...], "effectiveDate": "latest" }
+{ "success": true }
 ```
 
-hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, seller, product, order, shipment, item }`).
-
-**Error** — chuẩn thực tế hiện nay của backend:
-
+**Error** — chuẩn format:
 ```json
-{ "error": "MESSAGE_OR_CODE_STRING" }
+{
+  "error": {
+    "code": "TREE_NOT_FOUND",
+    "message": "Không tìm thấy cây thông"
+  }
+}
 ```
 
-> **Lưu ý quan trọng:** Hiện tại backend **CHƯA** trả về cấu trúc `{ error: { code, message } }` thống nhất (xem bảng `Error Code Mapping` trong `ERROR_CODES.md`). FE nên đọc `error` như một string và phân nhánh theo nội dung chuỗi, hoặc đối chiếu với bảng đó (một số endpoint đã trả về business code kiểu `"SELLER_NOT_APPROVED"` — những endpoint khác trả về message tiếng Việt).
+> **Quan trọng**: FE branch logic dựa trên `error.code` (string enum), KHÔNG dựa trên `message`. Danh sách 47 codes Christmas xem `docs/ERROR_CODES.md`.
 
 ### Quy ước phân quyền
 
 - `Public` — không cần JWT.
-- `Buyer` — yêu cầu JWT có role `buyer` (mặc định khi đăng ký).
-- `Seller` — yêu cầu JWT có role `seller` VÀ `sellerProfile.status === "active"`.
-- `Admin` — yêu cầu JWT có role `admin`.
+- `Buyer` — yêu cầu JWT có role `buyer` (default khi đăng ký).
+- `Admin` — yêu cầu JWT có role `admin` (set thủ công trong DB).
+- `Owner` — yêu cầu JWT và resource thuộc user đó (vd: design của mình, order của mình).
+- `Optional auth` — middleware `optionalAuth` chỉ gắn `req.user` nếu token hợp lệ, không reject (vd: share design public).
 
 ---
 
@@ -71,198 +91,79 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
 **Request**:
 ```json
 {
-  "name": "string (required)",
+  "name": "string (required, trim)",
   "email": "string (required, unique, lowercase)",
-  "password": "string (required, plaintext — backend hash với bcrypt)"
+  "password": "string (required, plaintext — BE hash với bcrypt)"
 }
 ```
 
 **Success (201)**:
 ```json
 {
-  "token": "JWT",
+  "token": "JWT (7d)",
   "user": {
+    "_id": "string (ObjectId)",
     "name": "string",
     "email": "string",
-    "roles": ["buyer"]
+    "avatarUrl": "string",
+    "roles": ["buyer"],
+    "accountStatus": "active",
+    "addresses": []
   }
 }
 ```
 
 **Errors**:
-- `400` `Vui lòng điền đầy đủ thông tin`
-- `409` `Email đã được sử dụng`
-- `500` `Lỗi hệ thống`
+- `400 MISSING_FIELD`
+- `409 EMAIL_ALREADY_USED`
+- `500 INTERNAL_ERROR`
 
 ---
 
 ### POST `/api/auth/login`
 
-**Mục đích**: Đăng nhập, trả về JWT.
-
 **Auth**: Public.
 
 **Request**:
 ```json
-{
-  "email": "string (required)",
-  "password": "string (required)"
-}
+{ "email": "string", "password": "string" }
 ```
 
-**Success (200)**:
-```json
-{
-  "token": "JWT",
-  "user": {
-    "name": "string",
-    "email": "string",
-    "roles": ["buyer", "seller"]
-  }
-}
-```
+**Success (200)**: Same shape as register response.
 
 **Errors**:
-- `400` `Vui lòng nhập email và mật khẩu`
-- `401` `Email hoặc mật khẩu không đúng`
-- `500` `Lỗi hệ thống`
-
-> **Token storage**: FE lưu token vào `localStorage` (key: `token`) và gửi kèm `Authorization: Bearer <token>` cho mọi request cần auth.
-
----
-
-### POST `/api/auth/seller/apply`
-
-**Mục đích**: User đăng ký trở thành người bán (seller application flow).
-
-**Auth**: Required (Buyer — user chưa phải seller active).
-
-**Request**:
-```json
-{
-  "shopName": "string (required, 3–100 chars, unique)",
-  "handle": "string (optional, 3–30 chars, alphanumeric + _ + .) — tự động sinh từ email nếu bỏ trống",
-  "description": "string (optional, max 500 chars)",
-  "avatarUrl": "string (optional, URL)",
-  "coverImages": ["string"] // optional, max 5 URLs
-}
-```
-
-**Success (201)** — first-time application:
-```json
-{
-  "application": {
-    "userId": "string",
-    "shopName": "string",
-    "handle": "string",
-    "status": "pending_approval",
-    "submittedAt": "ISO date",
-    "estimatedReviewDays": 3
-  },
-  "user": {
-    "_id": "string",
-    "name": "string",
-    "email": "string",
-    "roles": ["buyer", "seller"],
-    "sellerStatus": "pending_approval"
-  }
-}
-```
-
-**Success (200)** — idempotent update (user đã apply trước đó, vẫn pending):
-```json
-{ "application": { /* same shape */ }, "user": { /* same shape */ } }
-```
-
-**Errors**:
-- `400` `INVALID_INPUT` — `shopName phải có độ dài từ 3 đến 100 ký tự`
-- `400` `INVALID_INPUT` — `handle chỉ chấp nhận chữ cái, số, dấu _ và . (độ dài 3-30)`
-- `401` `UNAUTHORIZED` — Chưa đăng nhập
-- `404` `ACCOUNT_NOT_FOUND` — User không tồn tại
-- `409` `SELLER_ALREADY_APPROVED` — User đã là seller active (không cần apply)
-- `409` `SELLER_HANDLE_TAKEN` — `Handle "..." đã được sử dụng bởi người bán khác`
-- `409` `SELLER_SHOP_NAME_TAKEN` — `Tên shop "..." đã được sử dụng`
-- `500` `INTERNAL_ERROR` — Lỗi hệ thống
-
-> **Side effects**:
-> - Thêm role `"seller"` vào `user.roles` (FE có thể check `user.roles.includes("seller")` + `user.sellerStatus === "pending_approval"` để show banner "Đang chờ duyệt").
-> - Set `user.sellerProfile = { ..., status: "pending_approval" }`.
-> - User KHÔNG THỂ tạo sản phẩm cho đến khi admin duyệt (vẫn trả `403 SELLER_NOT_APPROVED`).
-
-> **FE workflow**:
-> 1. Show form "Đăng ký bán hàng" với các field trên.
-> 2. Submit → gọi endpoint này.
-> 3. Nhận `user.sellerStatus === "pending_approval"` → show banner "Đang chờ admin duyệt (~3 ngày)".
-> 4. Disable nút tạo sản phẩm cho đến khi login lại và thấy `sellerStatus === "active"`.
+- `400 MISSING_FIELD`
+- `401 INVALID_CREDENTIALS`
+- `403 FORBIDDEN` — Tài khoản bị suspended
+- `500 INTERNAL_ERROR`
 
 ---
 
 ### PUT `/api/auth/me/avatar`
 
-**Mục đích**: Cập nhật ảnh đại diện (avatar) của tài khoản người dùng và hồ sơ người bán (nếu có).
-
-**Auth**: Required (User).
+**Auth**: Required.
 
 **Request**:
 ```json
-{
-  "avatarUrl": "https://example.com/avatar.jpg (string, required)"
-}
+{ "avatarUrl": "https://..." }
 ```
 
-**Success (200)**:
-```json
-{
-  "avatarUrl": "https://example.com/avatar.jpg",
-  "message": "Cập nhật ảnh đại diện thành công"
-}
-```
+**Success (200)**: `{ "user": { /* updated */ } }`
 
 **Errors**:
-- `400` `INVALID_INPUT` — `Thiếu avatarUrl hoặc không hợp lệ`
-- `401` `UNAUTHORIZED` — `Chưa đăng nhập`
-- `404` `ACCOUNT_NOT_FOUND` — `Không tìm thấy người dùng`
-- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+- `400 INVALID_INPUT`
+- `401 UNAUTHORIZED`
+- `404 ACCOUNT_NOT_FOUND`
 
 ---
 
-### POST `/api/auth/cart/merge`
+## Users (Saved addresses)
 
-**Mục đích**: ⚠️ **DEPRECATED** — dùng `POST /api/cart/merge` thay thế.
-
-**Auth**: Required (Buyer).
-
-**Request**:
-```json
-{
-  "items": [
-    { "productId": "string (ObjectId)", "quantity": "number" }
-  ]
-}
-```
-
-**Success (200)**:
-```json
-{
-  "items": [ /* ApiCartItem[] — cùng shape với /api/cart */ ]
-}
-```
-
-**Errors**:
-- `400` `ITEMS_REQUIRED` — `items array is required`
-- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
-
-> **Deprecation note (2026-09-29)**: Endpoint này giữ để tương thích ngược với FE clients cũ. BE đã log warning mỗi lần gọi để theo dõi traffic. Sẽ bị xóa trong release tiếp theo. FE mới **KHÔNG ĐƯỢC** gọi endpoint này — dùng `/api/cart/merge`.
-
----
-
-## Users
+> Embedded trong `User.addresses[]`. Không tách collection riêng.
 
 ### GET `/api/users/me/addresses`
 
-**Mục đích**: Lấy danh sách địa chỉ (sổ địa chỉ) của user hiện tại.
-
-**Auth**: Required (Any authenticated user).
+**Auth**: Required.
 
 **Success (200)**:
 ```json
@@ -282,15 +183,13 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
 }
 ```
 
-**Errors**: `401` `UNAUTHORIZED`, `500` `INTERNAL_ERROR`
+**Errors**: `401 UNAUTHORIZED`, `500 INTERNAL_ERROR`
 
 ---
 
 ### POST `/api/users/me/addresses`
 
-**Mục đích**: Thêm một địa chỉ mới.
-
-**Auth**: Required (Any authenticated user).
+**Auth**: Required.
 
 **Request**:
 ```json
@@ -307,528 +206,504 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
 
 **Success (201)**:
 ```json
-{
-  "address": { /* ApiAddress mới */ }
-}
+{ "address": { /* IAddress mới, _id được assign */ } }
 ```
 
-**Errors**: `400` `MISSING_FIELD`, `401` `UNAUTHORIZED`, `500` `INTERNAL_ERROR`
+**Errors**: `400 MISSING_FIELD`, `401 UNAUTHORIZED`
 
 ---
 
 ### PATCH `/api/users/me/addresses/:id`
 
-**Mục đích**: Cập nhật thông tin hoặc trạng thái mặc định của một địa chỉ.
+**Auth**: Required (owner).
 
-**Auth**: Required (Any authenticated user).
-
-**Request**:
-```json
-{
-  "name": "string (optional)",
-  "phone": "string (optional)",
-  "address": "string (optional)",
-  "province": "string (optional)",
-  "district": "string (optional)",
-  "ward": "string (optional)",
-  "isDefault": "boolean (optional)"
-}
-```
+**Request**: tất cả fields optional.
 
 **Success (200)**:
 ```json
-{
-  "address": { /* ApiAddress đã cập nhật */ }
-}
+{ "address": { /* updated */ } }
 ```
 
-**Errors**: `401` `UNAUTHORIZED`, `404` `NOT_FOUND`, `500` `INTERNAL_ERROR`
+**Errors**: `401 UNAUTHORIZED`, `404 NOT_FOUND`
 
 ---
 
 ### DELETE `/api/users/me/addresses/:id`
 
-**Mục đích**: Xóa một địa chỉ. Nếu xóa địa chỉ mặc định, tự động gán địa chỉ cũ nhất thành mặc định.
+**Auth**: Required (owner).
 
-**Auth**: Required (Any authenticated user).
+**Success (200)**: `{ "success": true }`
+
+**Errors**: `401 UNAUTHORIZED`, `404 NOT_FOUND`
+
+---
+
+## Addresses (CAS proxy)
+
+> Proxy tới `https://production.cas.so/address-kit` với 24h in-memory cache + 5s timeout.
+
+### GET `/api/addresses/provinces`
+
+**Auth**: Public.
+
+**Query params**: `effectiveDate` (default `"latest"`, format `YYYY-MM-DD` hoặc `"latest"`)
+
+**Success (200)**:
+```json
+{
+  "data": [
+    { "id": "01", "name": "Thành phố Hà Nội" },
+    { "id": "79", "name": "Thành phố Hồ Chí Minh" }
+  ],
+  "effectiveDate": "latest"
+}
+```
+
+**Errors**:
+- `400 INVALID_EFFECTIVE_DATE`
+- `502 ADDRESS_UPSTREAM_ERROR`
+- `504 ADDRESS_UPSTREAM_TIMEOUT`
+
+---
+
+### GET `/api/addresses/provinces/:provinceId/communes`
+
+**Auth**: Public.
+
+**Path**: `provinceId` (vd `"79"`)
+**Query**: `effectiveDate`
+
+**Success (200)**:
+```json
+{
+  "data": [{ "id": "25747", "name": "Phường Thủ Dầu Một" }],
+  "effectiveDate": "latest"
+}
+```
+
+**Errors**:
+- `400 INVALID_INPUT` / `INVALID_EFFECTIVE_DATE`
+- `404 PROVINCE_NOT_FOUND`
+- `502 ADDRESS_UPSTREAM_ERROR`
+- `504 ADDRESS_UPSTREAM_TIMEOUT`
+
+---
+
+### GET `/api/addresses/communes`
+
+**Auth**: Public.
+
+**Query**: `effectiveDate`
+
+**Success (200)**:
+```json
+{
+  "data": [{ "id": "00004", "name": "Phường Ba Đình", "provinceId": "01" }],
+  "effectiveDate": "latest"
+}
+```
+
+---
+
+## Catalog (public)
+
+### GET `/api/catalog/trees`
+
+**Auth**: Public.
+
+**Success (200)**:
+```json
+{
+  "trees": [
+    {
+      "_id": "string",
+      "size": "S | M | L",
+      "name": "string",
+      "heightCmMin": "number",
+      "heightCmMax": "number",
+      "diameterCm": "number",
+      "material": "string",
+      "density": "string",
+      "description": "string",
+      "images": ["string"],
+      "bareImage": "string",
+      "price": "number (VND)",
+      "stock": "number"
+    }
+  ]
+}
+```
+
+**Errors**: `500 INTERNAL_ERROR`
+
+---
+
+### GET `/api/catalog/styles`
+
+**Auth**: Public.
+
+**Success (200)**:
+```json
+{
+  "styles": [
+    {
+      "_id": "string",
+      "code": "CLASSIC | MINIMAL | GINGERBREAD | WINTER | CUTE | LUXURY",
+      "name": "string",
+      "description": "string",
+      "palette": ["hex colors"],
+      "coverImage": "string"
+    }
+  ]
+}
+```
+
+---
+
+### GET `/api/catalog/accessories`
+
+**Auth**: Public.
+
+**Query params** (tất cả optional):
+- `type` — `LIGHT_STRING` | `CANDLE` | `BAUBLE` | `BELL` | `CANDY` | `FIGURINE` | `BOW` | `STAR` | `STOCKING` | `NAME_TAG` | `NAME_ORNAMENT`
+- `group` — `LIGHTS` | `ORNAMENT` | `DECOR` | `PERSONAL`
+- `style` — filter theo `styleCodes` (nếu `styleCodes` rỗng → tương thích mọi style)
+- `size` — `S` | `M` | `L`. Nếu có → `maxQty` trả về là `maxQtyBySize[size]`
+
+**Success (200)**:
+```json
+{
+  "accessories": [
+    {
+      "_id": "string",
+      "group": "LIGHTS | ORNAMENT | DECOR | PERSONAL",
+      "type": "string",
+      "name": "string",
+      "description": "string",
+      "image": "string",
+      "price": "number (VND)",
+      "stock": "number",
+      "styleCodes": ["string"],
+      "maxQty": "number | { S, M, L }",
+      "isPersonalizable": "boolean",
+      "personalizationMaxLength": "number",
+      "productionDays": "number"
+    }
+  ]
+}
+```
+
+> **Note cho FE**: Khi `size` query param có giá trị → `maxQty` là number (cho size đó). Khi không có `size` → `maxQty` là object `{S, M, L}`. Dùng để bound input ngay khi user chọn size cây.
+
+---
+
+### GET `/api/catalog/presets`
+
+**Auth**: Public.
+
+**Success (200)**:
+```json
+{
+  "presets": [
+    {
+      "_id": "string",
+      "name": "string",
+      "slug": "string",
+      "year": "number",
+      "config": { /* DesignConfig */ },
+      "previewImage": "string",
+      "isPublic": true,
+      "isPreset": true,
+      "shareUrl": "/tree/slug-here",
+      "pricing": { /* PriceBreakdown */ }
+    }
+  ]
+}
+```
+
+> Mỗi preset đã được hydrate (catalog loaded + pricing computed) — FE render trực tiếp.
+
+---
+
+### GET `/api/catalog/delivery-options`
+
+**Auth**: Public.
+
+**Success (200)**:
+```json
+{
+  "options": [
+    {
+      "code": "READY_TO_DISPLAY",
+      "shippingFee": 30000,
+      "decorationFeeBySize": { "S": 50000, "M": 80000, "L": 120000 }
+    },
+    {
+      "code": "FLAT_PACK",
+      "shippingFee": 30000,
+      "decorationFeeBySize": { "S": 0, "M": 0, "L": 0 }
+    }
+  ]
+}
+```
+
+---
+
+### POST `/api/catalog/quote`
+
+**Mục đích**: Live price preview từ `DesignConfig` (không cần login, dùng cho editor preview).
+
+**Auth**: Public.
+
+**Request**:
+```json
+{
+  "config": {
+    "treeId": "ObjectId (required — Tree._id)",
+    "styleId": "ObjectId (required — Style._id)",
+    "accessories": [
+      { "accessoryId": "ObjectId", "quantity": 1, "personalizationText": "string (optional, required if accessory.isPersonalizable)" }
+    ],
+    "deliveryOption": "READY_TO_DISPLAY | DIY_KIT | SEPARATE"
+  }
+}
+```
+
+> **Note cho FE**: FE nên cache `Tree._id`, `Style._id`, `Accessory._id` từ các endpoint catalog (`/api/catalog/trees`, `/styles`, `/accessories`) thay vì gửi `treeSize`/`styleCode`. Design snapshot vào Order cần ObjectId ổn định.
+
+**Success (200)**:
+```json
+{
+  "pricing": {
+    "tree": { "id": "ObjectId", "name": "string", "size": "S|M|L", "unitPrice": "number (VND)" },
+    "style": { "id": "ObjectId", "code": "string", "name": "string" },
+    "lines": [
+      { "accessoryId": "ObjectId", "name": "string", "type": "string", "group": "string", "image": "string", "unitPrice": "number", "quantity": "number", "lineTotal": "number", "isPersonalizable": "boolean", "personalizationMaxLength": "number", "productionDays": "number" }
+    ],
+    "decorationFee": "number (VND — 0 unless READY_TO_DISPLAY)",
+    "shippingFee": 30000,
+    "unitTotal": "number (VND — full price for 1 set)",
+    "productionDays": "number",
+    "hasPersonalization": "boolean",
+    "hasService": "boolean (true if decorationFee > 0)",
+    "warnings": ["string (validation hints)"]
+  }
+}
+```
+
+**Errors**:
+- `400 MISSING_FIELD`
+- `404 TREE_NOT_FOUND` / `STYLE_NOT_FOUND` / `ACCESSORY_NOT_FOUND`
+- `400 ACCESSORY_STYLE_MISMATCH` / `ACCESSORY_QUANTITY_INVALID` / `ACCESSORY_DUPLICATED`
+- `400 DELIVERY_OPTION_INVALID`
+- `400 PERSONALIZATION_REQUIRED` / `PERSONALIZATION_INVALID`
+- `400 DESIGN_CONFIG_INVALID`
+
+---
+
+## Designs
+
+### POST `/api/designs/quote`
+
+Same as `POST /api/catalog/quote`. Alias cho editor UX.
+
+---
+
+### POST `/api/designs`
+
+**Auth**: Required.
+
+**Request**:
+```json
+{
+  "name": "string (required, trim)",
+  "config": { /* DesignConfig (same as catalog/quote) */ },
+  "previewImage": "string (optional)",
+  "isPublic": "boolean (default true)"
+}
+```
+
+**Success (201)**:
+```json
+{
+  "design": {
+    "_id": "string",
+    "name": "string",
+    "slug": "string (URL-safe unique)",
+    "year": "number",
+    "config": { /* DesignConfig */ },
+    "previewImage": "string",
+    "isPublic": "boolean",
+    "isPreset": false,
+    "duplicatedFrom": "string | null",
+    "ownerId": "string",
+    "shareUrl": "/tree/slug-here",
+    "pricing": { /* PriceBreakdown */ }
+  },
+  "shareUrl": "/tree/slug-here"
+}
+```
+
+**Errors**:
+- `400 MISSING_FIELD`
+- `400 DESIGN_NAME_REQUIRED`
+- `400 DESIGN_CONFIG_INVALID` (validation fail)
+- Mọi error code từ `catalog/quote`
+
+---
+
+### GET `/api/designs/mine`
+
+**Auth**: Required.
+
+**Success (200)**:
+```json
+{ "designs": [/* hydrated design[] */], "total": "number" }
+```
+
+---
+
+### GET `/api/designs/share/:slug`
+
+**Auth**: Optional. Public nếu `isPublic=true`; owner/admin nếu private.
+
+**Success (200)**:
+```json
+{ "design": { /* hydrated design */ } }
+```
+
+**Errors**:
+- `404 DESIGN_NOT_FOUND`
+- `403 FORBIDDEN` — design private + không phải owner/admin
+
+---
+
+### GET `/api/designs/:id`
+
+**Auth**: Required (owner/admin).
+
+**Success (200)**:
+```json
+{ "design": { /* hydrated design */ } }
+```
+
+**Errors**:
+- `404 DESIGN_NOT_FOUND`
+- `403 FORBIDDEN`
+
+---
+
+### PATCH `/api/designs/:id`
+
+**Auth**: Required (owner).
+
+**Request**:
+```json
+{
+  "name": "string (optional)",
+  "config": { /* DesignConfig (optional) */ },
+  "previewImage": "string (optional)",
+  "isPublic": "boolean (optional)"
+}
+```
+
+**Success (200)**:
+```json
+{ "design": { /* hydrated, updated */ } }
+```
+
+**Errors**:
+- `404 DESIGN_NOT_FOUND`
+- `403 FORBIDDEN` — preset không thể edit, hoặc không phải owner
+- `400 DESIGN_NAME_REQUIRED` (nếu name rỗng)
+- Mọi error code từ `catalog/quote` (khi update config)
+
+---
+
+### DELETE `/api/designs/:id`
+
+**Auth**: Required (owner).
 
 **Success (200)**:
 ```json
 { "success": true }
 ```
 
-**Errors**: `401` `UNAUTHORIZED`, `404` `NOT_FOUND`, `500` `INTERNAL_ERROR`
-
----
-
-## Sellers
-
-### GET `/api/sellers`
-
-**Mục đích**: Danh sách tất cả seller đang hoạt động (không bao gồm `suspended`).
-
-**Auth**: Public.
-
-**Success (200)**:
-```json
-{
-  "sellers": [
-    {
-      "_id": "string",
-      "id": "string (alias _id)",
-      "shopName": "string",
-      "name": "string (alias shopName)",
-      "handle": "string",
-      "description": "string",
-      "avatarUrl": "string",
-      "avatar": "string (alias avatarUrl)",
-      "coverImages": ["string"],
-      "thumbs": ["string (alias coverImages)"],
-      "rating": 5.0,
-      "totalTransactions": 0,
-      "transactions": 0,
-      "totalRevenue": 0,
-      "commissionRate": 0.1,
-      "status": "active",
-      "email": "string"
-    }
-  ],
-  "total": "number"
-}
-```
-
 **Errors**:
-- `500` `Lỗi hệ thống`
+- `404 DESIGN_NOT_FOUND`
+- `403 FORBIDDEN` — preset không thể xóa, hoặc không phải owner
 
 ---
 
-### GET `/api/sellers/me`
+### POST `/api/designs/:id/duplicate`
 
-**Mục đích**: Lấy profile của seller đang đăng nhập.
+**Auth**: Required.
 
-**Auth**: Required (Any authenticated user — trả về seller object nếu user có role `seller`).
-
-**Success (200)**:
-```json
-{ "seller": { /* ApiSeller — same shape như GET /api/sellers */ } }
-```
-
-**Errors**:
-- `404` `Không tìm thấy tài khoản`
-- `500` `Lỗi hệ thống`
-
----
-
-### GET `/api/sellers/:idOrHandle`
-
-**Mục đích**: Tra cứu seller theo ObjectId, handle (có/không có tiền tố `@`), email hoặc shopName.
-
-**Auth**: Public.
-
-**Path params**:
-- `idOrHandle` — ObjectId 24 hex, hoặc `@handle`, hoặc `handle`, hoặc email, hoặc shopName (case-insensitive).
-
-**Success (200)**:
-```json
-{ "seller": { /* ApiSeller */ } }
-```
-
-**Errors**:
-- `404` `Không tìm thấy người bán`
-- `500` `Lỗi hệ thống`
-
----
-
-### GET `/api/sellers/:idOrHandle/products`
-
-**Mục đích**: Danh sách sản phẩm `active` của một seller.
-
-**Auth**: Public.
-
-**Path params**: `idOrHandle` (giống trên).
-
-**Success (200)**:
-```json
-{
-  "products": [ /* ApiProduct[] — cùng shape với /api/products */ ],
-  "total": "number"
-}
-```
-
-**Errors**:
-- `404` `Không tìm thấy người bán`
-- `500` `Lỗi hệ thống`
-
----
-
-### GET `/api/sellers/me/reviews`
-
-**Mục đích**: Lấy danh sách đánh giá từ khách hàng đối với các sản phẩm của shop hiện tại.
-
-**Auth**: Required (Seller).
-
-**Success (200)**:
-```json
-{
-  "reviews": [
-    {
-      "_id": "string",
-      "rating": 5,
-      "comment": "string",
-      "buyerId": { "name": "string", "avatarUrl": "string" },
-      "productId": { "title": "string", "coverImage": "string", "price": "number" },
-      "createdAt": "ISO date"
-    }
-  ],
-  "total": "number"
-}
-```
-
-**Errors**:
-- `401` `UNAUTHORIZED` — `Chưa đăng nhập`
-- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
-
----
-
-### GET `/api/sellers/:idOrHandle/reviews`
-
-**Mục đích**: Lấy danh sách đánh giá công khai của một shop người bán.
-
-**Auth**: Public.
-
-**Path params**: `idOrHandle` — ObjectId 24 hex, hoặc handle, hoặc email.
-
-**Success (200)**:
-```json
-{
-  "reviews": [ /* Danh sách reviews */ ],
-  "total": "number"
-}
-```
-
-**Errors**:
-- `404` `NOT_FOUND` — `Không tìm thấy người bán`
-- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
-
----
-
-## Products
-
-### GET `/api/products`
-
-**Mục đích**: Danh sách sản phẩm (mặc định chỉ trả về `active`).
-
-**Auth**: Public.
-
-**Query params**:
-| Name | Type | Required | Description |
-| :--- | :--- | :---: | :--- |
-| `category` | string | No | Tên hoặc slug của category |
-| `seller` | string | No | Handle (có/không `@`), email hoặc tên user của seller |
-| `sellerId` | string | No | ObjectId của seller |
-| `status` | string | No | Filter theo status — mặc định `active` |
-
-**Success (200)**:
-```json
-{
-  "products": [
-    {
-      "_id": "string",
-      "id": "string (alias _id)",
-      "title": "string",
-      "name": "string (alias title — cho ProductCard FE)",
-      "description": "string",
-      "price": "number",
-      "condition": "number (0–100, %)",
-      "size": "string",
-      "quantity": "number",
-      "status": "active",
-      "reservedUntil": "ISO date | null",
-      "reservedByOrderId": "string | null",
-      "coverImage": "string",
-      "image": "string (alias coverImage)",
-      "views": "number",
-      "likes": "number",
-      "location": "string",
-      "seller": "string (handle, ví dụ 'minhtu.vintage')",
-      "sellerName": "string (shopName)",
-      "sellerAvatar": "string (avatarUrl)",
-      "sellerId": {
-        "_id": "string",
-        "id": "string (alias _id)",
-        "handle": "string",
-        "shopName": "string",
-        "name": "string (alias shopName)",
-        "avatarUrl": "string",
-        "avatar": "string (alias avatarUrl)",
-        "rating": "number"
-      },
-      "categoryId": { "_id": "string", "name": "string", "slug": "string" } | null,
-      "category": "string (name)"
-    }
-  ],
-  "total": "number"
-}
-```
-
-**Errors**:
-- `500` `Lỗi hệ thống`
-
----
-
-### GET `/api/products/mine`
-
-**Alias**: `/api/products/seller` (cùng handler).
-
-**Mục đích**: Sản phẩm của seller đang đăng nhập (mọi status) + stats dashboard.
-
-**Auth**: Required (Any authenticated user — nhưng chỉ trả dữ liệu đúng của user gọi).
-
-**Query params**:
-- `status` — filter theo status (string). Không truyền hoặc truyền `all` thì trả tất cả.
-
-**Success (200)**:
-```json
-{
-  "products": [ /* ApiProduct[] */ ],
-  "stats": {
-    "totalProducts": "number",
-    "activeProducts": "number",
-    "pendingProducts": "number",
-    "soldProducts": "number",
-    "totalViews": "number",
-    "totalLikes": "number",
-    "estimatedRevenue": "number (sum của price các sp sold)"
-  },
-  "total": "number"
-}
-```
-
-**Errors**:
-- `500` `Lỗi hệ thống`
-
----
-
-### POST `/api/products`
-
-**Mục đích**: Tạo sản phẩm mới. Mặc định status = `pending` (chờ admin duyệt).
-
-**Auth**: Required (JWT).
-
-**Authorization**: User phải có `roles.includes("seller")` VÀ `sellerProfile.status === "active"`.
+**Mục đích**: Clone bất kỳ design (own / public / preset).
 
 **Request**:
 ```json
-{
-  "title": "string (hoặc 'name')",
-  "name": "string (alias title)",
-  "price": "number (required, ≥ 0)",
-  "condition": "number (required, 0–100, % tình trạng)",
-  "size": "string (required)",
-  "quantity": "number (default 1, min 1)",
-  "description": "string (optional)",
-  "coverImage": "string (hoặc 'image', optional)",
-  "image": "string (alias coverImage)",
-  "categoryId": "string (ObjectId, optional)",
-  "category": "string (tên category, fallback nếu không có categoryId)",
-  "sizeQuantities": "Record<string, number> (optional, ≥ 0, vd: {\"XS\":0,\"S\":0,\"M\":65,\"L\":0,\"XL\":0,\"XXL\":0})",
-  "sizePriceDeltas": "Record<string, number> (optional, có thể âm, vd: {\"XS\":-10000,\"L\":20000})"
-}
+{ "name": "string (optional — default '<src.name> (copy)')" }
 ```
-
-> **Note về per-size stock**:
-> - Khi `sizeQuantities` được cung cấp (ít nhất 1 entry), backend lưu trực tiếp vào DB.
-> - Khi bị bỏ qua / rỗng, BE vẫn trả `sizeQuantities` synthesized `{ [size]: quantity }` cho mọi response — FE nhận được một map tối thiểu thay vì `undefined`, fix được bug stock = 0 ở product detail page.
-> - `quantity` tổng KHÔNG tự động được tính lại từ `sizeQuantities` ở bước này (giữ aggregate counter là source of truth cho checkout / order flow).
 
 **Success (201)**:
 ```json
-{ "product": { /* ApiProduct — bao gồm sizeQuantities, sizePriceDeltas */ } }
-```
-
-**Errors**:
-- `400` `Thiếu thông tin sản phẩm bắt buộc (title/name, price, condition, size)`
-- `400` `Số lượng sản phẩm phải lớn hơn hoặc bằng 1`
-- `400` `PRODUCT_SIZE_DATA_INVALID` — `sizeQuantities` / `sizePriceDeltas` không hợp lệ (phải là object với value là number)
-- `401` `Chưa đăng nhập` hoặc `Token không hợp lệ hoặc đã hết hạn`
-- `403` `SELLER_NOT_APPROVED` — user không có role seller hoặc `sellerProfile.status !== "active"`
-- `500` `Lỗi hệ thống`
-
----
-
-### GET `/api/products/:id`
-
-**Mục đích**: Lấy thông tin chi tiết của một sản phẩm theo ID (ObjectId), bao gồm thông tin người bán và danh mục.
-
-**Auth**: Public.
-
-**Path Params**:
-| Param | Type | Required | Description |
-| :--- | :--- | :---: | :--- |
-| `id` | string | Yes | MongoDB ObjectId của sản phẩm |
-
-**Success (200)**:
-```json
 {
-  "product": {
-    "_id": "string",
-    "title": "string",
-    "name": "string (alias title)",
-    "description": "string",
-    "price": "number",
-    "condition": "number",
-    "size": "string",
-    "quantity": "number (tổng stock)",
-    "sizeQuantities": { "XS": 0, "S": 0, "M": 65, "L": 0, "XL": 0, "XXL": 0 },
-    "sizePriceDeltas": { "XS": -10000, "L": 20000 },
-    "status": "active",
-    "coverImage": "string",
-    "image": "string (alias coverImage)",
-    "sellerId": { /* seller info inline */ },
-    "categoryId": { "_id": "string", "name": "string", "slug": "string" } | null
-  }
-}
-```
-
-> **Backward-compat note**: `sizeQuantities` luôn được trả (không `undefined`). Với sản phẩm cũ không có data → trả `{ [product.size]: product.quantity }` (chỉ size đó có stock, các size khác = 0 — đúng với hành vi legacy trước đây).
-
-**Errors**:
-- `404` `PRODUCT_NOT_FOUND` — `Sản phẩm không tồn tại`
-- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
-
----
-
-### PATCH `/api/products/:id`
-
-**Mục đích**: Cập nhật một phần thông tin sản phẩm (owner-seller hoặc Admin). Cho phép cập nhật per-size stock / price-delta để fix bug product detail hiển thị stock = 0 ở các size không phải size mặc định.
-
-**Auth**: Required (Owner Seller hoặc Admin).
-
-**Path Params**:
-| Param | Type | Required | Description |
-| :--- | :--- | :---: | :--- |
-| `id` | string | Yes | MongoDB ObjectId của sản phẩm |
-
-**Request** (tất cả fields optional — chỉ update field được gửi):
-```json
-{
-  "title": "string",
-  "name": "string (alias title)",
-  "description": "string",
-  "price": "number (≥ 0)",
-  "condition": "number (0–100)",
-  "size": "string",
-  "quantity": "number (≥ 0, tổng stock)",
-  "coverImage": "string",
-  "image": "string (alias coverImage)",
-  "location": "string",
-  "categoryId": "string (ObjectId)",
-  "category": "string (tên category, fallback)",
-  "sizeQuantities": "Record<string, number> ≥ 0 — truyền {} để reset về derived view",
-  "sizePriceDeltas": "Record<string, number> — truyền {} để reset"
-}
-```
-
-**Success (200)**:
-```json
-{ "product": { /* ApiProduct — bao gồm sizeQuantities, sizePriceDeltas */ } }
-```
-
-**Errors**:
-- `400` `PRODUCT_TITLE_REQUIRED` — title rỗng
-- `400` `PRODUCT_PRICE_REQUIRED` — price < 0
-- `400` `PRODUCT_CONDITION_REQUIRED` — condition ngoài 0–100
-- `400` `PRODUCT_SIZE_REQUIRED` — size rỗng
-- `400` `PRODUCT_QUANTITY_INVALID` — quantity < 0
-- `400` `PRODUCT_SIZE_DATA_INVALID` — `sizeQuantities` / `sizePriceDeltas` không hợp lệ
-- `401` `UNAUTHORIZED`
-- `403` `FORBIDDEN` — không phải owner / admin
-- `404` `PRODUCT_NOT_FOUND`
-- `500` `INTERNAL_ERROR`
-
----
-
-### PATCH `/api/products/:id/archive`
-
-**Mục đích**: Lưu trữ (archive / ẩn) sản phẩm. Chỉ người bán sở hữu sản phẩm hoặc Admin có quyền thực hiện.
-
-**Auth**: Required (Owner Seller hoặc Admin).
-
-**Path Params**:
-| Param | Type | Required | Description |
-| :--- | :--- | :---: | :--- |
-| `id` | string | Yes | MongoDB ObjectId của sản phẩm |
-
-**Success (200)**:
-```json
-{
-  "message": "Sản phẩm đã được lưu trữ thành công",
-  "product": { /* ApiProduct với status === 'archived' */ }
+  "design": { /* hydrated, mới — duplicatedFrom = src._id */ },
+  "shareUrl": "/tree/slug-here"
 }
 ```
 
 **Errors**:
-- `401` `UNAUTHORIZED` — `Chưa đăng nhập`
-- `403` `FORBIDDEN` — `Bạn không có quyền lưu trữ sản phẩm này`
-- `404` `PRODUCT_NOT_FOUND` — `Sản phẩm không tồn tại`
-- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+- `404 DESIGN_NOT_FOUND`
+- `403 FORBIDDEN` — src private + không phải owner/admin
+- `400 DESIGN_CONFIG_INVALID`
 
 ---
 
 ## Cart
 
-> **Auth**: Required (Buyer) cho toàn bộ endpoints trong section này.
+> Tất cả endpoints trong section này **require auth**.
 
 ### GET `/api/cart`
-
-**Mục đích**: Lấy cart hiện tại của user.
 
 **Success (200)**:
 ```json
 {
-  "cart": { "_id": "string (cart ObjectId)" },
+  "cart": { "_id": "string" },
   "items": [
     {
-      "_id": "string (cart item ObjectId)",
+      "_id": "string (item ObjectId)",
       "cartId": "string",
-      "productId": {
-        "_id": "string",
-        "title": "string",
-        "description": "string",
-        "price": "number",
-        "condition": "number",
-        "size": "string",
-        "quantity": "number (stock hiện tại)",
-        "status": "active",
-        "coverImage": "string",
-        "views": "number",
-        "likes": "number",
-        "sellerId": { /* seller info inline */ },
-        "categoryId": { "_id": "string", "name": "string", "slug": "string" } | null
-      },
-      "quantity": "number (số lượng trong giỏ)",
-      "priceSnapshot": "number (giá lúc add vào giỏ)",
-      "checked": "boolean (true = chọn để checkout)"
+      "designId": "string | null",
+      "quantity": "number (số bộ)",
+      "priceSnapshot": "number (giá tại thời điểm add)",
+      "currentUnitTotal": "number (recompute live)",
+      "priceChanged": "boolean (true nếu priceSnapshot !== currentUnitTotal)",
+      "checked": "boolean (true = chọn để checkout)",
+      "config": { /* DesignConfig */ },
+      "design": { /* hydrated design nếu designId — optional */ },
+      "warning": "string (optional — cảnh báo nếu config invalid)"
     }
   ]
 }
 ```
 
-**Errors**:
-- `500` `Lỗi hệ thống`
+> **Quan trọng**: FE dùng `priceChanged` + `warning` để hiển thị cảnh báo "Giá đã thay đổi" và yêu cầu user xác nhận trước khi checkout.
+
+**Errors**: `401 UNAUTHORIZED`, `500 INTERNAL_ERROR`
 
 ---
 
 ### POST `/api/cart/items`
 
-**Mục đích**: Thêm sản phẩm vào giỏ (upsert — nếu đã có thì cộng dồn `quantity`).
-
-**Request**:
+**Request** (một trong hai dạng):
 ```json
-{
-  "productId": "string (ObjectId, required)",
-  "quantity": "number (default 1, min 1)"
-}
+{ "config": { /* DesignConfig inline */ }, "quantity": "number (default 1, min 1)" }
+```
+hoặc
+```json
+{ "designId": "string", "quantity": "number (default 1, min 1)" }
 ```
 
 **Success (201)**:
@@ -837,223 +712,184 @@ hoặc theo resource (`{ products, orders, sellers, notifications, items, cart, 
 ```
 
 **Errors**:
-- `400` `productId is required`
-- `400` `Sản phẩm hiện không mở bán hoặc đã được giữ/bán` (status !== `active`)
-- `400` `Sản phẩm đã hết hàng` (quantity <= 0)
-- `400` `Bạn không thể thêm sản phẩm của chính mình vào giỏ hàng`
-- `400` `Số lượng yêu cầu (X) vượt quá số lượng còn lại trong kho (Y)`
-- `404` `Sản phẩm không tồn tại`
-- `500` `Lỗi hệ thống`
+- `400 MISSING_FIELD` — thiếu cả `config` và `designId`
+- `404 DESIGN_NOT_FOUND` — khi dùng `designId` không tồn tại
+- `400 DESIGN_CONFIG_INVALID`
+- Mọi error code từ `catalog/quote`
 
 ---
 
 ### PATCH `/api/cart/items/:id`
 
-**Mục đích**: Cập nhật `quantity` hoặc `checked`. Nếu `quantity <= 0` thì backend tự xóa item.
-
 **Request**:
 ```json
 {
-  "quantity": "number (optional)",
-  "checked": "boolean (optional)"
+  "quantity": "number (optional, ≥ 1)",
+  "checked": "boolean (optional)",
+  "config": { /* DesignConfig (optional) */ }
 }
 ```
 
-**Success (200)** — khi quantity > 0:
+**Success (200)**:
 ```json
 { "item": { /* ApiCartItem */ } }
 ```
 
-**Success (200)** — khi quantity <= 0 (auto-delete):
-```json
-{
-  "message": "Đã xóa sản phẩm khỏi giỏ hàng",
-  "deleted": true,
-  "_id": "string (item id đã xóa)"
-}
-```
-
 **Errors**:
-- `400` `Số lượng vượt quá số lượng trong kho (X)`
-- `404` `Giỏ hàng không tồn tại` / `Sản phẩm không có trong giỏ hàng`
-- `500` `Lỗi hệ thống`
+- `400 INVALID_INPUT` — quantity < 1
+- `404 CART_ITEM_NOT_FOUND`
+- Mọi error code từ `catalog/quote`
 
 ---
 
 ### DELETE `/api/cart/items/:id`
 
-**Success**: `204 No Content`
+**Success (204)**: No content.
 
 **Errors**:
-- `404` `Giỏ hàng không tồn tại` / `Sản phẩm không có trong giỏ hàng`
-- `500` `Lỗi hệ thống`
+- `404 CART_NOT_FOUND` / `CART_ITEM_NOT_FOUND`
 
 ---
 
 ### DELETE `/api/cart/clear`
 
-**Alias**: `DELETE /api/cart` (cùng handler).
-
-**Mục đích**: Xóa tất cả cart items.
-
 **Success (200)**:
 ```json
-{ "success": true, "message": "Đã làm trống giỏ hàng" }
+{ "success": true }
 ```
-
----
-
-### POST `/api/cart/merge`
-
-**Mục đích**: Gộp cart từ client (vd: guest cart trong localStorage) vào cart user khi đăng nhập.
-
-**Request**:
-```json
-{ "items": [{ "productId": "string", "quantity": "number" }] }
-```
-
-**Success (200)**:
-```json
-{ "items": [ /* ApiCartItem[] */ ] }
-```
-
-> **Lưu ý**: Có 2 endpoint cùng chức năng. **`/api/cart/merge` là CHÍNH THỨC**, `/api/auth/cart/merge` (legacy) sẽ bị xóa. FE chỉ nên dùng `/api/cart/merge`.
 
 ---
 
 ## Orders
 
-> **Auth**: Required (JWT) cho toàn bộ section này.
+> Tất cả require auth.
 
 ### GET `/api/orders`
 
-**Mục đích**: Buyer lấy tất cả đơn hàng của mình.
+**Auth**: Required. Buyer lấy orders của mình; admin lấy tất cả.
 
-**Query params**:
-- `status` (string, uppercase) — filter theo order status.
+**Query params**: `status` (optional, uppercase)
 
 **Success (200)**:
 ```json
 {
-  "orders": [ /* ApiOrder[] */ ],
-  "total": "number"
+  "orders": [
+    {
+      "_id": "string",
+      "orderCode": "BYC-########",
+      "buyerId": "string",
+      "items": [
+        {
+          "designId": "string | null",
+          "designName": "string",
+          "previewImage": "string",
+          "tree": { "_id": "string", "size": "S|M|L", "name": "string", "price": "number" },
+          "style": { "_id": "string", "code": "string", "name": "string" },
+          "lines": [
+            { "kind": "ACCESSORY", "refId": "string", "type": "string", "name": "string", "unitPrice": "number", "quantity": "number", "lineTotal": "number", "personalizationText": "string" },
+            { "kind": "SERVICE", "type": "DECORATION_SERVICE", "name": "string", "unitPrice": "number", "quantity": 1, "lineTotal": "number" }
+          ],
+          "deliveryOption": "READY_TO_DISPLAY | FLAT_PACK",
+          "unitTotal": "number",
+          "quantity": "number (số bộ)",
+          "lineTotal": "number",
+          "hasPersonalization": "boolean",
+          "productionDays": "number"
+        }
+      ],
+      "subtotal": "number",
+      "shippingFee": 30000,
+      "decorationFee": "number",
+      "discount": 0,
+      "totalAmount": "number",
+      "status": "OrderStatus (xem ENUMS.md)",
+      "statusHistory": [
+        { "status": "string", "by": "string", "at": "ISO", "reason": "string" }
+      ],
+      "paymentMethod": "COD | ONLINE",
+      "paymentId": "string",
+      "paidAt": "ISO | null",
+      "designConfirmedAt": "ISO",
+      "designLockedAt": "ISO",
+      "shippingName": "string",
+      "shippingPhone": "string",
+      "shippingAddress": "string",
+      "shippingProvinceId": "string",
+      "shippingProvinceName": "string",
+      "shippingCommuneId": "string",
+      "shippingCommuneName": "string",
+      "addressEffectiveDate": "string",
+      "trackingNumber": "string",
+      "shippingProvider": "string",
+      "trackingUrl": "string",
+      "pickupInfo": { /* object | null */ },
+      "shippedAt": "ISO | null",
+      "estimatedDeliveryAt": "ISO | null",
+      "deliveredAt": "ISO | null",
+      "cancelReason": "string",
+      "cancelRequestedAt": "ISO | null",
+      "idempotencyKey": "string",
+      "createdAt": "ISO"
+    }
+  ]
 }
-```
-
----
-
-### GET `/api/orders/seller`
-
-**Mục đích**: Seller lấy tất cả đơn hàng có chứa sản phẩm của mình.
-
-> **Quan trọng**: route này được đăng ký TRƯỚC `/:id` trong `routes/orders.ts` để tránh bị match nhầm thành `id="seller"`.
-
-**Query params**: `status` (string, uppercase).
-
-**Success (200)**:
-```json
-{ "orders": [ /* ApiOrder[] */ ], "total": "number" }
 ```
 
 ---
 
 ### POST `/api/orders`
 
-**Mục đích**: Tạo đơn hàng từ cart items đã `checked` hoặc từ payload trực tiếp.
+**Auth**: Required.
 
-**Authorization**: Buyer.
-
-**Request** (một trong hai dạng):
+**Request**:
 ```json
 {
   "shippingName": "string",
   "shippingPhone": "string",
   "shippingAddress": "string",
-  "paymentMethod": "COD | ONLINE | card (default COD)",
+  "shippingProvinceId": "string (HARD-CODED '79' cho HCM)",
+  "shippingProvinceName": "string",
+  "shippingCommuneId": "string",
+  "shippingCommuneName": "string",
+  "addressEffectiveDate": "string",
+  "paymentMethod": "COD | ONLINE (default COD)",
   "idempotencyKey": "string (optional, recommended)",
+  "designConfirmed": "true (REQUIRED — phải xác nhận đồng ý với thiết kế)",
   "items": [
-    {
-      "productId": "string (hoặc 'id')",
-      "id": "string (alias productId)",
-      "quantity": "number (hoặc 'qty', default 1)"
-    }
+    { "config": { /* DesignConfig */ }, "designId": "string (optional)", "quantity": "number (default 1)" }
   ]
 }
 ```
-Nếu `items` rỗng/không có, backend tự lấy các cart items có `checked: true`.
+
+> **Nguồn hàng**: (1) `items[]` inline, hoặc (2) `cartItemIds: string[]` cụ thể, hoặc (3) tất cả `checked: true` items trong cart.
 
 **Success (201)**:
 ```json
-{
-  "order": {
-    "_id": "string",
-    "orderCode": "ORD-XXXXXXXX",
-    "buyerId": "string",
-    "items": [
-      {
-        "productId": "string",
-        "sellerId": "string",
-        "productName": "string",
-        "productImageUrl": "string",
-        "unitPrice": "number",
-        "quantity": "number",
-        "conditionSnapshot": "number",
-        "sellerAmount": "number (unitPrice × quantity × 0.9)"
-      }
-    ],
-    "subtotal": "number",
-    "shippingFee": 30000,
-    "platformFee": "number (10% subtotal)",
-    "discount": 0,
-    "totalAmount": "number (subtotal + shippingFee)",
-    "status": "CONFIRMED (COD) | PENDING_PAYMENT (online)",
-    "statusHistory": [
-      {
-        "status": "string",
-        "by": "string (email | 'system' | 'payment_gateway')",
-        "at": "ISO date",
-        "reason": "string (optional)"
-      }
-    ],
-    "paymentMethod": "string",
-    "paymentId": "string",
-    "paidAt": "ISO date | null",
-    "shippingName": "string",
-    "shippingPhone": "string",
-    "shippingAddress": "string",
-    "trackingNumber": "string (empty khi mới tạo)",
-    "shippingProvider": "string",
-    "trackingUrl": "string",
-    "pickupInfo": "object | null",
-    "shippedAt": "ISO date | null",
-    "estimatedDeliveryAt": "ISO date | null",
-    "deliveredAt": "ISO date | null",
-    "idempotencyKey": "string",
-    "createdAt": "ISO date"
-  }
-}
+{ "order": { /* ApiOrder */ } }
 ```
 
-**Errors**:
-- `400` `Giỏ hàng trống`
-- `400` `Không có sản phẩm nào được chọn trong giỏ hàng`
-- `400` `Sản phẩm "X" hiện không còn mở bán (status)`
-- `400` `Sản phẩm "X" chỉ còn lại Y cái`
-- `400` `Bạn không thể tự mua sản phẩm của chính mình ("X")`
-- `404` `Sản phẩm không tồn tại: <id>`
-- `500` `Lỗi hệ thống`
+**Side effects**:
+- Atomic stock reservation cho tất cả tree + accessories. Nếu fail → rollback toàn bộ.
+- Snapshot toàn bộ design config + pricing vào order (sau đó catalog đổi không ảnh hưởng order cũ).
+- COD → `status: CONFIRMED` ngay.
+- ONLINE → `status: PENDING_PAYMENT`.
+- Notification cho buyer.
+- Auto-cleanup cart items đã dùng.
 
-> **Side effects khi tạo đơn**:
-> - **COD**: status = `CONFIRMED` ngay. Stock được trừ ngay (`product.quantity -= item.quantity`; nếu =0 thì `status = "sold"`). Notification gửi buyer + mọi seller trong đơn.
-> - **Online (card/ONLINE)**: status = `PENDING_PAYMENT`. Stock tạm reserve: `product.status = "reserved"`, `reservedUntil = now + 30m`, `reservedByOrderId = order._id`.
+**Errors**:
+- `400 DESIGN_NOT_CONFIRMED` — phải bật `designConfirmed: true`
+- `422 DELIVERY_AREA_NOT_SUPPORTED` — `shippingProvinceId !== "79"`
+- `400 CART_EMPTY` / `NO_ITEMS_CHECKED` / `ITEMS_REQUIRED`
+- `409 OUT_OF_STOCK`
+- Mọi error code từ `catalog/quote` (validation)
 
 ---
 
 ### GET `/api/orders/:id`
 
-**Mục đích**: Lấy chi tiết đơn hàng theo `orderCode` hoặc ObjectId.
+**Auth**: Required (buyer của order hoặc admin).
 
-**Authorization**: Buyer của đơn, seller có item trong đơn, hoặc admin.
+**Path**: `id` là Mongo `_id` (24 hex) hoặc `orderCode` (vd `BYC-12345678`).
 
 **Success (200)**:
 ```json
@@ -1061,69 +897,52 @@ Nếu `items` rỗng/không có, backend tự lấy các cart items có `checked
 ```
 
 **Errors**:
-- `403` `Bạn không có quyền truy cập đơn hàng này`
-- `404` `Không tìm thấy đơn hàng`
-- `500` `Lỗi hệ thống`
+- `404 ORDER_NOT_FOUND`
+- `403 FORBIDDEN` — không phải buyer/admin
 
 ---
 
-### PATCH `/api/orders/:code/status`
+### PATCH `/api/orders/:id/status`
 
-**Mục đích**: Chuyển trạng thái đơn hàng (theo state machine `VALID_TRANSITIONS` trong `Order.ts`).
-
-**Authorization**: Buyer / participating Seller / Admin (xem role-based restrictions bên dưới).
+**Auth**: Required.
 
 **Request**:
 ```json
-{
-  "status": "OrderStatus (string, uppercase)",
-  "reason": "string (optional)"
-}
+{ "status": "OrderStatus", "reason": "string (optional)" }
 ```
 
-**Valid transitions**:
-```
-PENDING_PAYMENT → PAID, CONFIRMED, CANCELLED
-PAID            → CONFIRMED, PACKING, CANCELLED, REFUNDED
-CONFIRMED       → PACKING, SHIPPING, CANCELLED
-PACKING         → SHIPPING, CANCELLED
-SHIPPING        → DELIVERING, DELIVERED, CANCELLED
-DELIVERING      → DELIVERED, COMPLETED
-DELIVERED       → COMPLETED, DISPUTED
-COMPLETED       → (terminal)
-CANCELLED       → (terminal)
-DISPUTED        → REFUNDED, COMPLETED
-REFUNDED        → (terminal)
-```
+**State machine** — xem `docs/ENUMS.md` § OrderStatus.
 
-**Role-based restrictions** (ngoài state machine):
-- **Buyer-only** (không phải seller/admin): chỉ được chuyển sang `CANCELLED`, `CANCEL_REQUESTED`, `DELIVERED`, `COMPLETED` hoặc `DISPUTED`. (Lưu ý: Chỉ được trực tiếp chuyển sang `CANCELLED` khi đơn chưa được `CONFIRMED`. Từ `CONFIRMED` trở đi phải dùng `CANCEL_REQUESTED`).
-- **Seller** (không phải admin): KHÔNG được tự chuyển sang `COMPLETED` — bước này phải do buyer hoặc system thực hiện.
-- **Admin**: bỏ qua mọi role-based restriction (vẫn phải tuân state machine).
+**Role-based**:
+- **Buyer** được: `CANCELLED` (chỉ khi `PENDING_PAYMENT`/`PAID`), `CANCEL_REQUESTED` (khi ≥ `CONFIRMED`), `DELIVERED`, `COMPLETED`, `DISPUTED`.
+- **Admin** được: mọi valid transition.
+
+**Special**: Nếu `hasPersonalization && currentStatus === PACKING` → buyer `CANCEL_REQUESTED` bị block với `ORDER_CANCEL_NOT_ALLOWED`.
+
+**Side effects**:
+- Khi `CANCELLED` → restore stock (cả tree + accessories, theo `quantity * item.quantity`).
+- Khi `DELIVERED` → set `deliveredAt = now`.
+- Khi `CANCEL_REQUESTED` → set `cancelReason` + `cancelRequestedAt`.
 
 **Success (200)**:
 ```json
-{ "order": { /* ApiOrder (đã cập nhật status) */ } }
+{ "order": { /* ApiOrder updated */ } }
 ```
 
 **Errors**:
-- `400` `Thiếu trạng thái mới`
-- `403` `Bạn không có quyền cập nhật đơn hàng này`
-- `403` `Người mua chỉ có thể HỦY, YÊU CẦU HỦY, BÁO ĐÃ NHẬN, KHIẾU NẠI hoặc HOÀN TẤT đơn hàng`
-- `403` `Sau khi đơn hàng đã được xác nhận, bạn chỉ có thể Yêu cầu hủy (CANCEL_REQUESTED)`
-- `403` `Người bán không thể tự cập nhật trạng thái Hoàn tất`
-- `404` `Không tìm thấy đơn hàng`
-- `422` `Không thể chuyển từ trạng thái A sang B` (state machine violation)
+- `400 ORDER_STATUS_REQUIRED`
+- `404 ORDER_NOT_FOUND`
+- `403 FORBIDDEN` — không phải buyer/admin, hoặc buyer cố gọi status không được phép
+- `422 ORDER_INVALID_TRANSITION` — state machine violation
+- `409 ORDER_CANCEL_NOT_ALLOWED` — personalization + PACKING
 
 ---
 
 ## Shipments
 
-### POST `/api/orders/:code/shipment`
+### POST `/api/orders/:id/shipment`
 
-**Mục đích**: Seller tạo vận đơn (mock GHTK). Sinh tracking number, estimated delivery, timeline khởi tạo.
-
-**Authorization**: Seller có item trong đơn hoặc Admin.
+**Auth**: Required (admin only).
 
 **Request**:
 ```json
@@ -1135,90 +954,76 @@ REFUNDED        → (terminal)
     "province": "string",
     "district": "string",
     "ward": "string",
+    "email": "string (optional)",
     "note": "string (optional)"
-  }
+  },
+  "trackingUrl": "string (optional — override default)"
 }
 ```
+
+**Side effects**:
+- Status → `SHIPPING`.
+- Gen tracking number `BYC#######`.
+- Set `shippingProvider = "Build Your Christmas - HCM Delivery"`.
+- Khởi tạo 2 events: `CREATED` + `IN_TRANSIT`.
 
 **Success (201)**:
 ```json
 {
   "shipment": {
-    "id": "string (order ObjectId)",
-    "orderId": "string (orderCode)",
-    "provider": "Giao hàng tiết kiệm",
-    "trackingNumber": "GHTK9XXXXXXXX",
-    "trackingUrl": "https://i.ghtk.vn/<tracking>",
+    "id": "string",
+    "orderId": "BYC-########",
+    "provider": "Build Your Christmas - HCM Delivery",
+    "trackingNumber": "BYC#######",
+    "trackingUrl": "https://buildyourchristmas.vn/track/BYC#######",
     "status": "IN_TRANSIT",
-    "shippedAt": "ISO date",
-    "estimatedDeliveryAt": "ISO date",
+    "shippedAt": "ISO",
+    "estimatedDeliveryAt": "ISO",
     "events": [
-      { "status": "CREATED",   "description": "...", "timestamp": "ISO", "location": "..." },
-      { "status": "PICKED_UP", "description": "...", "timestamp": "ISO", "location": "..." },
-      { "status": "IN_TRANSIT","description": "...", "timestamp": "ISO", "location": "..." }
+      { "status": "CREATED", "description": "...", "timestamp": "ISO", "location": "..." },
+      { "status": "IN_TRANSIT", "description": "...", "timestamp": "ISO", "location": "HCM Delivery Hub" }
     ]
   }
 }
 ```
 
-**Side effects**:
-- Order status chuyển sang `SHIPPING`.
-- Ghi `shippingProvider`, `trackingNumber`, `trackingUrl`, `pickupInfo`, `shippedAt`, `estimatedDeliveryAt`, `shippingEvents`.
-- Gửi notification cho buyer.
-
 **Errors**:
-- `400` `Đơn hàng này đã được tạo vận đơn trước đó` (status đã là `SHIPPING`/`DELIVERING`/`DELIVERED`)
-- `400` `Không thể tạo vận đơn cho đơn hàng đã hủy`
-- `403` `Bạn không có quyền tạo vận đơn cho đơn hàng này`
-- `404` `Không tìm thấy đơn hàng`
-- `500` `Lỗi hệ thống`
+- `403 FORBIDDEN` — không phải admin
+- `404 ORDER_NOT_FOUND`
+- `400 ORDER_ALREADY_CANCELLED`
+- `400 ORDER_ALREADY_SHIPPED`
 
 ---
 
-### GET `/api/orders/:code/shipment`
+### GET `/api/orders/:id/shipment`
 
-**Mục đích**: Lấy thông tin vận đơn và timeline giao hàng.
-
-**Authorization**: Buyer của đơn, participating Seller, hoặc Admin (chống PII leak — sửa sau security audit 2026-09-28).
+**Auth**: Required (buyer của order hoặc admin).
 
 **Success (200)**:
 ```json
 {
   "shipment": {
     "id": "string",
-    "orderId": "string (orderCode)",
-    "provider": "Giao hàng tiết kiệm",
+    "orderId": "BYC-########",
+    "provider": "Build Your Christmas - HCM Delivery",
     "trackingNumber": "string",
     "trackingUrl": "string",
     "status": "PENDING | CREATED | PICKED_UP | IN_TRANSIT | DELIVERING | DELIVERED | CANCELLED",
-    "shippedAt": "ISO date | undefined",
-    "estimatedDeliveryAt": "ISO date",
-    "deliveredAt": "ISO date | undefined",
+    "shippedAt": "ISO | undefined",
+    "estimatedDeliveryAt": "ISO | undefined",
+    "deliveredAt": "ISO | undefined",
     "events": [
-      {
-        "status": "CREATED | PICKED_UP | IN_TRANSIT | DELIVERING | DELIVERED | CANCELLED",
-        "description": "string",
-        "timestamp": "ISO date",
-        "location": "string"
-      }
+      { "status": "string", "description": "string", "timestamp": "ISO", "location": "string" }
     ]
   }
 }
 ```
 
-> **Mapping**: shipment status được derive từ order status (xem `getOrderShipment` trong `orderController.ts`):
-> - Order `DELIVERED`/`COMPLETED` → shipment `DELIVERED`
-> - Order `DELIVERING` → shipment `DELIVERING`
-> - Order `SHIPPING` → shipment `IN_TRANSIT`
-> - Order `PACKING` → shipment `PICKED_UP`
-> - Order `CANCELLED` → shipment `CANCELLED`
-> - Có `trackingNumber` nhưng status khác → shipment `CREATED`
-> - Mặc định: `PENDING`
+> `shipment.status` được derive từ `order.status` (xem `docs/ENUMS.md` § ShipmentStatus).
 
 **Errors**:
-- `403` `Bạn không có quyền xem thông tin vận chuyển của đơn hàng này`
-- `404` `Không tìm thấy đơn hàng`
-- `500` `Lỗi hệ thống`
+- `404 ORDER_NOT_FOUND`
+- `403 FORBIDDEN`
 
 ---
 
@@ -1226,31 +1031,32 @@ REFUNDED        → (terminal)
 
 ### POST `/api/payments/checkout`
 
-**Mục đích**: Mock thanh toán online. Đẩy order `PENDING_PAYMENT` → `PAID` → `CONFIRMED`, trừ stock, gửi notification.
+**Mục đích**: Mock online payment. Advance order `PENDING_PAYMENT → PAID → CONFIRMED`.
 
-**Auth**: Required (Buyer — buyerId của order phải khớp user gọi).
+**Auth**: Required (buyer của order).
 
 **Request**:
 ```json
-{
-  "orderId": "string (ObjectId hoặc orderCode)",
-  "method": "string (default 'card')",
-  "cardLast4": "string (default '1234', chỉ để log)"
-}
+{ "orderId": "string (ObjectId or orderCode)" }
 ```
 
-**Success (200)** — trả về `ApiOrder` đã cập nhật:
+**Success (200)**:
 ```json
-{ "order": { /* ApiOrder */ } }
+{ "order": { /* ApiOrder đã update */ } }
 ```
 
-**Idempotent**: nếu order đã ở `PAID` hoặc `CONFIRMED`, trả về state hiện tại mà không xử lý lại.
+> Idempotent: nếu order đã ở `PAID`/`CONFIRMED` → trả về state hiện tại, không xử lý lại.
+
+**Side effects**:
+- Stock đã được reserve lúc `POST /api/orders` — KHÔNG trừ thêm.
+- Notification cho buyer.
 
 **Errors**:
-- `400` `orderId is required`
-- `404` `Không tìm thấy đơn hàng`
-- `422` `Đơn hàng đang ở trạng thái X, không thể thanh toán` (chỉ nhận `PENDING_PAYMENT`)
-- `500` `Lỗi hệ thống`
+- `400 ORDER_ID_REQUIRED`
+- `404 ORDER_NOT_FOUND`
+- `422 ORDER_PAYMENT_INVALID_STATE` — order không phải `PENDING_PAYMENT`
+
+> **Note**: COD orders KHÔNG cần gọi endpoint này. COD đã handle ở `POST /api/orders` (status = `CONFIRMED` ngay).
 
 ---
 
@@ -1258,9 +1064,7 @@ REFUNDED        → (terminal)
 
 ### GET `/api/notifications`
 
-**Mục đích**: Lấy 50 notification mới nhất của user đang đăng nhập.
-
-**Auth**: Required (Any authenticated user).
+**Auth**: Required.
 
 **Success (200)**:
 ```json
@@ -1269,279 +1073,214 @@ REFUNDED        → (terminal)
     {
       "_id": "string",
       "userId": "string",
-      "type": "order",
+      "type": "order | chat | promo | system | review",
       "title": "string",
       "message": "string",
       "isRead": "boolean",
-      "createdAt": "ISO date"
+      "createdAt": "ISO"
     }
   ]
 }
 ```
 
+> Limit 50 mới nhất, sort by `createdAt: -1`.
+
+**Errors**: `401 UNAUTHORIZED`
+
 ---
 
 ### PATCH `/api/notifications/:id/read`
 
-**Mục đích**: Đánh dấu notification đã đọc.
+**Auth**: Required (owner).
 
 **Success (200)**:
 ```json
 { "success": true }
 ```
 
-> **Lưu ý**: handler `markAsRead` **đã enforce ownership** — user chỉ mark được notification của chính mình (IDOR đã fix 2026-09-29).
+**Errors**:
+- `404 NOT_FOUND` — notification không tồn tại hoặc không thuộc user
+- `401 UNAUTHORIZED`
 
 ---
 
 ## Admin
 
-> **Auth**: Required + role `admin` (middleware `requireAdmin`).
+> Tất cả endpoints trong section này **require admin role**.
 
-### GET `/api/admin/pending-listings`
+### Trees CRUD
 
-**Mục đích**: Danh sách sản phẩm `pending` chờ duyệt.
+#### GET `/api/admin/trees`
+
+**Query**: `?isActive=true|false`
 
 **Success (200)**:
 ```json
 {
-  "products": [
+  "trees": [
     {
       "_id": "string",
-      "title": "string",
-      "description": "string",
+      "size": "S | M | L",
+      "name": "string",
       "price": "number",
-      "condition": "number",
-      "size": "string",
-      "quantity": "number",
-      "status": "pending",
-      "coverImage": "string",
-      "views": "number",
-      "likes": "number",
-      "location": "string",
-      "sellerId": {
-        "_id": "string",
-        "handle": "string",
-        "shopName": "string",
-        "avatarUrl": "string",
-        "rating": "number"
-      },
-      "categoryId": { "_id": "string", "name": "string", "slug": "string" } | null
+      "stock": "number",
+      "isActive": "boolean",
+      "images": ["string"],
+      "heightCmMin": "number",
+      "heightCmMax": "number"
     }
   ]
 }
 ```
 
----
+#### POST `/api/admin/trees`
 
-### PATCH `/api/admin/listings/:id/approve`
+**Request**: Full tree object.
 
-**Mục đích**: Duyệt sản phẩm — set status = `active`.
+**Success (201)**:
+```json
+{ "tree": { /* Tree */ } }
+```
+
+**Errors**: `400 MISSING_FIELD` (thiếu size/name/price), `403 FORBIDDEN`
+
+#### PATCH `/api/admin/trees/:id`
+
+**Request**: Partial tree object.
 
 **Success (200)**:
 ```json
-{ "product": { /* ApiProduct — cùng shape với GET /api/products */ } }
+{ "tree": { /* updated */ } }
 ```
 
-**Errors**:
-- `404` `PRODUCT_NOT_FOUND` — `Sản phẩm không tồn tại`
-- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+**Errors**: `404 TREE_NOT_FOUND`, `403 FORBIDDEN`
 
 ---
 
-### PATCH `/api/admin/listings/:id/reject`
+### Styles CRUD
 
-**Mục đích**: Từ chối sản phẩm — set status = `archived`.
+#### GET `/api/admin/styles`
 
 **Success (200)**:
 ```json
-{ "product": { /* ApiProduct — cùng shape với GET /api/products */ } }
+{ "styles": [/* Style[] */] }
 ```
 
-**Errors**:
-- `404` `PRODUCT_NOT_FOUND` — `Sản phẩm không tồn tại`
-- `500` `INTERNAL_ERROR` — `Lỗi hệ thống`
+#### POST `/api/admin/styles`
+
+**Request**: `{ code, name, description, palette, coverImage, isActive, sortOrder }`
+
+**Errors**: `400 MISSING_FIELD` (thiếu code/name)
+
+#### PATCH `/api/admin/styles/:id`
+
+**Errors**: `404 STYLE_NOT_FOUND`
 
 ---
 
-### GET `/api/admin/pending-sellers`
+### Accessories CRUD
 
-**Mục đích**: Danh sách user đang chờ admin duyệt để trở thành seller.
-
-**Auth**: Required + role `admin`.
+#### GET `/api/admin/accessories`
 
 **Success (200)**:
 ```json
-{
-  "users": [ /* ApiSeller — same shape với GET /api/sellers */ ],
-  "total": "number"
-}
+{ "accessories": [/* Accessory[] — full fields */] }
 ```
 
-> **Note**: Response key đổi từ `sellers` (cũ) thành `users` để khớp FE `AdminScreen` (`res.users`). Backward-compat: key `sellers` không còn được trả — FE nào đang đọc key này cần update.
+#### POST `/api/admin/accessories`
 
-**Errors**:
-- `500` `INTERNAL_ERROR` — Lỗi hệ thống
+**Request**: `{ group, type, name, price, stock, styleCodes, maxQtyBySize, isPersonalizable, personalizationMaxLength, productionDays, image, description, isActive, sortOrder }`
+
+**Errors**: `400 MISSING_FIELD` (thiếu group/type/name/price)
+
+#### PATCH `/api/admin/accessories/:id`
+
+**Errors**: `404 ACCESSORY_NOT_FOUND`
 
 ---
 
-### PATCH `/api/admin/sellers/:id/approve`
+### Presets (TreeDesign với `isPreset: true`)
 
-**Mục đích**: Phê duyệt seller application — set `sellerProfile.status = "active"`. User có thể tạo sản phẩm ngay sau khi login lại.
-
-**Auth**: Required + role `admin`.
-
-> **Path alias**: `/api/admin/users/:id/approve-seller` vẫn hoạt động nhưng **deprecated** — log warning mỗi lần gọi. Nên chuyển sang canonical path `/api/admin/sellers/:id/approve`.
-
-**Success (200)** — newly approved:
-```json
-{
-  "seller": { /* ApiSeller */ },
-  "alreadyApproved": false
-}
-```
-
-**Success (200)** — idempotent (đã active sẵn):
-```json
-{
-  "seller": { /* ApiSeller */ },
-  "alreadyApproved": true
-}
-```
-
-**Side effects**:
-- Set `sellerProfile.status = "active"`.
-- Gửi notification cho user thông báo đã được phê duyệt.
-
-**Errors**:
-- `400` `INVALID_INPUT` — User chưa đăng ký seller (chưa có `sellerProfile`)
-- `404` `ACCOUNT_NOT_FOUND` — User không tồn tại
-- `500` `INTERNAL_ERROR` — Lỗi hệ thống
-
----
-
-### PATCH `/api/admin/sellers/:id/reject`
-
-**Mục đích**: Từ chối seller application — set `sellerProfile.status = "suspended"` + xóa role `"seller"` khỏi `user.roles`.
-
-**Auth**: Required + role `admin`.
-
-> **Path alias**: `/api/admin/users/:id/reject-seller` vẫn hoạt động nhưng **deprecated** — log warning mỗi lần gọi. Nên chuyển sang canonical path `/api/admin/sellers/:id/reject`.
-
-**Request**:
-```json
-{
-  "reason": "string (optional) — lý do từ chối sẽ gửi qua notification"
-}
-```
+#### GET `/api/admin/presets`
 
 **Success (200)**:
 ```json
-{
-  "seller": { /* ApiSeller — status = "suspended" */ },
-  "rejected": true
-}
+{ "presets": [/* hydrated preset[] */] }
 ```
 
-**Side effects**:
-- Set `sellerProfile.status = "suspended"`.
-- Xóa `"seller"` khỏi `user.roles`.
-- Gửi notification cho user (kèm `reason` nếu có).
+#### POST `/api/admin/presets`
 
-**Errors**:
-- `400` `INVALID_INPUT` — User chưa đăng ký seller (chưa có `sellerProfile`)
-- `404` `ACCOUNT_NOT_FOUND` — User không tồn tại
-- `500` `INTERNAL_ERROR` — Lỗi hệ thống
+**Request**: `{ name, config, previewImage }`
 
----
-
-### PATCH `/api/admin/sellers/:id/commission-rate`
-
-**Mục đích**: Admin cập nhật tỉ lệ hoa hồng (`commissionRate`) cho một seller cụ thể. Rate mới chỉ áp dụng cho **đơn hàng tạo SAU** khi update — các đơn hàng đã tồn tại giữ nguyên rate đã snapshot trên `OrderItem.commissionRate` tại lúc checkout.
-
-**Auth**: Required + role `admin`.
-
-**Path Params**:
-| Param | Type | Required | Description |
-| :--- | :--- | :---: | :--- |
-| `id` | string | Yes | MongoDB ObjectId của user (seller) |
-
-**Request**:
+**Success (201)**:
 ```json
-{
-  "commissionRate": "number ∈ [0, 1], vd: 0.1 = 10% phí sàn, 0.15 = 15% phí sàn"
-}
+{ "preset": { /* hydrated */ } }
 ```
+
+#### PATCH `/api/admin/presets/:id`
+
+**Request**: `{ name?, config?, previewImage? }`
 
 **Success (200)**:
 ```json
-{
-  "success": true,
-  "seller": { /* ApiSeller — bao gồm commissionRate mới */ },
-  "previousRate": 0.1,
-  "newRate": 0.15
-}
+{ "preset": { /* hydrated, updated */ } }
 ```
 
-**Side effects**:
-- Cập nhật `User.sellerProfile.commissionRate`.
-- KHÔNG ảnh hưởng đến các đơn hàng đã tạo (snapshot đã được lưu trên `OrderItem.commissionRate`).
-- KHÔNG gửi notification (admin action, không cần thông báo seller).
+#### DELETE `/api/admin/presets/:id`
 
-**Errors**:
-- `400` `COMMISSION_RATE_INVALID` — `commissionRate` không phải số, hoặc ngoài khoảng `[0, 1]`
-- `400` `INVALID_INPUT` — User chưa đăng ký seller, hoặc không có role `"seller"`
-- `404` `SELLER_NOT_FOUND` — User không tồn tại
-- `500` `INTERNAL_ERROR` — Lỗi hệ thống
+**Success (200)**:
+```json
+{ "success": true }
+```
 
 ---
 
-### GET `/api/admin/stats`
+### Orders (admin overview)
 
-**Mục đích**: Thống kê tổng quan cho Admin Dashboard — số liệu đếm theo collection + tổng platform profit.
+#### GET `/api/admin/orders`
 
-**Auth**: Required + role `admin`.
+**Query**: `?status=PENDING_PAYMENT|...`
+
+**Success (200)**:
+```json
+{ "orders": [/* ApiOrder[] — all users */] }
+```
+
+---
+
+### Stats
+
+#### GET `/api/admin/stats`
 
 **Success (200)**:
 ```json
 {
   "stats": {
-    "pendingListings": 12,
-    "soldProducts": 240,
-    "totalOrders": 1024,
-    "totalUsers": 5000,
-    "totalSellers": 87,
-    "platformProfit": 12345678
+    "totalOrders": "number",
+    "pendingOrders": "number",
+    "completedOrders": "number",
+    "totalUsers": "number",
+    "totalDesigns": "number",
+    "designsShared": "number",
+    "revenue": "number (VND)",
+    "aov": "number (VND per order)",
+    "personalizationCount": "number",
+    "ordersByStatus": [{ "_id": "OrderStatus", "count": "number" }],
+    "lowStock": {
+      "accessories": [{ "name": "string", "stock": "number", "type": "string" }],
+      "trees": [{ "name": "string", "size": "S|M|L", "stock": "number" }]
+    }
   }
 }
 ```
 
-**Field meaning**:
-- `pendingListings` — số sản phẩm đang `status = "pending"` chờ duyệt.
-- `soldProducts` — số sản phẩm đã `status = "sold"`.
-- `totalOrders` — tổng số đơn hàng (mọi trạng thái).
-- `totalUsers` — tổng số user trong hệ thống.
-- `totalSellers` — số user có role `"seller"`.
-- `platformProfit` — tổng `platformFee` (VND) từ tất cả orders, dùng cho dashboard tính hoa hồng C2C.
-
-**Errors**:
-- `401` `UNAUTHORIZED` — Thiếu JWT
-- `403` `FORBIDDEN` — Không phải admin
-- `500` `INTERNAL_ERROR` — Lỗi hệ thống
-
 ---
 
-### GET `/api/admin/users`
+### Users
 
-**Mục đích**: Lấy danh sách toàn bộ Users trong hệ thống, có phân trang và filter theo role/tìm kiếm.
+#### GET `/api/admin/users`
 
-**Auth**: Required + role `admin`.
-
-**Query params**:
-- `page` (number, default: 1)
-- `limit` (number, default: 20)
-- `search` (string, optional) — Tìm theo name hoặc email
-- `role` (string, optional) — Filter theo role (VD: `buyer,seller`)
+**Query**: `?page=1&limit=20&search=...`
 
 **Success (200)**:
 ```json
@@ -1551,10 +1290,12 @@ REFUNDED        → (terminal)
       "_id": "string",
       "name": "string",
       "email": "string",
-      "roles": ["buyer", "seller"],
-      "accountStatus": "active",
+      "avatarUrl": "string",
+      "roles": ["buyer | admin"],
+      "accountStatus": "active | suspended",
       "accountStatusReason": "string",
-      "createdAt": "ISO date"
+      "addresses": [],
+      "createdAt": "ISO"
     }
   ],
   "total": "number",
@@ -1564,20 +1305,13 @@ REFUNDED        → (terminal)
 }
 ```
 
----
+> KHÔNG trả `passwordHash` (đã strip).
 
-### PATCH `/api/admin/users/:id/status`
-
-**Mục đích**: Cấp quyền cho Admin khóa (Ban) hoặc mở khóa tài khoản.
-
-**Auth**: Required + role `admin`.
+#### PATCH `/api/admin/users/:id/status`
 
 **Request**:
 ```json
-{
-  "status": "suspended",
-  "reason": "Vi phạm chính sách..." 
-}
+{ "status": "active | suspended", "reason": "string (optional)" }
 ```
 
 **Success (200)**:
@@ -1586,289 +1320,32 @@ REFUNDED        → (terminal)
   "success": true,
   "user": {
     "_id": "string",
-    "accountStatus": "suspended",
-    "accountStatusReason": "Vi phạm chính sách..."
+    "accountStatus": "string",
+    "accountStatusReason": "string"
   }
 }
 ```
 
 **Errors**:
-- `400` `INVALID_INPUT` — Trạng thái không hợp lệ
-- `403` `FORBIDDEN` — Không thể khóa tài khoản của chính mình
-- `404` `ACCOUNT_NOT_FOUND` — Không tìm thấy người dùng
+- `400 INVALID_INPUT` — status không hợp lệ
+- `403 FORBIDDEN` — không thể self-suspend
+- `404 ACCOUNT_NOT_FOUND`
 
----
-
-### GET `/api/admin/users/:id/details`
-
-**Mục đích**: Xem chi tiết và lịch sử hoạt động của 1 user.
-
-**Auth**: Required + role `admin`.
+#### GET `/api/admin/users/:id/details`
 
 **Success (200)**:
 ```json
 {
-  "user": {
-    "_id": "string",
-    "name": "string",
-    "email": "string",
-    "roles": ["buyer"],
-    "accountStatus": "active",
-    "accountStatusReason": ""
-  },
+  "user": { /* user (no passwordHash) */ },
   "stats": {
     "totalOrders": "number",
     "cancelledOrders": "number",
-    "totalSpent": "number"
+    "totalSpent": "number (VND — orders COMPLETED)"
   }
 }
 ```
 
-**Errors**:
-- `404` `ACCOUNT_NOT_FOUND` — Không tìm thấy người dùng
-
----
-
-## Reviews
-
-### POST `/api/products/:id/reviews`
-
-**Mục đích**: Buyer đánh giá sản phẩm sau khi đơn hàng được giao thành công. Mỗi (orderId, productId, buyerId) chỉ được review 1 lần.
-
-**Auth**: Required (JWT, role `buyer`).
-
-**Request**:
-```json
-{
-  "rating": 5,
-  "comment": "Sản phẩm đẹp, đúng mô tả",
-  "orderId": "65f0a1b2c3d4e5f6a7b8c9d0"
-}
-```
-
-**Validation**:
-- `rating`: integer 1–5 (bắt buộc).
-- `orderId`: ObjectId của order đã mua sản phẩm (bắt buộc).
-- `comment`: string tối đa 1000 ký tự (optional).
-- Order phải thuộc về user gọi request (`buyerId` match).
-- Order phải có `status ∈ { DELIVERED, COMPLETED }`.
-- Product phải nằm trong `order.items`.
-
-**Success (201)**:
-```json
-{
-  "review": {
-    "_id": "65f0a2b3c4d5e6f7a8b9c0d1",
-    "productId": "65e9a0b1c2d3e4f5a6b7c8d9",
-    "buyerId": "65d8c9d0e1f2a3b4c5d6e7f8",
-    "orderId": "65f0a1b2c3d4e5f6a7b8c9d0",
-    "rating": 5,
-    "comment": "Sản phẩm đẹp, đúng mô tả",
-    "createdAt": "2026-09-29T10:30:00.000Z"
-  }
-}
-```
-
-**Errors**:
-- `400` `REVIEW_RATING_INVALID` — Rating không phải integer 1–5.
-- `400` `ORDER_ID_REQUIRED` — Thiếu `orderId`.
-- `403` `REVIEW_NOT_ALLOWED` — Order không thuộc user, hoặc chưa giao, hoặc product không có trong order.
-- `404` `PRODUCT_NOT_FOUND` — Sản phẩm không tồn tại.
-- `404` `ORDER_NOT_FOUND` — Đơn hàng không tồn tại.
-- `409` `REVIEW_ALREADY_EXISTS` — Đã review (orderId, productId, buyerId) này rồi.
-- `500` `INTERNAL_ERROR` — Lỗi hệ thống.
-
----
-
-## AI
-
-> **Auth**: Public (cả 3 endpoint). Yêu cầu backend có cấu hình `GEMINI_API_KEY`; nếu thiếu sẽ trả `503`.
-
-### POST `/api/ai/search`
-
-**Mục đích**: Phân tích truy vấn text/ảnh thành `{ searchText, category, styles[] }` để FE dùng làm filter hint cho `GET /api/products`.
-
-**Request**:
-```json
-{
-  "query": "string (optional, 2–500 chars)",
-  "image": {
-    "mimeType": "image/jpeg | image/png | image/webp",
-    "data": "string (base64, có/không có prefix 'data:image/...;base64,')"
-  }
-}
-```
-- Phải có ít nhất một trong `query` hoặc `image`.
-- Ảnh base64 ≤ ~6MB.
-
-**Success (200)**:
-```json
-{
-  "searchText": "string (từ khóa gợi ý)",
-  "category": "Áo | Quần | Váy | Áo khoác | Phụ kiện | ''",
-  "styles": ["string (tối đa 5)"]
-}
-```
-
-**Errors**:
-- `400` `Mô tả tìm kiếm cần từ 2 đến 500 ký tự`
-- `400` `Ảnh tìm kiếm không hợp lệ`
-- `400` `Ảnh cần là JPG, PNG hoặc WebP và tối đa 6MB`
-- `400` `Hãy nhập mô tả hoặc chọn ảnh tham khảo`
-- `502` Lỗi upstream AI (response.message chứa chi tiết)
-- `503` `GEMINI_API_KEY chưa được cấu hình trên backend`
-
----
-
-### POST `/api/ai/analyze-listing`
-
-**Mục đích**: Phân tích ảnh sản phẩm seller upload — gợi ý title, description, category, condition.
-
-**Request**:
-```json
-{
-  "image": {
-    "mimeType": "image/jpeg | image/png | image/webp",
-    "data": "string (base64)"
-  }
-}
-```
-
-**Success (200)**:
-```json
-{
-  "title": "string (≤ 120 chars)",
-  "description": "string (≤ 1000 chars)",
-  "category": "string (phải nằm trong danh sách category đang có trong DB)",
-  "condition": "number (30–100)",
-  "conditionNotes": "string (≤ 300 chars)"
-}
-```
-
-**Errors**:
-- `400` `Ảnh cần là JPG, PNG hoặc WebP và tối đa 6MB`
-- `502` Lỗi upstream AI
-- `503` Thiếu `GEMINI_API_KEY`
-
----
-
-### POST `/api/ai/recommendations`
-
-**Mục đích**: Gợi ý sản phẩm dựa trên lịch sử viewed/liked.
-
-**Request**:
-```json
-{
-  "viewed": ["string (ObjectId)"],
-  "liked": ["string (ObjectId)"]
-}
-```
-Mỗi array tối đa 30 id (ObjectId hợp lệ).
-
-**Success (200)**:
-```json
-{
-  "products": [ /* ApiProduct[] (tối đa 20, đã loại trừ viewed+liked) */ ],
-  "personalized": "boolean (true nếu history.length > 0)"
-}
-```
-
-**Errors**:
----
-
-## Addresses (CAS Address Kit Proxy & Cache)
-
-Backend cung cấp API danh mục hành chính 2 cấp chuẩn hóa sau sáp nhập cho Frontend, làm proxy và cache bộ dữ liệu từ CAS Address Kit (`https://production.cas.so/address-kit`). Frontend không gọi trực tiếp CAS.
-
-### GET `/api/addresses/provinces`
-
-**Mục đích**: Lấy danh sách Tỉnh/Thành phố.
-
-**Auth**: Public.
-
-**Query Parameters**:
-- `effectiveDate` (optional, default `"latest"`): `"latest"` hoặc `YYYY-MM-DD` (VD: `2025-07-01`).
-
-**Success (200)**:
-```json
-{
-  "data": [
-    {
-      "id": "01",
-      "name": "Thành phố Hà Nội"
-    },
-    {
-      "id": "79",
-      "name": "Thành phố Hồ Chí Minh"
-    }
-  ],
-  "effectiveDate": "latest"
-}
-```
-
-**Errors**:
-- `400` `INVALID_EFFECTIVE_DATE` — `effectiveDate must be 'latest' or YYYY-MM-DD`
-- `502` `ADDRESS_UPSTREAM_ERROR` — Lỗi kết nối tới CAS
-- `504` `ADDRESS_UPSTREAM_TIMEOUT` — Quá thời gian chờ (5s)
-
----
-
-### GET `/api/addresses/provinces/:provinceId/communes`
-
-**Mục đích**: Lấy danh sách Xã/Phường theo mã Tỉnh/Thành phố.
-
-**Auth**: Public.
-
-**Path Parameters**:
-- `provinceId`: Mã tỉnh (VD: `79`).
-
-**Query Parameters**:
-- `effectiveDate` (optional, default `"latest"`): `"latest"` hoặc `YYYY-MM-DD`.
-
-**Success (200)**:
-```json
-{
-  "data": [
-    {
-      "id": "25747",
-      "name": "Phường Thủ Dầu Một"
-    }
-  ],
-  "effectiveDate": "latest"
-}
-```
-
-**Errors**:
-- `400` `INVALID_INPUT` — `provinceId không hợp lệ`
-- `400` `INVALID_EFFECTIVE_DATE` — `effectiveDate must be 'latest' or YYYY-MM-DD`
-- `404` `PROVINCE_NOT_FOUND` — `Không tìm thấy thông tin đơn vị hành chính`
-- `502` `ADDRESS_UPSTREAM_ERROR`
-- `504` `ADDRESS_UPSTREAM_TIMEOUT`
-
----
-
-### GET `/api/addresses/communes`
-
-**Mục đích**: Lấy toàn bộ danh sách Xã/Phường trên toàn quốc.
-
-**Auth**: Public.
-
-**Query Parameters**:
-- `effectiveDate` (optional, default `"latest"`).
-
-**Success (200)**:
-```json
-{
-  "data": [
-    {
-      "id": "00004",
-      "name": "Phường Ba Đình",
-      "provinceId": "01"
-    }
-  ],
-  "effectiveDate": "latest"
-}
-```
+**Errors**: `404 ACCOUNT_NOT_FOUND`
 
 ---
 
@@ -1880,16 +1357,13 @@ Backend cung cấp API danh mục hành chính 2 cấp chuẩn hóa sau sáp nh�
 
 **Success (200)**:
 ```json
-{
-  "status": "ok",
-  "timestamp": "ISO date"
-}
+{ "status": "ok", "timestamp": "ISO" }
 ```
 
 ### Wildcard 404
 
 Mọi request tới `/api/*` không match route sẽ trả:
 ```json
-{ "error": "Endpoint không tồn tại" }
+{ "error": { "code": "NOT_FOUND", "message": "Endpoint không tồn tại" } }
 ```
 với HTTP 404.

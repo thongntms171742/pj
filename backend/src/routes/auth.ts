@@ -1,13 +1,11 @@
 import { Router } from "express";
-import { register, login, applySeller, mergeCart, updateAvatar } from "../controllers/authController";
+import { register, login, updateAvatar } from "../controllers/authController";
 import { requireAuth } from "../middleware/auth";
 
 const router = Router();
 
 router.post("/register", register);
 router.post("/login", login);
-router.post("/seller/apply", requireAuth, applySeller);
-router.post("/cart/merge", requireAuth, mergeCart);
 router.put("/me/avatar", requireAuth, updateAvatar);
 
 export default router;

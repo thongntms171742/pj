@@ -1,236 +1,387 @@
 import { Request, Response } from "express";
-import { Product } from "../models/Product";
-import { User } from "../models/User";
-import { Order } from "../models/Order";
-import { Notification } from "../models/Notification";
-import { mapProduct } from "./productController";
-import { mapSeller } from "./sellerController";
-import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { Types } from "mongoose";
+import { Tree } from "../models/Tree";
+import { Style } from "../models/Style";
+import { Accessory } from "../models/Accessory";
+import { TreeDesign } from "../models/TreeDesign";
+import { Order } from "../models/Order";
+import { User } from "../models/User";
+import { mapOrder } from "./orderController";
+import {
+  loadCatalogForDesign,
+  buildDesignResponse,
+  findUniqueSlug,
+} from "../services/designService";
+import {
+  sendError,
+  ErrorCode,
+  handleInternalError,
+} from "../utils/errors";
 
-// ── GET /api/admin/pending-listings ───────────────────────────────────────────
-export const getPendingListings = async (_req: Request, res: Response): Promise<void> => {
+// ── Helper: ensure current user is admin ──────────────────────────────────────
+function assertAdmin(req: Request, res: Response): boolean {
+  if (!req.user?.roles?.includes("admin")) {
+    sendError(res, ErrorCode.FORBIDDEN, "Chỉ admin mới có quyền truy cập");
+    return false;
+  }
+  return true;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Trees CRUD
+// ════════════════════════════════════════════════════════════════════════════
+
+export const listTrees = async (req: Request, res: Response): Promise<void> => {
   try {
-    const products = await Product.find({ status: "pending" })
-      .populate({ path: "sellerId", select: "name email sellerProfile" })
-      .populate({ path: "categoryId", select: "name slug" })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    // Run through mapProduct to keep response shape consistent with /api/products
-    const mapped = products.map((p) => mapProduct(p));
-
-    res.json({ products: mapped });
+    if (!assertAdmin(req, res)) return;
+    const { isActive } = req.query;
+    const query2: any = {};
+    if (isActive === "true") query2.isActive = true;
+    if (isActive === "false") query2.isActive = false;
+    const trees = await Tree.find(query2).sort({ sortOrder: 1, size: 1 }).lean();
+    res.json({
+      trees: trees.map((t) => ({
+        _id: String(t._id),
+        size: t.size,
+        name: t.name,
+        price: t.price,
+        stock: t.stock,
+        isActive: t.isActive,
+        images: t.images,
+        heightCmMin: t.heightCmMin,
+        heightCmMax: t.heightCmMax,
+      })),
+    });
   } catch (err) {
-    handleInternalError(res, err, "[admin] getPendingListings error");
+    handleInternalError(res, err, "[admin] listTrees error");
   }
 };
 
-// ── PATCH /api/admin/listings/:id/approve ─────────────────────────────────────
-export const approveListing = async (req: Request, res: Response): Promise<void> => {
+export const createTree = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
-    const product = await Product.findByIdAndUpdate(id, { status: "active" }, { new: true });
-
-    if (!product) {
-      sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Sản phẩm không tồn tại");
+    if (!assertAdmin(req, res)) return;
+    const body = req.body as any;
+    if (!body.size || !body.name || body.price == null) {
+      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu size, name hoặc price");
       return;
     }
-
-    // Repopulate seller/category and run through mapProduct
-    const populated = await Product.findById(product._id)
-      .populate({ path: "sellerId", select: "name email sellerProfile" })
-      .populate({ path: "categoryId", select: "name slug" })
-      .lean();
-
-    res.json({ product: mapProduct(populated) });
+    const tree = await Tree.create(body);
+    res.status(201).json({ tree });
   } catch (err) {
-    handleInternalError(res, err, "[admin] approveListing error");
+    handleInternalError(res, err, "[admin] createTree error");
   }
 };
 
-// ── PATCH /api/admin/listings/:id/reject ──────────────────────────────────────
-export const rejectListing = async (req: Request, res: Response): Promise<void> => {
+export const updateTree = async (req: Request, res: Response): Promise<void> => {
   try {
+    if (!assertAdmin(req, res)) return;
     const { id } = req.params;
-    const product = await Product.findByIdAndUpdate(id, { status: "archived" }, { new: true });
-
-    if (!product) {
-      sendError(res, ErrorCode.PRODUCT_NOT_FOUND, "Sản phẩm không tồn tại");
+    const tree = await Tree.findByIdAndUpdate(id, req.body, { new: true });
+    if (!tree) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy cây");
       return;
     }
-
-    // Repopulate seller/category and run through mapProduct
-    const populated = await Product.findById(product._id)
-      .populate({ path: "sellerId", select: "name email sellerProfile" })
-      .populate({ path: "categoryId", select: "name slug" })
-      .lean();
-
-    res.json({ product: mapProduct(populated) });
+    res.json({ tree });
   } catch (err) {
-    handleInternalError(res, err, "[admin] rejectListing error");
+    handleInternalError(res, err, "[admin] updateTree error");
   }
 };
 
-// ── GET /api/admin/pending-sellers ───────────────────────────────────────────
-// List all users whose sellerProfile.status === "pending_approval".
-//
-// NOTE: Response shape is `{ users, total }` so FE AdminScreen
-//       can read `res.users` directly. Earlier versions returned
-//       `{ sellers, total }` — that alias is kept via /admin/pending-sellers/sellers
-//       (deprecated, kept for backward compat — see routes/admin.ts).
-export const getPendingSellers = async (_req: Request, res: Response): Promise<void> => {
-  try {
-    const users = await User.find({ "sellerProfile.status": "pending_approval" })
-      .select("name email sellerProfile roles")
-      .lean();
+// ════════════════════════════════════════════════════════════════════════════
+// Styles CRUD
+// ════════════════════════════════════════════════════════════════════════════
 
-    const sellers = users.map(mapSeller);
-    // Primary shape: { users } — matches FE AdminScreen (`res.users`).
-    res.json({ users: sellers, total: sellers.length });
+export const listStyles = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const styles = await Style.find({}).sort({ sortOrder: 1 }).lean();
+    res.json({ styles });
   } catch (err) {
-    handleInternalError(res, err, "[admin] getPendingSellers error");
+    handleInternalError(res, err, "[admin] listStyles error");
   }
 };
 
-// ── PATCH /api/admin/sellers/:id/approve ─────────────────────────────────────
-// Approve a pending seller application: set status = "active".
-// This is the canonical path. Legacy path `/admin/users/:id/approve-seller`
-// is kept as an alias in routes/admin.ts (deprecated).
-// Sends notification to the user.
-export const approveSeller = async (req: Request, res: Response): Promise<void> => {
+export const createStyle = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
-    const user = await User.findById(id);
-    if (!user) {
-      sendError(res, ErrorCode.ACCOUNT_NOT_FOUND, "Không tìm thấy người dùng");
+    if (!assertAdmin(req, res)) return;
+    const body = req.body as any;
+    if (!body.code || !body.name) {
+      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu code hoặc name");
       return;
     }
+    const style = await Style.create(body);
+    res.status(201).json({ style });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] createStyle error");
+  }
+};
 
-    if (!user.sellerProfile) {
+export const updateStyle = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { id } = req.params;
+    const style = await Style.findByIdAndUpdate(id, req.body, { new: true });
+    if (!style) {
+      sendError(res, ErrorCode.STYLE_NOT_FOUND, "Không tìm thấy style");
+      return;
+    }
+    res.json({ style });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] updateStyle error");
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// Accessories CRUD
+// ════════════════════════════════════════════════════════════════════════════
+
+export const listAccessories = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const accs = await Accessory.find({}).sort({ sortOrder: 1, name: 1 }).lean();
+    res.json({ accessories: accs });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] listAccessories error");
+  }
+};
+
+export const createAccessory = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const body = req.body as any;
+    if (!body.group || !body.type || !body.name || body.price == null) {
       sendError(
         res,
-        ErrorCode.INVALID_INPUT,
-        "Người dùng chưa đăng ký làm người bán (chưa có sellerProfile)"
+        ErrorCode.MISSING_FIELD,
+        "Thiếu group, type, name hoặc price"
       );
       return;
     }
-
-    if (user.sellerProfile.status === "active") {
-      // Idempotent: already approved
-      res.json({
-        seller: mapSeller(user.toObject()),
-        alreadyApproved: true,
-      });
-      return;
-    }
-
-    user.sellerProfile.status = "active";
-    await user.save();
-
-    // Notify the user
-    await Notification.create({
-      userId: user._id,
-      type: "order",
-      title: "Đơn đăng ký bán hàng đã được phê duyệt",
-      message: `Chúc mừng! Shop "${user.sellerProfile.shopName}" của bạn đã được phê duyệt. Bạn có thể bắt đầu đăng sản phẩm.`,
-    });
-
-    res.json({
-      seller: mapSeller(user.toObject()),
-      alreadyApproved: false,
-    });
+    const acc = await Accessory.create(body);
+    res.status(201).json({ accessory: acc });
   } catch (err) {
-    handleInternalError(res, err, "[admin] approveSeller error");
+    handleInternalError(res, err, "[admin] createAccessory error");
   }
 };
 
-// ── PATCH /api/admin/sellers/:id/reject ──────────────────────────────────────
-// Reject a pending seller application: set status = "suspended" + remove role.
-// Canonical path. Legacy `/admin/users/:id/reject-seller` kept as alias.
-// Sends notification explaining rejection.
-export const rejectSeller = async (req: Request, res: Response): Promise<void> => {
+export const updateAccessory = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
+    if (!assertAdmin(req, res)) return;
     const { id } = req.params;
-    const { reason } = req.body as { reason?: string };
-
-    const user = await User.findById(id);
-    if (!user) {
-      sendError(res, ErrorCode.ACCOUNT_NOT_FOUND, "Không tìm thấy người dùng");
+    const acc = await Accessory.findByIdAndUpdate(id, req.body, { new: true });
+    if (!acc) {
+      sendError(res, ErrorCode.ACCESSORY_NOT_FOUND, "Không tìm thấy phụ kiện");
       return;
     }
-
-    if (!user.sellerProfile) {
-      sendError(
-        res,
-        ErrorCode.INVALID_INPUT,
-        "Người dùng chưa đăng ký làm người bán (chưa có sellerProfile)"
-      );
-      return;
-    }
-
-    user.sellerProfile.status = "suspended";
-    // Remove "seller" role to prevent them from creating products
-    user.roles = user.roles.filter((r) => r !== "seller");
-    await user.save();
-
-    await Notification.create({
-      userId: user._id,
-      type: "order",
-      title: "Đơn đăng ký bán hàng bị từ chối",
-      message: `Đơn đăng ký shop "${user.sellerProfile.shopName}" đã bị từ chối${reason ? `. Lý do: ${reason}` : ""}.`,
-    });
-
-    res.json({
-      seller: mapSeller(user.toObject()),
-      rejected: true,
-    });
+    res.json({ accessory: acc });
   } catch (err) {
-    handleInternalError(res, err, "[admin] rejectSeller error");
+    handleInternalError(res, err, "[admin] updateAccessory error");
   }
 };
 
-// ── GET /api/admin/stats ─────────────────────────────────────────────────────
-// Aggregated platform-wide statistics for the Admin Dashboard.
-//
-// Returns counts + platform profit (sum of platformFee across all orders).
-// Response shape: `{ stats: {...} }` — matches FE AdminScreen usage.
-export const getAdminStats = async (_req: Request, res: Response): Promise<void> => {
+// ════════════════════════════════════════════════════════════════════════════
+// Presets (TreeDesign with isPreset=true)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const listPresets = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const docs = await TreeDesign.find({ isPreset: true })
+      .sort({ updatedAt: -1 })
+      .lean();
+    const out = await Promise.all(
+      docs.map(async (d) => {
+        const { design, pricing } = await loadCatalogForDesign(d);
+        return buildDesignResponse(design, pricing);
+      })
+    );
+    res.json({ presets: out });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] listPresets error");
+  }
+};
+
+export const createPreset = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { name, config, previewImage } = req.body as any;
+    if (!name || !config) {
+      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu name hoặc config");
+      return;
+    }
+    const slug = await findUniqueSlug(name);
+    const created = await TreeDesign.create({
+      ownerId: null,
+      name,
+      slug,
+      year: new Date().getFullYear(),
+      config,
+      isPublic: true,
+      isPreset: true,
+      previewImage: previewImage || "",
+    });
+    const populated = await TreeDesign.findById(created._id).lean();
+    if (!populated) {
+      sendError(res, ErrorCode.INTERNAL_ERROR, "Không tìm thấy preset sau khi tạo");
+      return;
+    }
+    const { pricing } = await loadCatalogForDesign(populated);
+    res.status(201).json({
+      preset: buildDesignResponse(populated, pricing),
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] createPreset error");
+  }
+};
+
+export const updatePreset = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { id } = req.params;
+    const design = await TreeDesign.findById(id);
+    if (!design || !design.isPreset) {
+      sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy preset");
+      return;
+    }
+    const { name, config, previewImage } = req.body as any;
+    if (name) design.name = name;
+    if (config) design.config = config;
+    if (previewImage !== undefined) design.previewImage = previewImage;
+    await design.save();
+    const populated = await TreeDesign.findById(design._id).lean();
+    if (!populated) {
+      sendError(res, ErrorCode.INTERNAL_ERROR, "Không tìm thấy preset sau khi cập nhật");
+      return;
+    }
+    const { pricing } = await loadCatalogForDesign(populated);
+    res.json({ preset: buildDesignResponse(populated, pricing) });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] updatePreset error");
+  }
+};
+
+export const deletePreset = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { id } = req.params;
+    const design = await TreeDesign.findById(id);
+    if (!design || !design.isPreset) {
+      sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy preset");
+      return;
+    }
+    await TreeDesign.findByIdAndDelete(id);
+    res.json({ success: true });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] deletePreset error");
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// Orders (admin overview)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const listAllOrders = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { status } = req.query;
+    const filter: any = {};
+    if (typeof status === "string") filter.status = status.toUpperCase();
+    const orders = await Order.find(filter).sort({ createdAt: -1 }).lean();
+    res.json({ orders: orders.map(mapOrder) });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] listAllOrders error");
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// Admin stats
+// ════════════════════════════════════════════════════════════════════════════
+
+export const getAdminStats = async (
+  _req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const [
-      pendingListings,
-      soldProducts,
       totalOrders,
+      pendingOrders,
+      completedOrders,
       totalUsers,
-      totalSellers,
-      platformProfitAgg,
+      totalDesigns,
+      designsShared,
+      revenueAgg,
+      personalizationAgg,
+      lowStockAccs,
+      lowStockTrees,
     ] = await Promise.all([
-      Product.countDocuments({ status: "pending" }),
-      Product.countDocuments({ status: "sold" }),
       Order.countDocuments(),
-      User.countDocuments({}),
-      User.countDocuments({ roles: "seller" }),
+      Order.countDocuments({ status: { $in: ["PENDING_PAYMENT", "PAID", "CONFIRMED", "PACKING", "SHIPPING"] } }),
+      Order.countDocuments({ status: "COMPLETED" }),
+      User.countDocuments(),
+      TreeDesign.countDocuments({ isPreset: false }),
+      TreeDesign.countDocuments({ isPreset: false, isPublic: true }),
       Order.aggregate([
-        {
-          $group: {
-            _id: null,
-            totalPlatformFee: { $sum: { $ifNull: ["$platformFee", 0] } },
-          },
-        },
+        { $match: { status: { $in: ["COMPLETED", "SHIPPING", "DELIVERING", "DELIVERED", "PAID", "CONFIRMED"] } } },
+        { $group: { _id: null, total: { $sum: "$totalAmount" } } },
       ]),
+      Order.aggregate([
+        { $match: { "items.hasPersonalization": true } },
+        { $count: "n" },
+      ]),
+      Accessory.find({ stock: { $lte: 5 }, isActive: true })
+        .select("name stock type")
+        .limit(20)
+        .lean(),
+      Tree.find({ stock: { $lte: 5 }, isActive: true })
+        .select("name size stock")
+        .limit(20)
+        .lean(),
     ]);
 
-    const platformProfit =
-      platformProfitAgg.length > 0 ? platformProfitAgg[0].totalPlatformFee : 0;
+    const revenue = revenueAgg.length > 0 ? revenueAgg[0].total : 0;
+    const personalizationCount =
+      personalizationAgg.length > 0 ? personalizationAgg[0].n : 0;
+    const aov = totalOrders > 0 ? revenue / totalOrders : 0;
 
     res.json({
       stats: {
-        pendingListings,
-        soldProducts,
         totalOrders,
+        pendingOrders,
+        completedOrders,
         totalUsers,
-        totalSellers,
-        platformProfit,
+        totalDesigns,
+        designsShared,
+        revenue,
+        aov,
+        personalizationCount,
+        ordersByStatus: await Order.aggregate([
+          { $group: { _id: "$status", count: { $sum: 1 } } },
+        ]),
+        lowStock: {
+          accessories: lowStockAccs,
+          trees: lowStockTrees,
+        },
       },
     });
   } catch (err) {
@@ -238,73 +389,19 @@ export const getAdminStats = async (_req: Request, res: Response): Promise<void>
   }
 };
 
-// ── PATCH /api/admin/sellers/:id/commission-rate ─────────────────────────────
-// Admin updates the per-seller commission rate. The new rate applies to
-// orders created AFTER this change — existing orders keep the rate that was
-// stored on their OrderItem at checkout (see OrderItem.commissionRate).
-//
-// Validation: rate ∈ [0, 1] where 0 = no commission, 1 = seller earns nothing.
-// Common values: 0.1 (10% platform fee) or 0.15 (15% platform fee).
-export const updateSellerCommission = async (req: Request, res: Response): Promise<void> => {
+// ════════════════════════════════════════════════════════════════════════════
+// User management (kept from legacy)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const getAllUsers = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { id } = req.params;
-    const { commissionRate } = req.body as { commissionRate?: number };
-
-    const n = Number(commissionRate);
-    if (!Number.isFinite(n) || n < 0 || n > 1) {
-      sendError(
-        res,
-        ErrorCode.COMMISSION_RATE_INVALID,
-        "commissionRate phải là số trong khoảng [0, 1] (vd: 0.1 = 10% phí sàn)"
-      );
-      return;
-    }
-
-    const user = await User.findById(id);
-    if (!user) {
-      sendError(res, ErrorCode.SELLER_NOT_FOUND, "Không tìm thấy người bán");
-      return;
-    }
-    if (!user.sellerProfile) {
-      sendError(
-        res,
-        ErrorCode.INVALID_INPUT,
-        "Người dùng chưa đăng ký làm người bán (chưa có sellerProfile)"
-      );
-      return;
-    }
-    if (!user.roles.includes("seller")) {
-      sendError(
-        res,
-        ErrorCode.INVALID_INPUT,
-        "Người dùng không có role seller — không thể đặt commission"
-      );
-      return;
-    }
-
-    const previousRate = user.sellerProfile.commissionRate ?? 0.1;
-    user.sellerProfile.commissionRate = n;
-    await user.save();
-
-    res.json({
-      success: true,
-      seller: mapSeller(user.toObject()),
-      previousRate,
-      newRate: n,
-    });
-  } catch (err) {
-    handleInternalError(res, err, "[admin] updateSellerCommission error");
-  }
-};
-
-// ── GET /api/admin/users ─────────────────────────────────────────────────────
-export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 20;
-    const search = req.query.search as string;
-    const role = req.query.role as string;
-
+    if (!assertAdmin(req, res)) return;
+    const page = parseInt((req.query.page as string) || "1", 10);
+    const limit = parseInt((req.query.limit as string) || "20", 10);
+    const search = req.query.search as string | undefined;
     const query: any = {};
     if (search) {
       query.$or = [
@@ -312,14 +409,7 @@ export const getAllUsers = async (req: Request, res: Response): Promise<void> =>
         { name: { $regex: search, $options: "i" } },
       ];
     }
-
-    if (role) {
-      const rolesArray = role.split(",").map((r) => r.trim());
-      query.roles = { $in: rolesArray };
-    }
-
     const skip = (page - 1) * limit;
-
     const [users, total] = await Promise.all([
       User.find(query)
         .select("-passwordHash")
@@ -329,7 +419,6 @@ export const getAllUsers = async (req: Request, res: Response): Promise<void> =>
         .lean(),
       User.countDocuments(query),
     ]);
-
     res.json({
       users,
       total,
@@ -342,70 +431,69 @@ export const getAllUsers = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
-// ── PATCH /api/admin/users/:id/status ────────────────────────────────────────
-export const updateUserStatus = async (req: Request, res: Response): Promise<void> => {
+export const updateUserStatus = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
+    if (!assertAdmin(req, res)) return;
     const { id } = req.params;
-    const { status, reason } = req.body as { status?: "active" | "suspended"; reason?: string };
-
+    const { status, reason } = req.body as {
+      status?: "active" | "suspended";
+      reason?: string;
+    };
     if (!status || !["active", "suspended"].includes(status)) {
       sendError(res, ErrorCode.INVALID_INPUT, "Trạng thái không hợp lệ");
       return;
     }
-
     const user = await User.findById(id);
     if (!user) {
       sendError(res, ErrorCode.ACCOUNT_NOT_FOUND, "Không tìm thấy người dùng");
       return;
     }
-
-    if (user._id.toString() === req.user!.id) {
+    if (String(user._id) === String(req.user!.id)) {
       sendError(res, ErrorCode.FORBIDDEN, "Không thể khóa tài khoản của chính mình");
       return;
     }
-
     user.accountStatus = status;
-    if (reason !== undefined) {
-      user.accountStatusReason = reason;
-    }
-
+    if (reason !== undefined) user.accountStatusReason = reason;
     await user.save();
-
-    res.json({
-      success: true,
-      user: {
-        _id: user._id,
-        accountStatus: user.accountStatus,
-        accountStatusReason: user.accountStatusReason,
-      },
-    });
+    res.json({ success: true, user: {
+      _id: user._id,
+      accountStatus: user.accountStatus,
+      accountStatusReason: user.accountStatusReason,
+    } });
   } catch (err) {
     handleInternalError(res, err, "[admin] updateUserStatus error");
   }
 };
 
-// ── GET /api/admin/users/:id/details ─────────────────────────────────────────
-export const getUserDetails = async (req: Request, res: Response): Promise<void> => {
+export const getUserDetails = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
+    if (!assertAdmin(req, res)) return;
     const { id } = req.params;
     const user = await User.findById(id).select("-passwordHash").lean();
-
     if (!user) {
       sendError(res, ErrorCode.ACCOUNT_NOT_FOUND, "Không tìm thấy người dùng");
       return;
     }
-
     const [totalOrders, cancelledOrders, totalSpent] = await Promise.all([
       Order.countDocuments({ buyerId: id }),
       Order.countDocuments({ buyerId: id, status: "CANCELLED" }),
       Order.aggregate([
-        { $match: { buyerId: new Types.ObjectId(id as string), status: "COMPLETED" } },
+        {
+          $match: {
+            buyerId: new Types.ObjectId(String(id)),
+            status: "COMPLETED",
+          },
+        },
         { $group: { _id: null, total: { $sum: "$totalAmount" } } },
       ]),
     ]);
-
     const spent = totalSpent.length > 0 ? totalSpent[0].total : 0;
-
     res.json({
       user,
       stats: {

@@ -3,6 +3,207 @@
 Track changes to the API contract over time to ensure synchronization between Backend and Frontend.
 
 ---
+## 2026-10-07 — 🎄 CHRISTMAS PIVOT (Breaking)
+
+> **Domain shift**: dự án chuyển từ **thrift it! (vintage marketplace)** sang **Build Your Christmas** (single-brand Christmas tree e-commerce với tree editor + HCM-only delivery). Mọi endpoint thuộc marketplace bị xóa, mọi endpoint thuộc Christmas được thêm mới. FE PHẢI bám theo contract mới (single-source-of-truth = code thực tế trong `backend/src/`).
+
+### Removed endpoints (BREAKING)
+
+Nhóm **Sellers / Products / Reviews** (đã xóa file controller + route):
+- `GET/POST/PATCH/DELETE /api/products/*` (tất cả)
+- `GET/POST/PATCH /api/sellers/*` (tất cả)
+- `POST /api/products/:id/reviews`
+- `GET /api/sellers/:idOrHandle/reviews`
+
+Nhóm **Marketplace cart merge**:
+- `POST /api/cart/merge`
+- `POST /api/auth/cart/merge`
+
+Nhóm **Seller application flow**:
+- `POST /api/auth/seller/apply`
+- `GET /api/admin/pending-sellers`
+- `PATCH /api/admin/sellers/:id/approve`
+- `PATCH /api/admin/sellers/:id/reject`
+- `PATCH /api/admin/sellers/:id/commission-rate`
+- `PATCH /api/admin/users/:id/approve-seller` (legacy)
+- `PATCH /api/admin/users/:id/reject-seller` (legacy)
+
+Nhóm **Listing moderation**:
+- `GET /api/admin/pending-listings`
+- `PATCH /api/admin/listings/:id/approve`
+- `PATCH /api/admin/listings/:id/reject`
+
+Nhóm **AI** (Gemini endpoints — đã xóa):
+- `POST /api/ai/search`
+- `POST /api/ai/analyze-listing`
+- `POST /api/ai/recommendations`
+
+Nhóm **Legacy order**:
+- `GET /api/orders/seller`
+- `PATCH /api/orders/:code/status` (đổi thành `:id`)
+- `POST /api/orders/:code/shipment` (đổi thành `:id`)
+- `POST /api/payments/:code/cod-collect` (COD xử lý trong `POST /api/orders`)
+
+### Removed error codes
+- `SELLER_NOT_APPROVED`, `SELLER_HANDLE_TAKEN`, `SELLER_SHOP_NAME_TAKEN`, `SELLER_ALREADY_APPROVED`
+- `PRODUCT_NOT_FOUND`, `PRODUCT_NOT_AVAILABLE`, `PRODUCT_OUT_OF_STOCK`, `PRODUCT_TITLE_REQUIRED`, `PRODUCT_PRICE_REQUIRED`, `PRODUCT_CONDITION_REQUIRED`, `PRODUCT_SIZE_REQUIRED`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_SIZE_DATA_INVALID`, `PRODUCT_ALREADY_NOT_FOR_SALE`
+- `SELF_PURCHASE_NOT_ALLOWED`, `QUANTITY_EXCEEDS_STOCK`
+- `ORDER_BUYER_NOT_PARTICIPANT`, `ORDER_SELLER_CANNOT_DELIVER`
+- `REVIEW_RATING_INVALID`, `REVIEW_NOT_ALLOWED`, `REVIEW_ALREADY_EXISTS`
+- `AI_NOT_CONFIGURED`, `AI_UPSTREAM_ERROR`, `AI_QUERY_INVALID_LENGTH`, `AI_IMAGE_INVALID`, `AI_IMAGE_TYPE_INVALID`, `AI_QUERY_OR_IMAGE_REQUIRED`, `AI_RECOMMENDATIONS_UNAVAILABLE`
+- `COMMISSION_RATE_INVALID`, `SELLER_NOT_FOUND`
+
+### Added endpoints
+
+**Auth**:
+- `PUT /api/auth/me/avatar` (giữ nguyên từ trước)
+
+**Users / Saved addresses** (giữ nguyên):
+- `GET/POST/PATCH/DELETE /api/users/me/addresses`
+
+**Addresses (CAS proxy)** (giữ nguyên):
+- `GET /api/addresses/provinces`
+- `GET /api/addresses/provinces/:provinceId/communes`
+- `GET /api/addresses/communes`
+
+**Catalog (public, MỚI)**:
+- `GET /api/catalog/trees` — 3 sizes S/M/L
+- `GET /api/catalog/styles` — 6 concepts
+- `GET /api/catalog/accessories?type=&group=&style=&size=` — filter nhiều chiều
+- `GET /api/catalog/presets` — ready-made designs
+- `GET /api/catalog/delivery-options` — READY_TO_DISPLAY vs FLAT_PACK
+- `POST /api/catalog/quote` — live pricing
+
+**Designs (MỚI)**:
+- `POST /api/designs/quote` (public)
+- `POST /api/designs` (auth) — save design
+- `GET /api/designs/mine` (auth)
+- `GET /api/designs/share/:slug` (public/owner)
+- `GET /api/designs/:id` (owner/admin)
+- `PATCH /api/designs/:id` (owner)
+- `DELETE /api/designs/:id` (owner)
+- `POST /api/designs/:id/duplicate` (auth)
+
+**Cart** (refactored, không còn `productId`):
+- `GET /api/cart`
+- `POST /api/cart/items` — body: `{ config | designId, quantity }`
+- `PATCH /api/cart/items/:id`
+- `DELETE /api/cart/items/:id`
+- `DELETE /api/cart/clear`
+
+**Orders** (refactored, design snapshot thay cho product):
+- `GET /api/orders`
+- `POST /api/orders` — body mới: `{ designConfirmed: true (REQUIRED), shippingProvinceId: "79" (HARD-CODED), items[] | cartItemIds[], ... }`
+- `GET /api/orders/:id` (path đổi từ `:code` → `:id`, hỗ trợ cả `_id` lẫn `orderCode`)
+- `PATCH /api/orders/:id/status`
+- `POST /api/orders/:id/shipment` (admin only — đổi từ seller)
+- `GET /api/orders/:id/shipment`
+
+**Payments**:
+- `POST /api/payments/checkout` (giữ nguyên mock)
+
+**Notifications** (giữ nguyên):
+- `GET /api/notifications`
+- `PATCH /api/notifications/:id/read`
+
+**Admin (refactored — Christmas catalog + orders + users + stats)**:
+- `GET/POST/PATCH /api/admin/trees`
+- `GET/POST/PATCH /api/admin/styles`
+- `GET/POST/PATCH /api/admin/accessories`
+- `GET/POST/PATCH/DELETE /api/admin/presets`
+- `GET /api/admin/orders?status=`
+- `GET /api/admin/stats` (response shape mới — Christmas-specific)
+- `GET /api/admin/users?page=&limit=&search=`
+- `PATCH /api/admin/users/:id/status` (ban/unban — không phải seller approve)
+- `GET /api/admin/users/:id/details`
+
+**Health**:
+- `GET /api/health`
+
+### Added error codes (47 mới, thay cho 25 codes marketplace)
+
+Catalog:
+- `TREE_NOT_FOUND`, `STYLE_NOT_FOUND`, `ACCESSORY_NOT_FOUND`, `CATALOG_ITEM_UNAVAILABLE`
+- `ACCESSORY_STYLE_MISMATCH`, `ACCESSORY_QUANTITY_INVALID`, `ACCESSORY_DUPLICATED`
+- `OUT_OF_STOCK` (thay cho `PRODUCT_OUT_OF_STOCK`)
+
+Design:
+- `DESIGN_NOT_FOUND`, `DESIGN_CONFIG_INVALID`, `DESIGN_NOT_CONFIRMED`
+- `DESIGN_NAME_REQUIRED`, `DESIGN_SLUG_TAKEN`
+
+Personalization:
+- `PERSONALIZATION_REQUIRED`, `PERSONALIZATION_INVALID`
+
+Delivery:
+- `DELIVERY_OPTION_INVALID`, `DELIVERY_AREA_NOT_SUPPORTED` (HCM-only — 422)
+
+Cart:
+- `CART_EMPTY`, `NO_ITEMS_CHECKED`, `CART_NOT_FOUND`, `CART_ITEM_NOT_FOUND`
+
+Order:
+- `ORDER_NOT_FOUND`, `ORDER_STATUS_REQUIRED`, `ORDER_ID_REQUIRED`
+- `ORDER_INVALID_TRANSITION` (giữ từ marketplace)
+- `ORDER_ALREADY_SHIPPED`, `ORDER_ALREADY_CANCELLED`, `ORDER_PAYMENT_INVALID_STATE`
+- `ORDER_CANCEL_NOT_ALLOWED` (MỚI — personalization + PACKING block)
+
+Address (giữ từ trước):
+- `INVALID_EFFECTIVE_DATE`, `PROVINCE_NOT_FOUND`, `ADDRESS_UPSTREAM_TIMEOUT`, `ADDRESS_UPSTREAM_ERROR`
+
+### Data model changes
+
+- `User.roles`: chỉ còn `["buyer", "admin"]` (bỏ `seller`).
+- `User.sellerProfile`: **XÓA** (không còn field này).
+- `User.addresses`: giữ nguyên embedded subdoc.
+- Bỏ models: `Product`, `Category`, `SellerProfile`, `Review`, `Ledger`, `PlatformFeeConfig`, `Conversation`, `Message`, `Favorite`, `UserView`, `UserLike`, `Dispute`.
+- Thêm models: `Tree`, `Style`, `Accessory`, `TreeDesign`, `CartItem` (tách khỏi `Cart`).
+- `Order.items[].OrderItem` shape hoàn toàn mới: `{ designId, designName, tree (snapshot), style (snapshot), lines[] (ACCESSORY + SERVICE), deliveryOption, unitTotal, quantity, lineTotal, hasPersonalization, productionDays }`. KHÔNG còn `productId` / `sellerId` / `commissionRate` / `commissionAmount`.
+- `Order.status` mở rộng: thêm `CANCEL_REQUESTED` (đã có từ 2026-09-30, giữ nguyên).
+- `Order.shippingProvinceId` bắt buộc = `"79"` (HCM only — HCM-only delivery đã thêm 2026-10-03, giữ nguyên).
+
+### Business rule changes
+
+- **HCM-only delivery**: `POST /api/orders` reject mọi `shippingProvinceId !== "79"` với `DELIVERY_AREA_NOT_SUPPORTED` (HTTP 422). Tỉnh khác TP.HCM không được phục vụ ở MVP.
+- **Design confirmation required**: `POST /api/orders` bắt buộc `designConfirmed: true`. FE phải có checkbox "Tôi đồng ý với thiết kế này" trước nút checkout.
+- **Atomic stock reservation**: BE chạy `reserveStock` atomic (`updateOne({ _id, stock: { $gte: qty } }, { $inc: { stock: -qty } })`) cho tất cả line items khi tạo order. Nếu fail ở bất kỳ item nào → rollback toàn bộ + trả `OUT_OF_STOCK` (409).
+- **Stock restore on cancel**: khi order chuyển sang `CANCELLED` → restore stock cho cả tree + accessories (theo `quantity * item.quantity`).
+- **Personalization + PACKING block**: order có `hasPersonalization: true` mà đã vào `PACKING` → buyer không thể gửi `CANCEL_REQUESTED` (nhận `ORDER_CANCEL_NOT_ALLOWED` 409).
+- **Snapshot design vào order**: order giữ toàn bộ `tree / style / lines / pricing` snapshot, KHÔNG thay đổi khi admin sửa catalog. Catalog cũ bị soft-delete (`isActive: false`) nhưng order cũ vẫn render đúng.
+- **No reviews / no chat / no AI**: 3 features marketplace đã bỏ. Christmas MVP chỉ có: design editor + cart + checkout + admin catalog.
+
+### Response format
+
+- Mọi success response: object bao bọc theo resource (`{ trees }`, `{ styles }`, `{ accessories }`, `{ design }`, `{ orders }`, `{ order }`, …).
+- Mọi error response: `{ error: { code: string, message: string } }` — **KHÔNG ĐỔI** so với 2026-09-29 (đã được pivot giữ nguyên).
+- HTTP status: 400/401/403/404/409/422/500/502/503/504 (giữ nguyên).
+
+### Impact for FE
+
+- Nếu FE đang gọi bất kỳ endpoint thuộc nhóm "Removed" → phải xóa khỏi codebase. Sẽ nhận `404 NOT_FOUND` nếu cố gọi.
+- Nếu FE đang parse `error: string` (format cũ) → update sang `error.code` (xem `docs/ERROR_CODES.md`).
+- Nếu FE đang check `user.roles.includes("seller")` → bỏ check, single-brand.
+- Nếu FE đang render product detail với `sizeQuantities` / `sizePriceDeltas` → chuyển sang Christmas UI (Tree chooser + Style chooser + Accessory list với `maxQtyBySize`).
+
+### Migration checklist cho FE
+
+- [ ] Bỏ mọi import/state liên quan: Product, Category, SellerProfile, Review, AI, Disputes, Ledger, Favorite, View, Like
+- [ ] Cập nhật API client để trỏ tới endpoints mới (xem `docs/API_CONTRACT.md`)
+- [ ] Update error handler để branch trên `error.code` (47 codes mới)
+- [ ] Update router/guard để check `user.roles.includes("admin")` thay cho `"seller"`
+- [ ] Build lại UI: TreeSelector (3 sizes) → StyleSelector (6 concepts) → AccessoryPicker (4 groups × 10 types × qty bound) → Preview/Quote → Save/Share → Cart → Checkout
+- [ ] Checkout page: thêm `designConfirmed` checkbox, hard-code `shippingProvinceId: "79"`, show province selector chỉ cho HCM
+- [ ] Order detail: render snapshot từ `order.items[].tree / style / lines` (KHÔNG query catalog thêm)
+- [ ] Admin: rebuild screens cho trees/styles/accessories/presets CRUD (xóa product/seller moderation)
+
+### Verification
+
+- ✅ `npx tsc --noEmit` pass
+- ✅ `npm run build` pass
+- ✅ `npm test` (errorContract) — **61/61 PASS** (47 codes mới)
+- ✅ `npm run test:pricing` — **25/25 PASS** (cover full business rules)
+- ✅ `npm run test:address` — **16/16 PASS**
+- ✅ `npm run test:all` — **102/102 PASS**
+
+---
 ## 2026-10-06
 
 ### Added — Per-size stock & price delta for Products

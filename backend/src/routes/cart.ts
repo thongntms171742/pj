@@ -1,13 +1,12 @@
 import { Router } from "express";
+import { requireAuth } from "../middleware/auth";
 import {
   getCart,
   addCartItem,
   updateCartItem,
   deleteCartItem,
   clearCart,
-  mergeCart,
 } from "../controllers/cartController";
-import { requireAuth } from "../middleware/auth";
 
 const router = Router();
 
@@ -17,6 +16,5 @@ router.patch("/items/:id", requireAuth, updateCartItem);
 router.delete("/items/:id", requireAuth, deleteCartItem);
 router.delete("/clear", requireAuth, clearCart);
 router.delete("/", requireAuth, clearCart);
-router.post("/merge", requireAuth, mergeCart);
 
 export default router;

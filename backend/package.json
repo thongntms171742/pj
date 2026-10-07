@@ -1,19 +1,16 @@
 {
-  "name": "thriftit-backend",
+  "name": "buildyourchristmas-backend",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "seed": "ts-node-dev --transpile-only src/seed.ts",
-    "seed:sellers": "ts-node-dev --transpile-only src/seed-sellers.ts",
-    "add:products": "ts-node-dev --transpile-only src/add-products.ts",
+    "seed": "ts-node-dev --transpile-only src/seed-christmas.ts",
     "test": "ts-node --transpile-only src/tests/errorContract.test.ts",
-    "test:auth": "ts-node --transpile-only src/tests/productAuth.test.ts",
-    "test:order": "ts-node --transpile-only src/tests/orderAuth.test.ts",
     "test:address": "ts-node --transpile-only src/tests/address.test.ts",
-    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/productAuth.test.ts && ts-node --transpile-only src/tests/orderAuth.test.ts && ts-node --transpile-only src/tests/address.test.ts"
+    "test:pricing": "ts-node --transpile-only src/tests/pricing.test.ts",
+    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",
