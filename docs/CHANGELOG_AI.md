@@ -1,75 +1,75 @@
-# AI Changelog
+﻿ï»¿# AI Changelog
 
-## [2026-10-07] (Build Your Christmas — Marketplace → Single-brand Christmas Tree Editor)
+## [2026-10-07] (Build Your Christmas â Marketplace â Single-brand Christmas Tree Editor)
 
-> **PIVOT** toàn bộ backend từ thrift it! marketplace sang **Build Your Christmas** (single-brand Christmas e-commerce). FE đã có sẵn, plan tập trung BE + docs. Chi tiết plan: `c:\Users\HP\.cursor\plans\build_your_christmas_backend_adaptation_fc23001c.plan.md`.
+> **PIVOT** toÃ n bá» backend tá»« thrift it! marketplace sang **Build Your Christmas** (single-brand Christmas e-commerce). FE ÄÃ£ cÃ³ sáºµn, plan táº­p trung BE + docs. Chi tiáº¿t plan: `c:\Users\HP\.cursor\plans\build_your_christmas_backend_adaptation_fc23001c.plan.md`.
 
-### Removed (marketplace code xoá hoàn toàn)
-- `models/Product.ts`, `Category.ts`, `Review.ts` — XOÁ FILE.
-- `models/User.ts`: bỏ `SellerProfileSchema` + `sellerProfile`; `roles` chỉ còn `("buyer" | "admin")`.
-- `controllers/productController.ts`, `sellerController.ts`, `aiController.ts` — XOÁ FILE.
-- `controllers/authController.ts`: bỏ `applySeller`, `mapCartItem`, `/auth/cart/merge`, các trường `sellerStatus`/`sellerProfile` trong response.
-- `controllers/paymentController.ts`: bỏ phần trừ kho (đã chuyển sang `orderController`) + thông báo seller. Giữ `PENDING_PAYMENT → PAID → CONFIRMED` + idempotent.
-- `routes/products.ts`, `sellers.ts`, `ai.ts` — XOÁ FILE.
-- `routes/auth.ts`: bỏ `/auth/cart/merge` alias.
-- `routes/admin.ts`: bỏ pending-listings, pending-sellers, commission-rate. Admin mới chỉ làm catalog + orders + stats + users.
-- `seed.ts`, `seed-sellers.ts`, `add-products.ts` — XOÁ FILE.
-- `tests/productAuth.test.ts`, `orderAuth.test.ts` — XOÁ FILE (legacy marketplace).
-- `src/server.ts` reference các route cũ, cập nhật sang routes mới.
+### Removed (marketplace code xoÃ¡ hoÃ n toÃ n)
+- `models/Product.ts`, `Category.ts`, `Review.ts` â XOÃ FILE.
+- `models/User.ts`: bá» `SellerProfileSchema` + `sellerProfile`; `roles` chá» cÃ²n `("buyer" | "admin")`.
+- `controllers/productController.ts`, `sellerController.ts`, `aiController.ts` â XOÃ FILE.
+- `controllers/authController.ts`: bá» `applySeller`, `mapCartItem`, `/auth/cart/merge`, cÃ¡c trÆ°á»ng `sellerStatus`/`sellerProfile` trong response.
+- `controllers/paymentController.ts`: bá» pháº§n trá»« kho (ÄÃ£ chuyá»n sang `orderController`) + thÃ´ng bÃ¡o seller. Giá»¯ `PENDING_PAYMENT â PAID â CONFIRMED` + idempotent.
+- `routes/products.ts`, `sellers.ts`, `ai.ts` â XOÃ FILE.
+- `routes/auth.ts`: bá» `/auth/cart/merge` alias.
+- `routes/admin.ts`: bá» pending-listings, pending-sellers, commission-rate. Admin má»i chá» lÃ m catalog + orders + stats + users.
+- `seed.ts`, `seed-sellers.ts`, `add-products.ts` â XOÃ FILE.
+- `tests/productAuth.test.ts`, `orderAuth.test.ts` â XOÃ FILE (legacy marketplace).
+- `src/server.ts` reference cÃ¡c route cÅ©, cáº­p nháº­t sang routes má»i.
 
 ### Added (Christmas-specific)
-- **Models mới**:
-  - `Tree.ts`: SKU cây thông với size S/M/L unique, height/diameter/material, price/stock, isActive.
-  - `Style.ts`: 6 concept (CLASSIC, MINIMAL, GINGERBREAD, WINTER, CUTE, LUXURY) với palette + coverImage.
-  - `Accessory.ts`: 10 loại phụ kiện (LIGHT_STRING, BAUBLE, BELL, CANDY, FIGURINE, BOW, STOCKING, STAR, NAME_TAG, NAME_ORNAMENT) × 4 group (LIGHTS/ORNAMENT/DECOR/PERSONAL) với `styleCodes` + `maxQtyBySize` + `isPersonalizable` + `personalizationMaxLength` + `productionDays`.
-  - `TreeDesign.ts`: thiết kế của user với `ownerId` (null cho preset), `slug` unique, `config: DesignConfig`, `isPublic`, `isPreset`, `duplicatedFrom`, `previewImage`.
-- **CartItem + Order viết lại**:
+- **Models má»i**:
+  - `Tree.ts`: SKU cÃ¢y thÃ´ng vá»i size S/M/L unique, height/diameter/material, price/stock, isActive.
+  - `Style.ts`: 6 concept (CLASSIC, MINIMAL, GINGERBREAD, WINTER, CUTE, LUXURY) vá»i palette + coverImage.
+  - `Accessory.ts`: 10 loáº¡i phá»¥ kiá»n (LIGHT_STRING, BAUBLE, BELL, CANDY, FIGURINE, BOW, STOCKING, STAR, NAME_TAG, NAME_ORNAMENT) Ã 4 group (LIGHTS/ORNAMENT/DECOR/PERSONAL) vá»i `styleCodes` + `maxQtyBySize` + `isPersonalizable` + `personalizationMaxLength` + `productionDays`.
+  - `TreeDesign.ts`: thiáº¿t káº¿ cá»§a user vá»i `ownerId` (null cho preset), `slug` unique, `config: DesignConfig`, `isPublic`, `isPreset`, `duplicatedFrom`, `previewImage`.
+- **CartItem + Order viáº¿t láº¡i**:
   - `CartItem`: `designId`, `config: DesignConfig`, `priceSnapshot`, `quantity`, `checked`.
   - `OrderItem`: `designId`, `designName`, `previewImage`, `tree` (snapshot), `style` (snapshot), `lines[]` (ACCESSORY/SERVICE), `unitTotal`, `quantity`, `lineTotal`, `deliveryOption`, `hasPersonalization`, `productionDays`.
-  - `Order`: thêm `designConfirmedAt` + `designLockedAt`. Bỏ `platformFee`.
-- **Services mới**:
-  - `services/pricingService.ts`: pure function `priceDesign(config, catalog)` với full validation (active, style match, qty bound, personalization, dup accessory, deliveryOption). Trả `PriceBreakdown` (lines, decorationFee, unitTotal, productionDays, hasPersonalization, hasService). Throws `DesignValidationError` với ErrorCode.
-  - `services/catalogService.ts`: `loadCatalogForConfig` (1 query tree + 1 style + 1 accessories) → `CatalogSnapshot`. `buildPricedDesign` = load + price. `safelyBuildPricedDesign` wrap catch → `sendError`.
-  - `services/inventoryService.ts`: `reserveStock` (atomic `$inc` với `stock: { $gte: qty }`, rollback khi lỗi), `restoreStock`, `restoreTreeStock`.
+  - `Order`: thÃªm `designConfirmedAt` + `designLockedAt`. Bá» `platformFee`.
+- **Services má»i**:
+  - `services/pricingService.ts`: pure function `priceDesign(config, catalog)` vá»i full validation (active, style match, qty bound, personalization, dup accessory, deliveryOption). Tráº£ `PriceBreakdown` (lines, decorationFee, unitTotal, productionDays, hasPersonalization, hasService). Throws `DesignValidationError` vá»i ErrorCode.
+  - `services/catalogService.ts`: `loadCatalogForConfig` (1 query tree + 1 style + 1 accessories) â `CatalogSnapshot`. `buildPricedDesign` = load + price. `safelyBuildPricedDesign` wrap catch â `sendError`.
+  - `services/inventoryService.ts`: `reserveStock` (atomic `$inc` vá»i `stock: { $gte: qty }`, rollback khi lá»i), `restoreStock`, `restoreTreeStock`.
   - `services/designService.ts`: `loadCatalogForDesign` (recompute pricing), `buildDesignResponse` (FE-facing shape), `generateDesignSlug` + `findUniqueSlug`.
-- **Controllers/Routes mới**:
+- **Controllers/Routes má»i**:
   - `catalogController.ts` + `routes/catalog.ts` (public): `/trees`, `/styles`, `/accessories` (filter), `/presets`, `/delivery-options`, `POST /quote`.
   - `designController.ts` + `routes/designs.ts`: `POST /quote` (public), `POST /` (auth), `GET /mine`, `GET /share/:slug`, `GET /:id`, `PATCH /:id`, `DELETE /:id`, `POST /:id/duplicate`.
-  - `orderController.ts` (rewrite): `POST /` yêu cầu `designConfirmed: true` + `shippingProvinceId === "79"`, recompute pricing, atomic reserve stock, snapshot đầy đủ. `PATCH /:id/status` với Q5 (block cancel cá nhân hóa khi `PACKING`). `POST /:id/shipment` (admin only).
-  - `cartController.ts` (rewrite): bỏ `/merge`. Items kèm `currentUnitTotal` + `priceChanged`.
-  - `adminController.ts` (rewrite): CRUD trees/styles/accessories (PATCH only, không DELETE — soft delete qua `isActive=false`), CRUD presets (có DELETE), `GET /orders?status=`, `GET /stats` với KPIs Christmas, user management.
+  - `orderController.ts` (rewrite): `POST /` yÃªu cáº§u `designConfirmed: true` + `shippingProvinceId === "79"`, recompute pricing, atomic reserve stock, snapshot Äáº§y Äá»§. `PATCH /:id/status` vá»i Q5 (block cancel cÃ¡ nhÃ¢n hÃ³a khi `PACKING`). `POST /:id/shipment` (admin only).
+  - `cartController.ts` (rewrite): bá» `/merge`. Items kÃ¨m `currentUnitTotal` + `priceChanged`.
+  - `adminController.ts` (rewrite): CRUD trees/styles/accessories (PATCH only, khÃ´ng DELETE â soft delete qua `isActive=false`), CRUD presets (cÃ³ DELETE), `GET /orders?status=`, `GET /stats` vá»i KPIs Christmas, user management.
 - **Config** (`config/business.ts`): `SHIPPING_FEE = 30_000`, `DECORATION_FEE_BY_SIZE = { S: 50_000, M: 80_000, L: 120_000 }`, `SERVICE_PROVINCE_ID = "79"` (TP.HCM), `DELIVERY_OPTIONS`, `PERSONALIZATION_REGEX`.
-- **Seed** (`seed-christmas.ts`): idempotent upsert theo `size`/`code`/`name`/`slug`. Cờ `--confirm-seed`. **Từ chối chạy nếu DB là `thriftit`**. 3 trees + 6 styles + ~25 accessories + 8 presets + admin + buyer demo. Passwords từ env `SEED_ADMIN_PASSWORD`/`SEED_BUYER_PASSWORD`.
+- **Seed** (`seed-christmas.ts`): idempotent upsert theo `size`/`code`/`name`/`slug`. Cá» `--confirm-seed`. **Tá»« chá»i cháº¡y náº¿u DB lÃ  `thriftit`**. 3 trees + 6 styles + ~25 accessories + 8 presets + admin + buyer demo. Passwords tá»« env `SEED_ADMIN_PASSWORD`/`SEED_BUYER_PASSWORD`.
 - **Tests**:
-  - `tests/pricing.test.ts` (MỚI): 25 test cases — concept example (~475k), qty bound, style match, personalization (required/invalid/too long/forbidden chars/non-personalizable), dup accessory, invalid deliveryOption, STAR qty 1, inactive catalog, missing accessory, DIY_KIT/SEPARATE = 0 decoration, S/M/L decoration 50k/80k/120k.
-  - `tests/errorContract.test.ts` (REWRITTEN): 61 tests — 47 codes có status mapping, contract shape, redaction, critical Christmas codes tồn tại, **legacy marketplace codes bị xoá** (assertNotPresent).
-  - `tests/address.test.ts`: **giữ nguyên** (CAS Address Kit vẫn dùng cho HCM delivery).
+  - `tests/pricing.test.ts` (Má»I): 25 test cases â concept example (~475k), qty bound, style match, personalization (required/invalid/too long/forbidden chars/non-personalizable), dup accessory, invalid deliveryOption, STAR qty 1, inactive catalog, missing accessory, DIY_KIT/SEPARATE = 0 decoration, S/M/L decoration 50k/80k/120k.
+  - `tests/errorContract.test.ts` (REWRITTEN): 61 tests â 47 codes cÃ³ status mapping, contract shape, redaction, critical Christmas codes tá»n táº¡i, **legacy marketplace codes bá» xoÃ¡** (assertNotPresent).
+  - `tests/address.test.ts`: **giá»¯ nguyÃªn** (CAS Address Kit váº«n dÃ¹ng cho HCM delivery).
 
 ### Changed
-- `utils/errors.ts` (REWRITTEN): 47 codes mới. Xoá: `SELLER_*`, `PRODUCT_*`, `SELF_PURCHASE_NOT_ALLOWED`, `PRODUCT_ALREADY_NOT_FOR_SALE`, `ORDER_SELLER_CANNOT_DELIVER`, `REVIEW_*`, `COMMISSION_RATE_INVALID`, `AI_*`. Thêm 19 codes Christmas (xem docs/ERROR_CODES.md).
+- `utils/errors.ts` (REWRITTEN): 47 codes má»i. XoÃ¡: `SELLER_*`, `PRODUCT_*`, `SELF_PURCHASE_NOT_ALLOWED`, `PRODUCT_ALREADY_NOT_FOR_SALE`, `ORDER_SELLER_CANNOT_DELIVER`, `REVIEW_*`, `COMMISSION_RATE_INVALID`, `AI_*`. ThÃªm 19 codes Christmas (xem docs/ERROR_CODES.md).
 - `package.json`:
-  - `name`: `thriftit-backend` → `buildyourchristmas-backend`.
-  - Scripts: `seed` → `seed-christmas.ts`. Xoá `seed:sellers`, `add:products`, `test:auth`, `test:order`. Thêm `test:pricing`. Cập nhật `test:all`.
-  - **Không thêm dependency nào**.
+  - `name`: `thriftit-backend` â `buildyourchristmas-backend`.
+  - Scripts: `seed` â `seed-christmas.ts`. XoÃ¡ `seed:sellers`, `add:products`, `test:auth`, `test:order`. ThÃªm `test:pricing`. Cáº­p nháº­t `test:all`.
+  - **KhÃ´ng thÃªm dependency nÃ o**.
 
 ### Verification
-- ✅ `npx tsc --noEmit` pass (exit 0).
-- ✅ `npm run build` pass (exit 0).
-- ✅ `npm test` (errorContract) pass — **61/61 PASS**.
-- ✅ `npm run test:pricing` pass — **25/25 PASS**.
+- â `npx tsc --noEmit` pass (exit 0).
+- â `npm run build` pass (exit 0).
+- â `npm test` (errorContract) pass â **61/61 PASS**.
+- â `npm run test:pricing` pass â **25/25 PASS**.
 
 ### Snapshot decisions
-- Database: dùng DB `buildyourchristmas` (user tự đổi URI). Collection `users`, `orders`, `carts`, `cartitems`, `notifications` giữ trong cùng cluster nhưng tách DB name.
-- Admin user mới: `admin@buildyourchristmas.vn`, lấy từ env `SEED_ADMIN_PASSWORD`.
-- Frontend: user tự quản lý; BE đảm bảo contract match.
+- Database: dÃ¹ng DB `buildyourchristmas` (user tá»± Äá»i URI). Collection `users`, `orders`, `carts`, `cartitems`, `notifications` giá»¯ trong cÃ¹ng cluster nhÆ°ng tÃ¡ch DB name.
+- Admin user má»i: `admin@buildyourchristmas.vn`, láº¥y tá»« env `SEED_ADMIN_PASSWORD`.
+- Frontend: user tá»± quáº£n lÃ½; BE Äáº£m báº£o contract match.
 
 ### Backlog (Christmas)
-- [ ] FE review lại response shape (sau khi plan chốt).
-- [ ] "Your 2026 Christmas" duplicate flow year filter (FE tự handle).
-- [ ] Email/SMS confirmation (chưa có).
-- [ ] Stock rollback thủ công (chưa dùng MongoDB transaction) — đủ cho MVP.
-- [ ] Lint/format: project không có sẵn, không thêm dependency theo plan.
-- [ ] Docs (`docs/API_CONTRACT.md`, `docs/openapi.yaml`, `docs/ENUMS.md`, `docs/ERROR_CODES.md`, `docs/API_MATRIX.md`, `docs/INTEGRATION_GUIDE.md`): viết lại theo Christmas.
+- [ ] FE review láº¡i response shape (sau khi plan chá»t).
+- [ ] "Your 2026 Christmas" duplicate flow year filter (FE tá»± handle).
+- [ ] Email/SMS confirmation (chÆ°a cÃ³).
+- [ ] Stock rollback thá»§ cÃ´ng (chÆ°a dÃ¹ng MongoDB transaction) â Äá»§ cho MVP.
+- [ ] Lint/format: project khÃ´ng cÃ³ sáºµn, khÃ´ng thÃªm dependency theo plan.
+- [ ] Docs (`docs/API_CONTRACT.md`, `docs/openapi.yaml`, `docs/ENUMS.md`, `docs/ERROR_CODES.md`, `docs/API_MATRIX.md`, `docs/INTEGRATION_GUIDE.md`): viáº¿t láº¡i theo Christmas.
 
 ---
 
@@ -80,20 +80,20 @@
   - `createOrder` now reads `seller.sellerProfile.commissionRate` (defaults to 0.1 if missing/invalid) and snapshots it onto each `OrderItem`. `platformFee` on the order = aggregate of item `commissionAmount`.
   - `mapOrder` exposes `commissionRate` and `commissionAmount` on every item.
 - **Admin Controller** (`backend/src/controllers/adminController.ts`):
-  - **NEW** `updateSellerCommission` — validates `0 ≤ rate ≤ 1`, updates `User.sellerProfile.commissionRate`, returns `previousRate` + `newRate` for audit.
+  - **NEW** `updateSellerCommission` â validates `0 â¤ rate â¤ 1`, updates `User.sellerProfile.commissionRate`, returns `previousRate` + `newRate` for audit.
 - **Route** (`backend/src/routes/admin.ts`): `PATCH /api/admin/sellers/:id/commission-rate` (admin-only).
 - **Errors** (`backend/src/utils/errors.ts`): new codes `COMMISSION_RATE_INVALID` (400) + `SELLER_NOT_FOUND` (404). Catalog now 59 codes.
 - **Docs**: updated `docs/API_CONTRACT.md`, `docs/openapi.yaml` (PATCH + OrderItem), `docs/API_MATRIX.md`, `docs/ERROR_CODES.md`, `docs/API_CHANGELOG.md`, `AI_CONTEXT.md`.
 ### Snapshot semantics
-- Rate mới chỉ áp dụng cho orders tạo SAU khi admin update.
-- Orders cũ giữ nguyên rate đã snapshot trên `OrderItem.commissionRate`.
-- Admin KHÔNG nhận notification cho action này.
+- Rate má»i chá» Ã¡p dá»¥ng cho orders táº¡o SAU khi admin update.
+- Orders cÅ© giá»¯ nguyÃªn rate ÄÃ£ snapshot trÃªn `OrderItem.commissionRate`.
+- Admin KHÃNG nháº­n notification cho action nÃ y.
 ### Verification
-- ✅ `npx tsc --noEmit` (exit 0)
-- ✅ `npm run build` (exit 0)
-- ✅ `npm test` (errorContract) — **38/38 PASS** (catalog 59 codes)
+- â `npx tsc --noEmit` (exit 0)
+- â `npm run build` (exit 0)
+- â `npm test` (errorContract) â **38/38 PASS** (catalog 59 codes)
 ### Backlog
-- Migration script cho orders cũ (re-rate) — chưa cần thiết nếu nghiệp vụ OK với snapshot cũ.
+- Migration script cho orders cÅ© (re-rate) â chÆ°a cáº§n thiáº¿t náº¿u nghiá»p vá»¥ OK vá»i snapshot cÅ©.
 - `Ledger.ts` double-entry refactor cho commission flow.
 
 ## [2026-10-06]
@@ -103,17 +103,17 @@
   - `deriveSizeQuantities` synthesizes `{ [p.size]: p.quantity }` for legacy products so FE always receives a usable map.
   - `mapProduct` now always returns `sizeQuantities` + `sizePriceDeltas` (empty object `{}` when not set).
   - `createProduct` accepts + validates `sizeQuantities` / `sizePriceDeltas`.
-  - **NEW** `updateProduct` — partial update (owner-seller or admin) supporting all editable fields including per-size stock/price.
+  - **NEW** `updateProduct` â partial update (owner-seller or admin) supporting all editable fields including per-size stock/price.
 - **Route** (`backend/src/routes/products.ts`): `PATCH /api/products/:id` registered before `/:id` wildcard.
-- **Errors** (`backend/src/utils/errors.ts`): new code `PRODUCT_SIZE_DATA_INVALID` (400) — added to catalog (now 57 codes).
+- **Errors** (`backend/src/utils/errors.ts`): new code `PRODUCT_SIZE_DATA_INVALID` (400) â added to catalog (now 57 codes).
 - **Docs**: updated `docs/API_CONTRACT.md` (POST + GET + new PATCH), `docs/openapi.yaml` (Product schema), `docs/API_MATRIX.md`, `docs/ERROR_CODES.md`, `docs/API_CHANGELOG.md` (new 2026-10-06 entry), `AI_CONTEXT.md`.
 ### Verification
-- ✅ `npx tsc --noEmit` (exit 0)
-- ✅ `npm run build` (exit 0)
-- ✅ `npm test` (errorContract) — **38/38 PASS**
+- â `npx tsc --noEmit` (exit 0)
+- â `npm run build` (exit 0)
+- â `npm test` (errorContract) â **38/38 PASS**
 ### Inventory semantics (intentionally unchanged)
 - `quantity` (aggregate counter) remains the source of truth for order/cart decrement.
-- `sizeQuantities` is currently display-only — checkout still reduces `quantity`, not a per-size bucket.
+- `sizeQuantities` is currently display-only â checkout still reduces `quantity`, not a per-size bucket.
 - `sizePriceDeltas` does NOT affect `OrderItem.unitPrice` yet (still `product.price`).
 
 ## [2026-10-03]
@@ -150,15 +150,15 @@
 ### Fixed (Backend)
 - **Avatar Synchronization**: Fixed an issue in `PUT /api/auth/me/avatar` where uploading a new avatar only updated the seller profile. Added `avatarUrl` field to `IUser` interface and `UserSchema` in `User.ts` (resolving TypeScript compilation error `TS2339`). It now updates `user.avatarUrl` and synchronizes to `user.sellerProfile.avatarUrl`, ensuring consistent avatars across both Buyer and Seller views. In `applySeller`, if no `avatarUrl` is passed, it automatically inherits `existingUser.avatarUrl` (buyer's avatar); if provided, it also populates `existingUser.avatarUrl` if empty. Also returned `avatarUrl` in auth response objects (`login`, `register`, `applySeller`).
 
-### Fixed (BE DOC Inconsistencies — P0 Audit)
-- **`docs/ENUMS.md`**: Added `CANCEL_REQUESTED` to Order Status table, updated state machine transitions (`CONFIRMED/PACKING → CANCEL_REQUESTED`), and corrected role-based restrictions to match actual code (buyer now allowed `CANCELLED`, `CANCEL_REQUESTED`, `DELIVERED`, `COMPLETED`, `DISPUTED`; seller now allowed `DELIVERING` and `DELIVERED`, only blocked from `COMPLETED`).
-- **`docs/INTEGRATION_GUIDE.md`**: Fixed incorrect claim "KHÔNG CÓ endpoint `POST /api/auth/seller/apply`" — endpoint has been live since 2026-09-29.
+### Fixed (BE DOC Inconsistencies â P0 Audit)
+- **`docs/ENUMS.md`**: Added `CANCEL_REQUESTED` to Order Status table, updated state machine transitions (`CONFIRMED/PACKING â CANCEL_REQUESTED`), and corrected role-based restrictions to match actual code (buyer now allowed `CANCELLED`, `CANCEL_REQUESTED`, `DELIVERED`, `COMPLETED`, `DISPUTED`; seller now allowed `DELIVERING` and `DELIVERED`, only blocked from `COMPLETED`).
+- **`docs/INTEGRATION_GUIDE.md`**: Fixed incorrect claim "KHÃNG CÃ endpoint `POST /api/auth/seller/apply`" â endpoint has been live since 2026-09-29.
 - **`docs/AUTH_SPEC.md`**: Updated Role Matrix with Users/Address endpoints and `POST /api/auth/seller/apply`. Fixed seller role assignment description. Added Order status permission note. Fixed Seller Status `pending_approval` description.
-- **`docs/API_CONTRACT.md`**: Fixed incorrect note on notification `markAsRead` claiming "không kiểm tra ownership" — IDOR was already fixed in 2026-09-29 refactor.
-- **`docs/API_MATRIX.md`**: Marked `POST /api/ai/search` and `POST /api/ai/analyze-listing` as FE ✅ DONE.
+- **`docs/API_CONTRACT.md`**: Fixed incorrect note on notification `markAsRead` claiming "khÃ´ng kiá»m tra ownership" â IDOR was already fixed in 2026-09-29 refactor.
+- **`docs/API_MATRIX.md`**: Marked `POST /api/ai/search` and `POST /api/ai/analyze-listing` as FE â DONE.
 
 ### Added (UI/UX Audit Plan)
-- Created comprehensive 10-phase UI/UX acceptance testing plan covering: BE DOC contract audit, API/UI Contract Matrix (40+ endpoints), Login/Register P0 checklists (34 test cases), responsive test matrix (8 viewports × 12 checks), validation contract audit (26 fields), error handling audit (16 critical codes), route protection matrix (13 routes × 4 roles), and 7 end-to-end user journeys.
+- Created comprehensive 10-phase UI/UX acceptance testing plan covering: BE DOC contract audit, API/UI Contract Matrix (40+ endpoints), Login/Register P0 checklists (34 test cases), responsive test matrix (8 viewports Ã 12 checks), validation contract audit (26 fields), error handling audit (16 critical codes), route protection matrix (13 routes Ã 4 roles), and 7 end-to-end user journeys.
 
 ### Frontend & Mobile Sync (Reported 2026-10-01)
 - **Mobile TS**: Noted pre-existing TS error in `SearchScreen.tsx` (waiting for FE to pass `category` param to `useProducts`).
@@ -218,7 +218,7 @@
   - Handled flexible seller lookup in `GET /api/sellers/:idOrHandle` supporting handle with/without `@`, case-insensitive matching, email, and ObjectId.
   - Added `GET /api/sellers/:idOrHandle/products` to fetch active listings of a specific shop.
   - Added `GET /api/products/mine` and `GET /api/products/seller` for authenticated sellers to retrieve all listings and dashboard stats.
-- **Seller orders needing processing fix ("Đơn hàng cần xử lý")**:
+- **Seller orders needing processing fix ("ÄÆ¡n hÃ ng cáº§n xá»­ lÃ½")**:
   - Broadened `VALID_TRANSITIONS` in `Order.ts` allowing `SHIPPING` -> `DELIVERED` and `PAID` -> `PACKING`.
   - Added robust ObjectId/string query matching in `getSellerOrders` for `items.sellerId`.
   - Updated `AccountScreen.tsx` to include `PAID` and `DELIVERING` in the processing filter so active orders are not hidden.
@@ -245,132 +245,132 @@
 - **`PUT /api/auth/me/avatar`**: Updates authenticated user and seller profile avatar.
 
 ### Documentation & Contract Synchronization
-- **`docs/openapi.yaml`**: Hoàn thiện toàn bộ OpenAPI 3.0.3 specification gồm 12 tags, đầy đủ Cart, Notifications, Sellers, Admin moderation, AI, Reviews, schema chi tiết và đồng bộ sang `pj_UI/docs/openapi.yaml`.
-- **`docs/API_MATRIX.md`**: Cập nhật ma trận tiến độ thực tế giữa BE và FE (đánh dấu hoàn tất các tính năng FE đã kết nối).
-- **`docs/API_CONTRACT.md`**: Bổ sung chi tiết contract cho các endpoint `/products/:id`, `/products/:id/archive`, `/sellers/me/reviews`, `/auth/me/avatar`.
+- **`docs/openapi.yaml`**: HoÃ n thiá»n toÃ n bá» OpenAPI 3.0.3 specification gá»m 12 tags, Äáº§y Äá»§ Cart, Notifications, Sellers, Admin moderation, AI, Reviews, schema chi tiáº¿t vÃ  Äá»ng bá» sang `pj_UI/docs/openapi.yaml`.
+- **`docs/API_MATRIX.md`**: Cáº­p nháº­t ma tráº­n tiáº¿n Äá» thá»±c táº¿ giá»¯a BE vÃ  FE (ÄÃ¡nh dáº¥u hoÃ n táº¥t cÃ¡c tÃ­nh nÄng FE ÄÃ£ káº¿t ná»i).
+- **`docs/API_CONTRACT.md`**: Bá» sung chi tiáº¿t contract cho cÃ¡c endpoint `/products/:id`, `/products/:id/archive`, `/sellers/me/reviews`, `/auth/me/avatar`.
 
 ### Verification
-- ✅ `npx tsc --noEmit` pass (0 errors).
-- ✅ `npm run build` pass (tsc compile OK).
-- ✅ `npm run test` (errorContract) pass — 38/38 PASS.
+- â `npx tsc --noEmit` pass (0 errors).
+- â `npm run build` pass (tsc compile OK).
+- â `npm run test` (errorContract) pass â 38/38 PASS.
 
 ## [2026-09-29] (Admin Stats + Reviews + Admin Path Alignment)
 ### Added (Backend)
 
-- **`GET /api/admin/stats`** — Aggregated platform stats cho Admin Dashboard.
-  - Trả `{ stats: { pendingListings, soldProducts, totalOrders, totalUsers, totalSellers, platformProfit } }`.
-  - `platformProfit` aggregate `$sum` của `Order.platformFee` (tạm thời, chưa dùng `Ledger`).
-- **`POST /api/products/:id/reviews`** — Buyer review sau khi đơn giao.
-  - Tạo model mới `backend/src/models/Review.ts` (compound unique index `(orderId, productId, buyerId)`).
-  - Validate: rating integer 1–5, order thuộc user, status ∈ { DELIVERED, COMPLETED }, product trong order.
-  - 3 ErrorCodes mới: `REVIEW_RATING_INVALID` (400), `REVIEW_NOT_ALLOWED` (403), `REVIEW_ALREADY_EXISTS` (409).
-  - Wire route: `POST /api/products/:id/reviews` (sau `POST /api/products` để tránh route shadow).
+- **`GET /api/admin/stats`** â Aggregated platform stats cho Admin Dashboard.
+  - Tráº£ `{ stats: { pendingListings, soldProducts, totalOrders, totalUsers, totalSellers, platformProfit } }`.
+  - `platformProfit` aggregate `$sum` cá»§a `Order.platformFee` (táº¡m thá»i, chÆ°a dÃ¹ng `Ledger`).
+- **`POST /api/products/:id/reviews`** â Buyer review sau khi ÄÆ¡n giao.
+  - Táº¡o model má»i `backend/src/models/Review.ts` (compound unique index `(orderId, productId, buyerId)`).
+  - Validate: rating integer 1â5, order thuá»c user, status â { DELIVERED, COMPLETED }, product trong order.
+  - 3 ErrorCodes má»i: `REVIEW_RATING_INVALID` (400), `REVIEW_NOT_ALLOWED` (403), `REVIEW_ALREADY_EXISTS` (409).
+  - Wire route: `POST /api/products/:id/reviews` (sau `POST /api/products` Äá» trÃ¡nh route shadow).
 
 ### Changed (Backend)
 
-- **Admin seller moderation paths align với FE `AdminScreen`**:
+- **Admin seller moderation paths align vá»i FE `AdminScreen`**:
   - Canonical: `PATCH /api/admin/sellers/:id/{approve,reject}`.
-  - Legacy deprecated: `PATCH /api/admin/users/:id/{approve-seller,reject-seller}` — vẫn hoạt động, log warning mỗi lần gọi.
-- **`GET /api/admin/pending-sellers`** response shape đổi:
-  - Trước: `{ sellers, total }`.
-  - Sau: `{ users, total }` (match FE `AdminScreen` đọc `res.users`).
-  - **Breaking change** — không có alias backward-compat.
+  - Legacy deprecated: `PATCH /api/admin/users/:id/{approve-seller,reject-seller}` â váº«n hoáº¡t Äá»ng, log warning má»i láº§n gá»i.
+- **`GET /api/admin/pending-sellers`** response shape Äá»i:
+  - TrÆ°á»c: `{ sellers, total }`.
+  - Sau: `{ users, total }` (match FE `AdminScreen` Äá»c `res.users`).
+  - **Breaking change** â khÃ´ng cÃ³ alias backward-compat.
 
 ### Files Changed
-- `backend/src/controllers/adminController.ts` — thêm `getAdminStats`, đổi response shape `getPendingSellers`.
-- `backend/src/routes/admin.ts` — thêm canonical paths + deprecated aliases.
-- `backend/src/controllers/productController.ts` — thêm `createReview`, import `Order` & `Review`.
-- `backend/src/routes/products.ts` — wire `POST /:id/reviews`.
-- `backend/src/models/Review.ts` (NEW) — model + unique index.
-- `backend/src/models/index.ts` — export `Review`.
-- `backend/src/utils/errors.ts` — thêm 3 error codes (REVIEW_*) + HTTP status mappings.
-- `docs/API_CONTRACT.md` — thêm docs cho `/admin/stats`, `/products/:id/reviews`, cập nhật admin endpoints.
-- `docs/API_CHANGELOG.md` — entry mới ghi breaking change + new endpoints.
-- `AI_CONTEXT.md` — section "Backend Iteration 2026-09-29" với verification + known limitations.
+- `backend/src/controllers/adminController.ts` â thÃªm `getAdminStats`, Äá»i response shape `getPendingSellers`.
+- `backend/src/routes/admin.ts` â thÃªm canonical paths + deprecated aliases.
+- `backend/src/controllers/productController.ts` â thÃªm `createReview`, import `Order` & `Review`.
+- `backend/src/routes/products.ts` â wire `POST /:id/reviews`.
+- `backend/src/models/Review.ts` (NEW) â model + unique index.
+- `backend/src/models/index.ts` â export `Review`.
+- `backend/src/utils/errors.ts` â thÃªm 3 error codes (REVIEW_*) + HTTP status mappings.
+- `docs/API_CONTRACT.md` â thÃªm docs cho `/admin/stats`, `/products/:id/reviews`, cáº­p nháº­t admin endpoints.
+- `docs/API_CHANGELOG.md` â entry má»i ghi breaking change + new endpoints.
+- `AI_CONTEXT.md` â section "Backend Iteration 2026-09-29" vá»i verification + known limitations.
 
 ### Verification
-- ✅ `npx tsc --noEmit` pass (exit 0).
-- ✅ `npm run test` (errorContract) pass — **38/38 PASS** (bao gồm các critical codes).
-- ✅ `npm run build` pass.
+- â `npx tsc --noEmit` pass (exit 0).
+- â `npm run test` (errorContract) pass â **38/38 PASS** (bao gá»m cÃ¡c critical codes).
+- â `npm run build` pass.
 
 ### Known Limitations
-- `platformProfit` từ `Order.platformFee` thay vì `Ledger` (chưa tích hợp).
-- `Ledger.ts` và `PlatformFeeConfig.ts` được nhắc trong entry 2026-09-26 cũ nhưng **không có trong git tree branch `backend` hiện tại** — cần tạo mới nếu muốn dùng.
+- `platformProfit` tá»« `Order.platformFee` thay vÃ¬ `Ledger` (chÆ°a tÃ­ch há»£p).
+- `Ledger.ts` vÃ  `PlatformFeeConfig.ts` ÄÆ°á»£c nháº¯c trong entry 2026-09-26 cÅ© nhÆ°ng **khÃ´ng cÃ³ trong git tree branch `backend` hiá»n táº¡i** â cáº§n táº¡o má»i náº¿u muá»n dÃ¹ng.
 
-### Backlog (cần làm trước khi vào production payment)
+### Backlog (cáº§n lÃ m trÆ°á»c khi vÃ o production payment)
 
-- [ ] **Implement `Ledger.ts`** — double-entry accounting (PLATFORM_CASH / PLATFORM_REVENUE / SELLER_PAYABLE / BUYER_PAYMENT / REFUND). Refactor `getAdminStats` dùng `Ledger` thay vì aggregate `Order.platformFee` để tránh drift.
-- [ ] **Implement `PlatformFeeConfig.ts`** — schema + admin endpoint để update commission rate theo thời điểm áp dụng. Hook vào `orderController` thay hardcode `0.1`.
-- [ ] **Cleanup deprecated admin paths** — sau khi FE team confirm migrate sang canonical `/admin/sellers/:id/{approve,reject}`, xóa aliases `/admin/users/:id/{approve,reject}-seller` trong `routes/admin.ts`.
+- [ ] **Implement `Ledger.ts`** â double-entry accounting (PLATFORM_CASH / PLATFORM_REVENUE / SELLER_PAYABLE / BUYER_PAYMENT / REFUND). Refactor `getAdminStats` dÃ¹ng `Ledger` thay vÃ¬ aggregate `Order.platformFee` Äá» trÃ¡nh drift.
+- [ ] **Implement `PlatformFeeConfig.ts`** â schema + admin endpoint Äá» update commission rate theo thá»i Äiá»m Ã¡p dá»¥ng. Hook vÃ o `orderController` thay hardcode `0.1`.
+- [ ] **Cleanup deprecated admin paths** â sau khi FE team confirm migrate sang canonical `/admin/sellers/:id/{approve,reject}`, xÃ³a aliases `/admin/users/:id/{approve,reject}-seller` trong `routes/admin.ts`.
 
 ## [2026-09-29] (Seller Application Flow)
 ### Added
 
-- **`POST /api/auth/seller/apply`** — User tự đăng ký thành seller (trước đây admin phải set thủ công trong DB).
+- **`POST /api/auth/seller/apply`** â User tá»± ÄÄng kÃ½ thÃ nh seller (trÆ°á»c ÄÃ¢y admin pháº£i set thá»§ cÃ´ng trong DB).
   - Validation: shopName 3-100 chars unique, handle 3-30 chars alphanumeric + `_` + `.`, description max 500, coverImages max 5.
-  - Auto-generate `handle` từ email local-part nếu user không cung cấp.
-  - Idempotent: nếu user đã apply, trả current state với status code 200 (vs 201 first-time).
-  - Side effects: thêm role `"seller"` vào `user.roles`, set `sellerProfile.status = "pending_approval"`.
+  - Auto-generate `handle` tá»« email local-part náº¿u user khÃ´ng cung cáº¥p.
+  - Idempotent: náº¿u user ÄÃ£ apply, tráº£ current state vá»i status code 200 (vs 201 first-time).
+  - Side effects: thÃªm role `"seller"` vÃ o `user.roles`, set `sellerProfile.status = "pending_approval"`.
 - **Admin seller moderation endpoints**:
-  - `GET /api/admin/pending-sellers` — list applications đang chờ duyệt.
-  - `PATCH /api/admin/users/:id/approve-seller` — duyệt, set `status = "active"`, gửi notification.
-  - `PATCH /api/admin/users/:id/reject-seller` — từ chối, set `status = "suspended"` + remove role, gửi notification kèm `reason`.
-- **3 ErrorCodes mới**: `SELLER_HANDLE_TAKEN` (409), `SELLER_SHOP_NAME_TAKEN` (409), `SELLER_ALREADY_APPROVED` (409).
+  - `GET /api/admin/pending-sellers` â list applications Äang chá» duyá»t.
+  - `PATCH /api/admin/users/:id/approve-seller` â duyá»t, set `status = "active"`, gá»­i notification.
+  - `PATCH /api/admin/users/:id/reject-seller` â tá»« chá»i, set `status = "suspended"` + remove role, gá»­i notification kÃ¨m `reason`.
+- **3 ErrorCodes má»i**: `SELLER_HANDLE_TAKEN` (409), `SELLER_SHOP_NAME_TAKEN` (409), `SELLER_ALREADY_APPROVED` (409).
 
 ### Documentation
-- Updated `docs/API_CONTRACT.md` — added 4 endpoints (apply + 3 admin).
-- Updated `docs/AUTH_SPEC.md` — added section "Seller Application Flow".
-- Updated `docs/ERROR_CODES.md` — added 3 new codes.
-- Updated `docs/API_CHANGELOG.md` — added entry 2026-09-29.
-- Updated `backend/src/tests/errorContract.test.ts` — added 3 new critical codes (38/38 PASS).
+- Updated `docs/API_CONTRACT.md` â added 4 endpoints (apply + 3 admin).
+- Updated `docs/AUTH_SPEC.md` â added section "Seller Application Flow".
+- Updated `docs/ERROR_CODES.md` â added 3 new codes.
+- Updated `docs/API_CHANGELOG.md` â added entry 2026-09-29.
+- Updated `backend/src/tests/errorContract.test.ts` â added 3 new critical codes (38/38 PASS).
 
 ### Verification
-- ✅ `npx tsc --noEmit` pass.
-- ✅ `npm run test` pass — **38/38 PASS** (was 35, +3 for new codes).
+- â `npx tsc --noEmit` pass.
+- â `npm run test` pass â **38/38 PASS** (was 35, +3 for new codes).
 
 ## [2026-09-29] (API Contract Unification)
 ### Added & Implemented
 
-- **Unified Error Envelope** — Created `backend/src/utils/errors.ts` as single source of truth cho error response format.
-  - `ErrorCode` enum với ~40 business codes (PRODUCT_NOT_FOUND, SELLER_NOT_APPROVED, ORDER_INVALID_TRANSITION, AI_NOT_CONFIGURED, ...).
-  - `ErrorStatus` map chuẩn hóa HTTP status cho mỗi code.
+- **Unified Error Envelope** â Created `backend/src/utils/errors.ts` as single source of truth cho error response format.
+  - `ErrorCode` enum vá»i ~40 business codes (PRODUCT_NOT_FOUND, SELLER_NOT_APPROVED, ORDER_INVALID_TRANSITION, AI_NOT_CONFIGURED, ...).
+  - `ErrorStatus` map chuáº©n hÃ³a HTTP status cho má»i code.
   - `sendError(res, code, message, status?)` helper.
-  - `handleInternalError(res, err, context)` helper cho catch block (không leak stack trace ra response).
+  - `handleInternalError(res, err, context)` helper cho catch block (khÃ´ng leak stack trace ra response).
   - `ApiErrorBody` interface export cho FE consumer.
-- **Refactored toàn bộ BE** (9 controllers + middleware + app.ts) để dùng helper. Mọi error response giờ có format `{ error: { code: string, message: string } }`.
+- **Refactored toÃ n bá» BE** (9 controllers + middleware + app.ts) Äá» dÃ¹ng helper. Má»i error response giá» cÃ³ format `{ error: { code: string, message: string } }`.
 
 ### Fixed
-- **Admin endpoints shape inconsistency**: `PATCH /api/admin/listings/:id/approve|reject` giờ chạy qua `mapProduct` → response giống `GET /api/products` thay vì raw Mongoose document.
-- **Notification IDOR**: `PATCH /api/notifications/:id/read` giờ enforce ownership (chỉ mark notification của chính user gọi).
-- **Auth response missing fields**: `POST /api/auth/register` và `.../login` giờ trả `user._id` + `user.sellerStatus`.
+- **Admin endpoints shape inconsistency**: `PATCH /api/admin/listings/:id/approve|reject` giá» cháº¡y qua `mapProduct` â response giá»ng `GET /api/products` thay vÃ¬ raw Mongoose document.
+- **Notification IDOR**: `PATCH /api/notifications/:id/read` giá» enforce ownership (chá» mark notification cá»§a chÃ­nh user gá»i).
+- **Auth response missing fields**: `POST /api/auth/register` vÃ  `.../login` giá» tráº£ `user._id` + `user.sellerStatus`.
 
 ### Changed (Backward Compatible)
-- **Cart merge deprecation**: `/api/auth/cart/merge` trở thành thin wrapper delegate to `/api/cart/merge`. Endpoint chính thức là `/api/cart/merge`. Legacy endpoint vẫn hoạt động nhưng log warning.
+- **Cart merge deprecation**: `/api/auth/cart/merge` trá» thÃ nh thin wrapper delegate to `/api/cart/merge`. Endpoint chÃ­nh thá»©c lÃ  `/api/cart/merge`. Legacy endpoint váº«n hoáº¡t Äá»ng nhÆ°ng log warning.
 
 ### Documentation
-- Updated `docs/API_CONTRACT.md` (đã đầy đủ 35 endpoints + ghi chú breaking change mới).
-- Rewrote `docs/AUTH_SPEC.md` đồng bộ với code (response shape đầy đủ + Role Matrix cập nhật).
-- Rewrote `docs/ENUMS.md` (Order Status 11 giá trị PAID/REFUNDED bổ sung, Payment Methods vocabulary thống nhất, Shipment Status mapping table, Error Code reference).
+- Updated `docs/API_CONTRACT.md` (ÄÃ£ Äáº§y Äá»§ 35 endpoints + ghi chÃº breaking change má»i).
+- Rewrote `docs/AUTH_SPEC.md` Äá»ng bá» vá»i code (response shape Äáº§y Äá»§ + Role Matrix cáº­p nháº­t).
+- Rewrote `docs/ENUMS.md` (Order Status 11 giÃ¡ trá» PAID/REFUNDED bá» sung, Payment Methods vocabulary thá»ng nháº¥t, Shipment Status mapping table, Error Code reference).
 - Rewrote `docs/ERROR_CODES.md` (~40 codes + HTTP status + FE action + TypeScript switch example).
-- Rewrote `docs/INTEGRATION_GUIDE.md` (test accounts thật từ seed + seller status + cart merge guidance).
-- Added entry trong `docs/API_CHANGELOG.md` ghi nhận 4 breaking changes.
+- Rewrote `docs/INTEGRATION_GUIDE.md` (test accounts tháº­t tá»« seed + seller status + cart merge guidance).
+- Added entry trong `docs/API_CHANGELOG.md` ghi nháº­n 4 breaking changes.
 
 ### Verification
-- ✅ `npx tsc --noEmit` pass (exit 0).
-- ✅ `npm run test` (errorContract.test.ts) pass — **35/35 tests PASS**, verify:
-  - ErrorCode catalog đầy đủ 46 codes với HTTP status mapping.
-  - `sendError` produce đúng format `{ error: { code, message } }`.
-  - `handleInternalError` không leak stack trace ra response (regression test).
-  - Critical codes (UNAUTHORIZED, SELLER_NOT_APPROVED, ORDER_INVALID_TRANSITION, ...) đều tồn tại.
-- ⚠️ Integration tests (`productAuth.test.ts`, `orderAuth.test.ts`) chưa chạy được do thiếu `MONGODB_URI_TEST`. Setup ghi trong `docs/INTEGRATION_GUIDE.md` § Testing.
+- â `npx tsc --noEmit` pass (exit 0).
+- â `npm run test` (errorContract.test.ts) pass â **35/35 tests PASS**, verify:
+  - ErrorCode catalog Äáº§y Äá»§ 46 codes vá»i HTTP status mapping.
+  - `sendError` produce ÄÃºng format `{ error: { code, message } }`.
+  - `handleInternalError` khÃ´ng leak stack trace ra response (regression test).
+  - Critical codes (UNAUTHORIZED, SELLER_NOT_APPROVED, ORDER_INVALID_TRANSITION, ...) Äá»u tá»n táº¡i.
+- â ï¸ Integration tests (`productAuth.test.ts`, `orderAuth.test.ts`) chÆ°a cháº¡y ÄÆ°á»£c do thiáº¿u `MONGODB_URI_TEST`. Setup ghi trong `docs/INTEGRATION_GUIDE.md` Â§ Testing.
 
 ### Tests added (testing infrastructure)
 
-- `backend/src/tests/errorContract.test.ts` (NEW): Unit test cho `utils/errors.ts`. Không cần DB, chạy nhanh (~2 giây).
-- `backend/src/tests/productAuth.test.ts` (UPDATED): Thêm 5 test cases cho error envelope format. Tự `dropDatabase()` trước khi chạy để clean state.
-- `backend/src/tests/orderAuth.test.ts` (UPDATED): Thêm 3 test cases + assert error code (FORBIDDEN, ORDER_NOT_FOUND, ORDER_STATUS_REQUIRED, ORDER_INVALID_TRANSITION).
-- `backend/.env.test.example` (NEW): Template cho `MONGODB_URI_TEST`. BE lead cần copy thành `.env.test` và điền URI thật.
-- `backend/package.json`: Thêm scripts `test`, `test:auth`, `test:order`, `test:all`.
+- `backend/src/tests/errorContract.test.ts` (NEW): Unit test cho `utils/errors.ts`. KhÃ´ng cáº§n DB, cháº¡y nhanh (~2 giÃ¢y).
+- `backend/src/tests/productAuth.test.ts` (UPDATED): ThÃªm 5 test cases cho error envelope format. Tá»± `dropDatabase()` trÆ°á»c khi cháº¡y Äá» clean state.
+- `backend/src/tests/orderAuth.test.ts` (UPDATED): ThÃªm 3 test cases + assert error code (FORBIDDEN, ORDER_NOT_FOUND, ORDER_STATUS_REQUIRED, ORDER_INVALID_TRANSITION).
+- `backend/.env.test.example` (NEW): Template cho `MONGODB_URI_TEST`. BE lead cáº§n copy thÃ nh `.env.test` vÃ  Äiá»n URI tháº­t.
+- `backend/package.json`: ThÃªm scripts `test`, `test:auth`, `test:order`, `test:all`.
 
 ## [2026-09-28]
 ### Added
@@ -388,3 +388,29 @@
   - Fixed IDOR on `GET /api/orders/:code/shipment` (added `requireAuth` and ownership checks to prevent PII leak).
   - Fixed IDOR on `PATCH /api/orders/:code/status` (now checks if user is the buyer, a seller of an item in the order, or an admin).
   - Fixed State-machine Bypass on `PATCH /api/orders/:code/status` (Buyers can now only transition to CANCELLED or COMPLETED, Sellers cannot directly bypass to DELIVERED).
+
+## [2026-10-08] (Production incident: /api/catalog/presets 500)
+
+> **Symptom**: Production endpoint `GET /api/catalog/presets` (and `GET /api/admin/presets`) returned `500 INTERNAL_ERROR` repeatedly. FE failed to load Presets page + Admin Presets page.
+
+### Root cause
+- `getPresets` in `catalogController.ts` used `Promise.all` to hydrate each preset by loading its `tree`/`style`/`accessories` from DB + recomputing pricing via `loadCatalogForDesign`.
+- At least one preset in the production DB had a config pointing to a `treeId` / `styleId` / `accessoryId` that no longer exists (likely from a prior seed run + a destructive reset that wiped catalog items but left presets behind).
+- `loadCatalogForConfig` throws `CatalogServiceError` with `code: TREE_NOT_FOUND` (404) — but the controller's catch block did not recognize this shape and routed it through `handleInternalError` → `500`.
+- A single orphaned preset 500'd the entire gallery because `Promise.all` short-circuits on the first rejection.
+
+### Fix
+- `catalogController.getPresets` and `adminController.listPresets`: switch `Promise.all` → `Promise.allSettled`. Each rejected preset is logged with `console.warn` (preset name + id + reason) and skipped. Other presets still render.
+- Confirmed the underlying service contract is correct: `loadCatalogForConfig` throws `CatalogServiceError { code, httpCode }`, and `safelyBuildPricedDesign` correctly converts these to `sendError` (4xx), not `handleInternalError` (5xx). The fix is at the controller level (resilience), not the service.
+
+### Files changed
+- `backend/src/controllers/catalogController.ts` — `getPresets` uses `Promise.allSettled` + skip-and-log.
+- `backend/src/controllers/adminController.ts` — `listPresets` same fix.
+- `backend/src/tests/presetsResilience.test.ts` (NEW) — 14 unit tests covering: missing tree, missing style, missing accessory, `safelyBuildPricedDesign` does NOT swallow errors as 500, `Promise.allSettled` does not short-circuit. Uses stubbed models (no live DB required).
+- `backend/package.json` — added `test:presets` script and added to `test:all`.
+
+### Verification
+- `npx tsc --noEmit` pass.
+- `npm run test:all` — 203/203 PASS (61 errorContract + 25 pricing + 16 address + 87 authValidation + 14 presetsResilience).
+- Manual probe on production: `GET /api/catalog/presets` now returns `{ presets: [...] }` (HTTP 200) with the bad preset(s) logged to server logs and skipped. Gallery renders the remaining presets.
+

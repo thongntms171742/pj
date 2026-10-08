@@ -121,12 +121,24 @@ export const getPresets = async (_req: Request, res: Response): Promise<void> =>
       .lean();
 
     // Hydrate each preset so FE sees the same shape as a saved design.
-    const out = await Promise.all(
-      presets.map(async (p) => {
-        const { design, pricing } = await loadCatalogForDesign(p);
-        return buildDesignResponse(design, pricing);
-      })
+    // Use Promise.allSettled so 1 orphaned preset (treeId/styleId/accessoryId
+    // pointing to soft-deleted or hard-deleted items) does not 500 the entire
+    // gallery — we just skip + log the bad ones.
+    const results = await Promise.allSettled(
+      presets.map((p) => loadCatalogForDesign(p))
     );
+
+    const out: ReturnType<typeof buildDesignResponse>[] = [];
+    results.forEach((r, idx) => {
+      if (r.status === "fulfilled") {
+        out.push(buildDesignResponse(r.value.design, r.value.pricing));
+      } else {
+        console.warn(
+          `[catalog] Skipping preset "${presets[idx].name}" (id=${presets[idx]._id}) — config invalid:`,
+          r.reason instanceof Error ? r.reason.message : r.reason
+        );
+      }
+    });
 
     res.json({ presets: out });
   } catch (err) {

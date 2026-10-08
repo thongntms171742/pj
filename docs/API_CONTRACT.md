@@ -439,7 +439,12 @@
       "decorationFeeBySize": { "S": 50000, "M": 80000, "L": 120000 }
     },
     {
-      "code": "FLAT_PACK",
+      "code": "DIY_KIT",
+      "shippingFee": 30000,
+      "decorationFeeBySize": { "S": 0, "M": 0, "L": 0 }
+    },
+    {
+      "code": "SEPARATE",
       "shippingFee": 30000,
       "decorationFeeBySize": { "S": 0, "M": 0, "L": 0 }
     }
@@ -789,7 +794,7 @@ hoặc
             { "kind": "ACCESSORY", "refId": "string", "type": "string", "name": "string", "unitPrice": "number", "quantity": "number", "lineTotal": "number", "personalizationText": "string" },
             { "kind": "SERVICE", "type": "DECORATION_SERVICE", "name": "string", "unitPrice": "number", "quantity": 1, "lineTotal": "number" }
           ],
-          "deliveryOption": "READY_TO_DISPLAY | FLAT_PACK",
+          "deliveryOption": "READY_TO_DISPLAY | DIY_KIT | SEPARATE",
           "unitTotal": "number",
           "quantity": "number (số bộ)",
           "lineTotal": "number",

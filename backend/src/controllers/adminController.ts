@@ -198,12 +198,21 @@ export const listPresets = async (req: Request, res: Response): Promise<void> =>
     const docs = await TreeDesign.find({ isPreset: true })
       .sort({ updatedAt: -1 })
       .lean();
-    const out = await Promise.all(
-      docs.map(async (d) => {
-        const { design, pricing } = await loadCatalogForDesign(d);
-        return buildDesignResponse(design, pricing);
-      })
+    // Use Promise.allSettled to avoid 500 if any preset is orphaned.
+    const results = await Promise.allSettled(
+      docs.map((d) => loadCatalogForDesign(d))
     );
+    const out: ReturnType<typeof buildDesignResponse>[] = [];
+    results.forEach((r, idx) => {
+      if (r.status === "fulfilled") {
+        out.push(buildDesignResponse(r.value.design, r.value.pricing));
+      } else {
+        console.warn(
+          `[admin] Skipping preset "${docs[idx].name}" (id=${docs[idx]._id}) — config invalid:`,
+          r.reason instanceof Error ? r.reason.message : r.reason
+        );
+      }
+    });
     res.json({ presets: out });
   } catch (err) {
     handleInternalError(res, err, "[admin] listPresets error");

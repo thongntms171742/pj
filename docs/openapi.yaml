@@ -1854,7 +1854,7 @@ components:
               lines:
                 type: array
                 items: { $ref: '#/components/schemas/OrderItemLine' }
-              deliveryOption: { type: string, enum: [READY_TO_DISPLAY, FLAT_PACK] }
+              deliveryOption: { type: string, enum: [READY_TO_DISPLAY, DIY_KIT, SEPARATE] }
               unitTotal: { type: integer }
               quantity: { type: integer }
               lineTotal: { type: integer }

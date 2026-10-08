@@ -1,12 +1,14 @@
 services:
   # ── Backend Web Service ────────────────────────────────────
   - type: web
-    name: thriftit-backend
+    name: byc-backend
     runtime: node
     rootDir: backend
     plan: free
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
@@ -16,22 +18,30 @@ services:
         generateValue: true
       - key: MONGODB_URI
         sync: false
+      # ── Seed-time admin/buyer passwords (used by `npm run seed`) ──
+      # After first deploy, run `npm run seed -- --confirm-seed` via Render
+      # Shell, then OPTIONALLY change these to a strong random value.
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_BUYER_PASSWORD
+        sync: false
 
   # ── Frontend Static Site ───────────────────────────────────
-  - type: static
-    name: thriftit-frontend
-    rootDir: .
-    plan: free
-    buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
-    routes:
-      # SPA fallback
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: VITE_API_URL
-        fromService:
-          type: web
-          name: thriftit-backend
-          property: host
+  # NOTE: FE sẽ build ở repo/folder khác. Khi có FE, uncomment block này
+  # và update `rootDir` + `staticPublishPath` cho khớp.
+  #
+  # - type: static
+  #   name: byc-frontend
+  #   rootDir: ../byc-frontend   # hoặc tên folder FE repo
+  #   plan: free
+  #   buildCommand: npm install && npm run build
+  #   staticPublishPath: ./dist
+  #   autoDeploy: true
+  #   routes:
+  #     - type: rewrite
+  #       source: /*
+  #       destination: /index.html
+  #   envVars:
+  #     - key: VITE_API_URL
+  #       value: https://byc-backend.onrender.com/api
+

@@ -112,7 +112,7 @@
 
 | Code | HTTP | Mô tả | FE action |
 | :--- | :---: | :--- | :--- |
-| `DELIVERY_OPTION_INVALID` | 400 | `deliveryOption` không phải `READY_TO_DISPLAY` / `FLAT_PACK` | Reset về mặc định |
+| `DELIVERY_OPTION_INVALID` | 400 | `deliveryOption` không phải `READY_TO_DISPLAY` / `DIY_KIT` / `SEPARATE` | Reset về mặc định |
 | `DELIVERY_AREA_NOT_SUPPORTED` | 422 | `shippingProvinceId !== "79"` (ngoài TP.HCM) | Disable checkout ngoài HCM + show banner |
 
 ---

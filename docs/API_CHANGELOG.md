@@ -2,6 +2,8 @@
 
 Track changes to the API contract over time to ensure synchronization between Backend and Frontend.
 
+> **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Christmas entries (2026-10-07+) là contract hiện tại. Entries cũ (2026-10-06 trở về trước) là **lịch sử marketplace** - chỉ tham khảo context, KHÔNG áp dụng cho code Christmas. Source of truth cho FE = `backend/src/`.
+
 ---
 ## 2026-10-07 — 🎄 CHRISTMAS PIVOT (Breaking)
 
@@ -71,7 +73,7 @@ Nhóm **Legacy order**:
 - `GET /api/catalog/styles` — 6 concepts
 - `GET /api/catalog/accessories?type=&group=&style=&size=` — filter nhiều chiều
 - `GET /api/catalog/presets` — ready-made designs
-- `GET /api/catalog/delivery-options` — READY_TO_DISPLAY vs FLAT_PACK
+- `GET /api/catalog/delivery-options` — READY_TO_DISPLAY / DIY_KIT / SEPARATE
 - `POST /api/catalog/quote` — live pricing
 
 **Designs (MỚI)**:
@@ -204,6 +206,35 @@ Address (giữ từ trước):
 - ✅ `npm run test:all` — **102/102 PASS**
 
 ---
+
+## 2026-10-08 — Docs audit pass (Christmas-clean)
+
+> **Audit pass** toàn bộ folder `docs/` để chuẩn bị handoff cho FE. Đã sửa các inconsistency còn sót từ marketplace era.
+
+### Fixed inconsistencies
+
+- **`FLAT_PACK` → `DIY_KIT` / `SEPARATE`** trong 5 files: `ERROR_CODES.md`, `API_MATRIX.md`, `openapi.yaml` (line 1857), `API_CHANGELOG.md` (line 74), `API_CONTRACT.md` (lines 442, 467, 792, 483). BE chỉ support 3 delivery options: `READY_TO_DISPLAY` / `DIY_KIT` / `SEPARATE`.
+- **`MVP_FE_BE_DOCUMENTATION.md`**: removed sections liệt kê `GET /banners`, `POST /newsletter/subscribe`, `GET/POST/PATCH/DELETE /api/admin/banners` (BE không có). Added note "NOT IN MVP SCOPE".
+- **`MVP_FE_BE_DOCUMENTATION.md`**: removed `GET /api/users/me` (BE không có profile endpoint riêng - FE dùng response từ `POST /api/auth/login`).
+- **`MVP_FE_BE_DOCUMENTATION.md`**: removed `DELETE /api/admin/trees/:id` + `DELETE /api/admin/styles/:id` + `DELETE /api/admin/accessories/:id` (BE chỉ soft-delete qua PATCH `{ isActive: false }`).
+- **`AI_CONTEXT.md`**: trimmed từ 435 → 179 dòng (bỏ 250+ dòng legacy marketplace). DB name synced từ `buildyourchristmas` → `christmas` (theo `backend/.env` thực tế).
+- **`CHANGELOG_AI.md`**: giữ nguyên 1 entry duy nhất (2026-10-07 Christmas pivot). Không có legacy entries trong git history.
+
+### Added
+
+- **`docs/_archive/README.md`**: file mới, archive tất cả thông tin legacy (seller/products/AI/commission/Ledger). FE KHÔNG dùng nội dung archive.
+- **`docs/README.md`**: onboarding index cho FE team.
+- **`docs/ONBOARDING.md`**: setup checklist + reading order.
+
+### Verified
+
+- ✅ `openapi.yaml` validates: 44 paths, 25 schemas, 11 tags (match BE routes).
+- ✅ Không còn `FLAT_PACK` trong bất kỳ file nào.
+- ✅ `ERROR_CODES.md` + `API_MATRIX.md` + `API_CONTRACT.md` + `openapi.yaml` đồng bộ về delivery options (3 values).
+- ✅ `API_MATRIX.md` (cột BE Status) match với code BE thực tế.
+
+---
+
 ## 2026-10-06
 
 ### Added — Per-size stock & price delta for Products

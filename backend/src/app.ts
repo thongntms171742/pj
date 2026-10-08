@@ -18,7 +18,24 @@ const app = express();
 
 // ── Middleware ──────────────────────────────────────────────────────────────────
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: "10mb" }));
+
+// Custom JSON parser wrapper — body-parser in strict mode rejects bodies that
+// are valid JSON literals (null, "string", 123, true, []) with
+// "entity.parse.failed" → would bubble to 500. Convert to a clean INVALID_INPUT.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  express.json({ limit: "10mb" })(req, res, (err: any) => {
+    if (err && err.type === "entity.parse.failed") {
+      sendError(res, ErrorCode.INVALID_INPUT, "Body không phải JSON object hợp lệ");
+      return;
+    }
+    if (err) {
+      // Other body errors (payload too large, encoding, etc.)
+      sendError(res, ErrorCode.INVALID_INPUT, "Body không hợp lệ");
+      return;
+    }
+    next();
+  });
+});
 
 // ── Health check ───────────────────────────────────────────────────────────────
 app.get("/api/health", (_req, res) => {

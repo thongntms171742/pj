@@ -29,7 +29,7 @@ This file tracks the implementation status of API features across teams based on
 | GET  | `/api/catalog/styles` | No | Public | ✅ | ⏳ | 6 concepts (CLASSIC, MINIMAL, GINGERBREAD, WINTER, CUTE, LUXURY) |
 | GET  | `/api/catalog/accessories` | No | Public | ✅ | ⏳ | Filters: `type`, `group`, `style`, `size`. Returns `maxQty` per size when `size` is passed |
 | GET  | `/api/catalog/presets` | No | Public | ✅ | ⏳ | Ready-made designs (admin-managed), hydrated |
-| GET  | `/api/catalog/delivery-options` | No | Public | ✅ | ⏳ | `READY_TO_DISPLAY` (decorated) vs `FLAT_PACK` (DIY); flat shipping fee |
+| GET  | `/api/catalog/delivery-options` | No | Public | ✅ | ⏳ | `READY_TO_DISPLAY` (decorated), `DIY_KIT` (decorating kit), `SEPARATE` (split delivery); flat shipping fee |
 | POST | `/api/catalog/quote` | No | Public | ✅ | ⏳ | Live price preview from a `DesignConfig` (no auth needed) |
 | **Designs (auth + public share)** | | | | | | |
 | POST   | `/api/designs/quote` | No | Public | ✅ | ⏳ | Same as `catalog/quote`; kept under designs for editor convenience |
@@ -102,3 +102,16 @@ This file tracks the implementation status of API features across teams based on
 | GET | `/api/addresses/communes` | No | Public | ✅ | ⏳ | Cached 24h |
 | **Support chat** | | | | | | |
 | — | — | — | — | 🚧 | — | Not implemented yet (uses generic `chat` notification type, no live channel). Use Zalo/email integration post-MVP. |
+
+---
+
+## Test Accounts (sau khi seed)
+
+> **Xem chi tiết**: `docs/INTEGRATION_GUIDE.md` § Test Accounts.
+
+| Role | Email | Password | Purpose |
+| :--- | :--- | :--- | :--- |
+| Admin | `admin@buildyourchristmas.vn` | value of `SEED_ADMIN_PASSWORD` env | Test `/api/admin/*` (CRUD trees/styles/accessories/presets, all orders, stats, users) |
+| Buyer demo | `buyer@buildyourchristmas.vn` | value of `SEED_BUYER_PASSWORD` env | Test full flow: catalog → editor → save design → cart → checkout → orders |
+
+> Password lấy từ env vars (`SEED_ADMIN_PASSWORD` / `SEED_BUYER_PASSWORD` trong `backend/.env`) — KHÔNG hard-code trong docs. Run `npm run seed -- --confirm-seed` để có data.
