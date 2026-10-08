@@ -9,8 +9,13 @@
     "seed": "ts-node-dev --transpile-only src/seed-christmas.ts",
     "test": "ts-node --transpile-only src/tests/errorContract.test.ts",
     "test:address": "ts-node --transpile-only src/tests/address.test.ts",
+    "test:auth": "ts-node --transpile-only src/tests/authValidation.test.ts",
     "test:pricing": "ts-node --transpile-only src/tests/pricing.test.ts",
-    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts"
+    "test:presets": "ts-node --transpile-only src/tests/presetsResilience.test.ts",
+    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/presetsResilience.test.ts",
+    "scripts:prune-presets": "ts-node --transpile-only src/scripts/prune-orphaned-presets.ts",
+    "scripts:cleanup-debug-presets": "ts-node --transpile-only src/scripts/cleanup-debug-presets.ts",
+    "scripts:probe-presets": "ts-node --transpile-only src/scripts/probe-presets.ts"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",

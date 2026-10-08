@@ -127,4 +127,47 @@ const TreeDesignSchema = new Schema<ITreeDesign>(
 TreeDesignSchema.index({ ownerId: 1, updatedAt: -1 });
 TreeDesignSchema.index({ isPreset: 1, year: -1, updatedAt: -1 });
 
+// Pre-save guard: when a design is being SAVED as a preset (or any design
+// that will appear in public galleries), ensure every accessory that is
+// flagged `isPersonalizable` carries a non-empty personalizationText.
+//
+// Why: a missing personalizationText previously caused 500s on
+// GET /api/catalog/presets because loadCatalogForDesign raised
+// PERSONALIZATION_REQUIRED and the controller had to allSettled-skip the
+// entire preset. Validating at write time keeps the catalog clean.
+//
+// Customer drafts (isPreset=false) are exempt so the FE editor can save
+// progress without forcing the user to fill every name tag.
+TreeDesignSchema.pre("validate", async function (next) {
+  try {
+    const design = this as unknown as ITreeDesign;
+    if (!design.config?.accessories?.length) return next();
+    const isPublicDesign = design.isPreset === true || design.isPublic === true;
+    if (!isPublicDesign) return next();
+    const Accessory = mongoose.model("Accessory");
+    const ids = design.config.accessories.map((a) => a.accessoryId);
+    const docs = await Accessory.find({ _id: { $in: ids } })
+      .select("_id isPersonalizable name")
+      .lean();
+    const byId = new Map(docs.map((d) => [String(d._id), d]));
+    for (const entry of design.config.accessories) {
+      const meta = byId.get(String(entry.accessoryId));
+      if (!meta) continue; // orphan-id is checked separately by prune script
+      if ((meta as { isPersonalizable?: boolean }).isPersonalizable) {
+        const text = (entry.personalizationText ?? "").trim();
+        if (!text) {
+          return next(
+            new Error(
+              `Accessory "${(meta as { name?: string }).name}" yêu cầu nhập chữ cá nhân hóa trước khi lưu preset công khai.`
+            )
+          );
+        }
+      }
+    }
+    return next();
+  } catch (err) {
+    return next(err as Error);
+  }
+});
+
 export const TreeDesign = mongoose.model<ITreeDesign>("TreeDesign", TreeDesignSchema);
