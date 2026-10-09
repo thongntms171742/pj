@@ -168,6 +168,24 @@ Tất cả docs đang được rewrite theo pivot Christmas. Cập nhật sẽ t
 - Chưa có idempotency cho `/api/orders` (chỉ dùng `idempotencyKey` optional).
 - Lint/format: project KHÔNG có sẵn (để giữ MVP gọn, không thêm dependency).
 
+## 2026-10-09 — Production deploy + auth response shape fix
+
+### Production live
+- BE đã deploy lên Render: `https://christmas-8ca4.onrender.com`
+- Tất cả 6 catalog endpoints verified 200 OK (trees, styles, accessories, presets, delivery-options, health).
+- Login 200 OK (admin@buildyourchristmas.vn, token 256 chars, 4 presets trả về — sau data fix).
+
+### Auth response shape fix (gap giữa code ↔ FE docs)
+- `POST /api/auth/login`, `/register`, `PUT /api/auth/me/avatar` giờ trả `user.accountStatus` + `user.accountStatusReason` + `user.addresses` (trước đó bị thiếu → FE không check được suspended state để force-logout).
+- `/me/avatar` đổi response từ `{ avatarUrl, message }` → `{ user: { full user shape } }` (match docs).
+- 203/203 tests pass.
+
+### Catalog `/presets` 500 → 200 (incident 2026-10-08)
+- Root cause: preset `6ac7b9591e170cc625c1ef95` (admin test artifact) reference accessory `Thẻ tên gỗ khắc laser` (isPersonalizable) mà thiếu personalizationText → `PERSONALIZATION_REQUIRED` throw trong `loadCatalogForDesign`.
+- Fix data: xóa 3 debug artifact (test, test, dds), còn 4 presets sạch.
+- Fix code: `TreeDesign.pre("validate")` hook chặn save design công khai mà có accessory cá nhân hóa chưa có text.
+- 3 script mới trong `backend/src/scripts/`: `prune-orphaned-presets.ts`, `cleanup-debug-presets.ts`, `probe-presets.ts`.
+
 ## 2026-10-08 — Docs audit pass (Christmas-clean)
 
 > **Audit pass** toàn bộ folder `docs/` để chuẩn bị handoff cho FE. Đã sửa các inconsistency còn sót từ marketplace era.

@@ -96,6 +96,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         email: user.email,
         roles: user.roles,
         avatarUrl: user.avatarUrl ?? "",
+        accountStatus: user.accountStatus,
+        accountStatusReason: user.accountStatusReason ?? "",
+        addresses: user.addresses ?? [],
       },
     });
   } catch (err) {
@@ -155,6 +158,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         email: user.email,
         roles: user.roles,
         avatarUrl: user.avatarUrl || "",
+        accountStatus: user.accountStatus,
+        accountStatusReason: user.accountStatusReason ?? "",
+        addresses: user.addresses ?? [],
       },
     });
   } catch (err) {
@@ -182,7 +188,18 @@ export const updateAvatar = async (req: Request, res: Response): Promise<void> =
     user.avatarUrl = avatarUrl;
     await user.save();
 
-    res.json({ avatarUrl, message: "Cập nhật ảnh đại diện thành công" });
+    res.json({
+      user: {
+        _id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        roles: user.roles,
+        avatarUrl: user.avatarUrl,
+        accountStatus: user.accountStatus,
+        accountStatusReason: user.accountStatusReason ?? "",
+        addresses: user.addresses ?? [],
+      },
+    });
   } catch (err) {
     handleInternalError(res, err, "[auth] updateAvatar error");
   }
