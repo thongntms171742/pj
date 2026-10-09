@@ -74,8 +74,23 @@ export const ErrorCode = {
   ORDER_ID_REQUIRED: "ORDER_ID_REQUIRED",
   ORDER_CANCEL_NOT_ALLOWED: "ORDER_CANCEL_NOT_ALLOWED",
 
-  // ── Account ─────────────────────────────────────────────────────────────
+  // ── Account / User ──────────────────────────────────────────────────────
   ACCOUNT_NOT_FOUND: "ACCOUNT_NOT_FOUND",
+  USER_NOT_FOUND: "USER_NOT_FOUND",
+
+  // ── Coupon ──────────────────────────────────────────────────────────────
+  COUPON_NOT_FOUND: "COUPON_NOT_FOUND",
+  COUPON_EXPIRED: "COUPON_EXPIRED",
+  COUPON_MIN_ORDER_NOT_MET: "COUPON_MIN_ORDER_NOT_MET",
+  COUPON_LIMIT_REACHED: "COUPON_LIMIT_REACHED",
+
+  // ── Delivery extension ──────────────────────────────────────────────────
+  READY_TO_DISPLAY_HCM_ONLY: "READY_TO_DISPLAY_HCM_ONLY",
+
+  // ── Media upload & webhook ──────────────────────────────────────────────
+  FILE_TOO_LARGE: "FILE_TOO_LARGE",
+  UNSUPPORTED_MEDIA_TYPE: "UNSUPPORTED_MEDIA_TYPE",
+  WEBHOOK_INVALID_SIGNATURE: "WEBHOOK_INVALID_SIGNATURE",
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -146,8 +161,23 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   ORDER_ID_REQUIRED: 400,
   ORDER_CANCEL_NOT_ALLOWED: 409,
 
-  // Account
+  // Account / User
   ACCOUNT_NOT_FOUND: 404,
+  USER_NOT_FOUND: 404,
+
+  // Coupon
+  COUPON_NOT_FOUND: 404,
+  COUPON_EXPIRED: 400,
+  COUPON_MIN_ORDER_NOT_MET: 400,
+  COUPON_LIMIT_REACHED: 400,
+
+  // Delivery
+  READY_TO_DISPLAY_HCM_ONLY: 400,
+
+  // Upload & Webhook
+  FILE_TOO_LARGE: 400,
+  UNSUPPORTED_MEDIA_TYPE: 415,
+  WEBHOOK_INVALID_SIGNATURE: 401,
 };
 
 // ── Main helper: sendError ───────────────────────────────────────────────────

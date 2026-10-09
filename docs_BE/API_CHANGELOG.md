@@ -5,6 +5,42 @@ Track changes to the API contract over time to ensure synchronization between Ba
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Christmas entries (2026-10-07+) là contract hiện tại. Entries cũ (2026-10-06 trở về trước) là **lịch sử marketplace** - chỉ tham khảo context, KHÔNG áp dụng cho code Christmas. Source of truth cho FE = `backend/src/`.
 
 ---
+## 2026-10-09 — 🚀 FE PROPOSALS ALIGNMENT & SYSTEM UPGRADE
+
+> **Đồng bộ toàn diện đề xuất FE**: Triển khai các module theo `BE_RECOMMENDATIONS.md` và thống nhất triết lý: **Cây thông là Product (sản phẩm cốt lõi)**, còn **Phụ kiện & Mẫu trang trí là Category / Danh mục sản phẩm vệ tinh**, gom về 1 luồng cấu hình thống nhất, tránh phân mảnh cấu trúc.
+
+### Added endpoints
+
+**Auth & Profile**
+- `GET /api/auth/me` → lấy profile người dùng hiện tại (addresses, roles, phone, avatar)
+- `PATCH /api/auth/me` → cập nhật thông tin cá nhân (`name`, `phone`, `avatarUrl`)
+
+**Cart & Guest Session**
+- `POST /api/cart/merge` → gộp giỏ hàng khách vãng lai (`guestSessionId`) vào tài khoản sau khi đăng nhập
+- Header `X-Session-Id` hỗ trợ khách vãng lai thao tác giỏ hàng trước khi đăng nhập
+
+**Coupons**
+- `POST /api/coupons/apply` → áp dụng mã giảm giá và tính toán số tiền chiết khấu
+
+**Uploads**
+- `POST /api/uploads` → upload file ảnh hoặc base64 data URL lưu trữ static (/uploads), phục vụ preview cây thông Canvas Editor
+
+**Payments Webhook**
+- `POST /api/payments/webhook` → nhận webhook tự động cập nhật đơn sang `PAID` và `CONFIRMED`
+
+**Notifications & Analytics**
+- `PATCH /api/notifications/read-all` → đánh dấu đọc tất cả thông báo trong 1 request
+- `GET /api/admin/analytics` → thống kê doanh thu theo ngày, tỷ lệ concept/style, top phụ kiện
+
+### Changed
+
+- **Vận chuyển liên tỉnh**: `POST /api/orders` chỉ giới hạn khu vực TP.HCM (`provinceId: "79"`) đối với đơn chứa cây trang trí sẵn `READY_TO_DISPLAY`. Đơn hàng `DIY_KIT` và `SEPARATE` hỗ trợ giao hàng toàn quốc!
+- **Model `Order`**: bổ sung `discountCode`, `discountAmount`, `paymentTransactionId`, `internalNotes`.
+- **Model `User`**: bổ sung trường `phone`.
+- **Model `Cart`**: hỗ trợ cả `userId` và guest `sessionId`.
+- **Model `Coupon`**: tạo mới (`code`, `discountType`, `value`, `minOrderValue`, `maxDiscount`, `startDate`, `endDate`, `usageLimit`, `usedCount`, `isActive`).
+
+---
 ## 2026-10-09 — 🌲 3-TIER TREE CATALOG REFACTOR (Breaking)
 
 > **Domain shift**: Catalog cây thông chuyển từ 2-tier (Product + Variant có `color` field) sang **3-tier chuẩn Shopee Seller Centre** (Product → Code → Variant). Customer nhìn thấy 1 sản phẩm, chọn mã cây (Phân loại 1), chọn size (Phân loại 2) rồi thêm giỏ. Mỗi (code × size) là 1 SKU riêng với giá + tồn kho + SKU nội bộ duy nhất.

@@ -137,11 +137,15 @@ export interface IOrder extends Document {
   shippingFee: number;
   decorationFee: number;
   discount: number;
+  discountCode?: string;
+  discountAmount?: number;
   totalAmount: number;
+  internalNotes?: string;
   status: OrderStatus;
-  statusHistory: { status: string; by: string; at: Date; reason?: string }[];
+  statusHistory: { status: string; by: string; at: Date; reason?: string; note?: string }[];
   paymentMethod: string;
   paymentId: string;
+  paymentTransactionId?: string;
   paidAt: Date | null;
   // Set when buyer confirms "Tôi đồng ý với thiết kế này" at checkout.
   designConfirmedAt: Date | null;
@@ -227,7 +231,10 @@ const OrderSchema = new Schema<IOrder>(
     shippingFee: { type: Number, default: 30000 },
     decorationFee: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
+    discountCode: { type: String, default: "" },
+    discountAmount: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
+    internalNotes: { type: String, default: "" },
     status: {
       type: String,
       enum: ORDER_STATUSES,
@@ -236,6 +243,7 @@ const OrderSchema = new Schema<IOrder>(
     statusHistory: { type: [StatusEventSchema], default: [] },
     paymentMethod: { type: String, default: "" },
     paymentId: { type: String, default: "" },
+    paymentTransactionId: { type: String, default: "" },
     paidAt: { type: Date, default: null },
     designConfirmedAt: { type: Date, default: null },
     designLockedAt: { type: Date, default: null },

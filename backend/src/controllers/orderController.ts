@@ -199,15 +199,8 @@ export const createOrder = async (
       return;
     }
 
-    // HCM-only delivery
-    if (shippingProvinceId && shippingProvinceId !== SERVICE_PROVINCE_ID) {
-      sendError(
-        res,
-        ErrorCode.DELIVERY_AREA_NOT_SUPPORTED,
-        "Hiện tại Build Your Christmas chỉ giao hàng tại TP.HCM (province 79)"
-      );
-      return;
-    }
+    // Note: Delivery area check is performed after resolving items & deliveryOptions
+    // so that DIY_KIT and SEPARATE can be shipped nationwide, while READY_TO_DISPLAY remains HCM-only.
 
     // Resolve items source
     let rawItems: Array<{ config?: DesignConfig; designId?: string; quantity?: number }> = [];
@@ -273,6 +266,19 @@ export const createOrder = async (
       return;
     }
 
+    // Delivery area verification:
+    // READY_TO_DISPLAY is restricted to HCM (province 79).
+    // DIY_KIT and SEPARATE can be delivered nationwide!
+    const hasReadyToDisplay = built.some((it) => it.deliveryOption === "READY_TO_DISPLAY");
+    if (hasReadyToDisplay && shippingProvinceId && shippingProvinceId !== SERVICE_PROVINCE_ID) {
+      sendError(
+        res,
+        ErrorCode.READY_TO_DISPLAY_HCM_ONLY,
+        "Hình thức giao cây trang trí sẵn (Ready-to-display) chỉ áp dụng tại khu vực TP.HCM. Quý khách ở tỉnh khác vui lòng chọn Bộ tự trang trí (DIY Kit)."
+      );
+      return;
+    }
+
     // Reserve stock atomically. If anything fails, throw to caller.
     try {
       await reserveStock(stockToReserve);
@@ -285,8 +291,35 @@ export const createOrder = async (
       throw stockErr;
     }
 
+    // Apply Coupon if provided
+    let appliedDiscount = 0;
+    let appliedCouponCode = "";
+    const couponInput = (req.body.couponCode || req.body.discountCode || "").toString().trim().toUpperCase();
+    if (couponInput) {
+      try {
+        const { Coupon } = await import("../models/Coupon");
+        const { computeCouponDiscount } = await import("./couponController");
+        const couponDoc = await Coupon.findOne({ code: couponInput, isActive: true });
+        const nowTime = new Date();
+        if (
+          couponDoc &&
+          nowTime >= couponDoc.startDate &&
+          nowTime <= couponDoc.endDate &&
+          couponDoc.usedCount < couponDoc.usageLimit &&
+          subtotal >= couponDoc.minOrderValue
+        ) {
+          const { discountAmount } = computeCouponDiscount(couponDoc, subtotal);
+          appliedDiscount = discountAmount;
+          appliedCouponCode = couponDoc.code;
+          await Coupon.updateOne({ _id: couponDoc._id }, { $inc: { usedCount: 1 } });
+        }
+      } catch (couponErr) {
+        console.warn("[orders] Error applying coupon:", couponErr);
+      }
+    }
+
     const shippingFee = SHIPPING_FEE;
-    const totalAmount = subtotal + shippingFee + decorationFeeTotal;
+    const totalAmount = Math.max(0, subtotal + shippingFee + decorationFeeTotal - appliedDiscount);
 
     const orderCode = genOrderCode();
     const isCod = String(paymentMethod).toUpperCase() === "COD";
@@ -303,8 +336,11 @@ export const createOrder = async (
       subtotal,
       shippingFee,
       decorationFee: decorationFeeTotal,
-      discount: 0,
+      discount: appliedDiscount,
+      discountCode: appliedCouponCode,
+      discountAmount: appliedDiscount,
       totalAmount,
+      internalNotes: (req.body.internalNotes || "").toString().trim(),
       status: initialStatus,
       statusHistory: [
         {
@@ -749,8 +785,12 @@ export const mapOrder = (o: any) => ({
   subtotal: o.subtotal,
   shippingFee: o.shippingFee,
   decorationFee: o.decorationFee || 0,
-  discount: o.discount,
+  discount: o.discount || 0,
+  discountCode: o.discountCode || "",
+  discountAmount: o.discountAmount || o.discount || 0,
   totalAmount: o.totalAmount,
+  internalNotes: o.internalNotes || "",
+  paymentTransactionId: o.paymentTransactionId || "",
   status: o.status,
   statusHistory: (o.statusHistory || []).map((h: any) => ({
     status: h.status,

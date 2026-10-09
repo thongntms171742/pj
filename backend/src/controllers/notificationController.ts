@@ -50,3 +50,14 @@ export const markAsRead = async (req: Request, res: Response): Promise<void> => 
     handleInternalError(res, err, "[notifications] markAsRead error");
   }
 };
+
+// ── PATCH /api/notifications/read-all ─────────────────────────────────────────
+export const markAllAsRead = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    await Notification.updateMany({ userId, isRead: false }, { isRead: true });
+    res.json({ success: true, message: "Đã đánh dấu đọc tất cả thông báo" });
+  } catch (err) {
+    handleInternalError(res, err, "[notifications] markAllAsRead error");
+  }
+};

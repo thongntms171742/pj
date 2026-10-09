@@ -22,23 +22,37 @@ Build giao diện cho 1 single-brand e-commerce: **Build Your Christmas**.
 - [ ] `cd backend && npm install`
 - [ ] `cd frontend && npm install`
 
-### Bước 2: Start BE + seed data (15 phút)
+### Bước 2: Start BE + seed data (15 phút) — OPTION
 
-- [ ] Copy `backend/.env.example` thành `backend/.env` (nếu có), hoặc dùng env có sẵn.
-- [ ] Check `backend/.env` có:
+Có 2 cách dev:
+
+**Option A: Dùng BE đã deploy trên Render (recommended cho frontend dev)**
+- Không cần cài BE local. Mọi API call đi qua `https://christmas-8ca4.onrender.com/api`.
+- Đảm bảo `frontend/.env.development` có:
+  ```
+  VITE_API_BASE_URL=https://christmas-8ca4.onrender.com/api
+  VITE_API_TARGET=https://christmas-8ca4.onrender.com
+  ```
+- BE Render có thể sleep sau 15 phút không traffic → request đầu tiên ~30s để wake up. Sau đó nhanh bình thường.
+- Test account: `buyer@buildyourchristmas.vn` / `Buyer@BYC2026` (seed sẵn).
+
+**Option B: Chạy BE local (cho BE dev hoặc test offline)**
+- Copy `backend/.env.example` thành `backend/.env` (nếu có), hoặc dùng env có sẵn.
+- Check `backend/.env` có:
   - `MONGODB_URI` (trỏ tới cluster Atlas, DB name = `christmas`).
   - `JWT_SECRET`.
   - `SEED_ADMIN_PASSWORD`, `SEED_BUYER_PASSWORD`.
-- [ ] `cd backend && npm run seed -- --confirm-seed` → seed 3 trees, 6 styles, ~25 accessories, 3 presets, 1 admin, 1 buyer.
-- [ ] `npm run dev` → BE chạy ở `http://localhost:4000`.
-- [ ] Verify: `curl http://localhost:4000/api/health` → `{ "status": "ok", ... }`.
+- `cd backend && npm run seed -- --confirm-seed` → seed 3 trees, 6 styles, ~25 accessories, 3 presets, 1 admin, 1 buyer.
+- `npm run dev` → BE chạy ở `http://localhost:4000`.
+- Verify: `curl http://localhost:4000/api/health` → `{ "status": "ok", ... }`.
+- Đổi `frontend/.env.development` thành `VITE_API_BASE_URL=http://localhost:4000/api`.
 
 ### Bước 3: Start FE (10 phút)
 
-- [ ] `frontend/.env` có `VITE_API_URL=http://localhost:4000/api`.
-- [ ] `cd frontend && npm run dev` → FE chạy ở `http://localhost:5173`.
-- [ ] Mở browser → `http://localhost:5173` → thấy HomePage.
-- [ ] Click "Đăng nhập" → dùng `buyer@buildyourchristmas.vn` / password (xem `backend/.env`).
+- File env dùng `VITE_API_BASE_URL` (không phải `VITE_API_URL`).
+- `cd frontend && npm run dev` → FE chạy ở `http://localhost:5173`.
+- Mở browser → `http://localhost:5173` → thấy HomePage.
+- Click "Đăng nhập" → dùng `buyer@buildyourchristmas.vn` / `Buyer@BYC2026` (BE Render seed sẵn).
 
 ### Bước 4: Smoke test API (15 phút)
 

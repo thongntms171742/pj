@@ -15,3 +15,4 @@ export * from "./Cart";
 export * from "./CartItem";
 export * from "./Order";
 export * from "./Notification";
+export * from "./Coupon";

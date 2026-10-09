@@ -32,6 +32,7 @@ import {
   deletePreset,
   listAllOrders,
   getAdminStats,
+  getAdminAnalytics,
   getAllUsers,
   updateUserStatus,
   getUserDetails,
@@ -84,8 +85,9 @@ router.delete("/presets/:id", deletePreset);
 // ── Orders ───────────────────────────────────────────────────────────────────
 router.get("/orders", listAllOrders);
 
-// ── Stats ────────────────────────────────────────────────────────────────────
+// ── Stats & Analytics ────────────────────────────────────────────────────────
 router.get("/stats", getAdminStats);
+router.get("/analytics", getAdminAnalytics);
 
 // ── Users ────────────────────────────────────────────────────────────────────
 router.get("/users", getAllUsers);

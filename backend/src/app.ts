@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import path from "path";
 
 import "./models"; // Ensure all Mongoose models are registered
 import authRoutes from "./routes/auth";
@@ -12,12 +13,17 @@ import orderRoutes from "./routes/orders";
 import paymentRoutes from "./routes/payments";
 import notificationRoutes from "./routes/notifications";
 import adminRoutes from "./routes/admin";
+import couponRoutes from "./routes/coupons";
+import uploadRoutes from "./routes/uploads";
 import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 
 const app = express();
 
 // ── Middleware ──────────────────────────────────────────────────────────────────
 app.use(cors({ origin: true, credentials: true }));
+
+// Serve static uploads
+app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
 
 // Custom JSON parser wrapper — body-parser in strict mode rejects bodies that
 // are valid JSON literals (null, "string", 123, true, []) with
@@ -53,6 +59,8 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/coupons", couponRoutes);
+app.use("/api/uploads", uploadRoutes);
 
 // ── 404 catch-all ──────────────────────────────────────────────────────────────
 app.use("/api/*", (_req, res) => {

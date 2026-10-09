@@ -7,7 +7,7 @@ import {
   loadConfigByDesignId,
   buildPricedDesign,
 } from "../services/catalogService";
-import { loadCatalogForDesign, buildDesignResponse } from "../services/designService";
+import { buildDesignResponse } from "../services/designService";
 import { TreeDesign } from "../models/TreeDesign";
 import type { DesignConfig } from "../models/TreeDesign";
 import type { PriceBreakdown } from "../services/pricingService";
@@ -17,9 +17,37 @@ import {
   handleInternalError,
 } from "../utils/errors";
 
-async function getOrCreateCart(userId: string) {
-  let cart = await Cart.findOne({ userId });
-  if (!cart) cart = await Cart.create({ userId });
+// Helper to determine whether request is authenticated or guest
+export function extractCartIdentifier(req: Request): {
+  userId?: string;
+  sessionId?: string;
+} {
+  if (req.user?.id) {
+    return { userId: req.user.id };
+  }
+  const rawSession =
+    (req.headers["x-session-id"] as string) ||
+    (req.headers["x-guest-session-id"] as string) ||
+    (req.query.guestSessionId as string) ||
+    (req.body && req.body.guestSessionId);
+
+  if (rawSession && typeof rawSession === "string" && rawSession.trim()) {
+    return { sessionId: rawSession.trim() };
+  }
+  return {};
+}
+
+async function getOrCreateCart(req: Request) {
+  const { userId, sessionId } = extractCartIdentifier(req);
+  if (userId) {
+    let cart = await Cart.findOne({ userId });
+    if (!cart) cart = await Cart.create({ userId });
+    return cart;
+  }
+  const effectiveSessionId =
+    sessionId || `guest_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  let cart = await Cart.findOne({ sessionId: effectiveSessionId });
+  if (!cart) cart = await Cart.create({ sessionId: effectiveSessionId });
   return cart;
 }
 
@@ -45,8 +73,7 @@ function shapeItem(item: any, pricing: PriceBreakdown | null, design: any = null
 // ── GET /api/cart ─────────────────────────────────────────────────────────────
 export const getCart = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = req.user!.id;
-    const cart = await getOrCreateCart(userId);
+    const cart = await getOrCreateCart(req);
     const items = await CartItem.find({ cartId: cart._id }).sort({
       createdAt: -1,
     });
@@ -54,7 +81,7 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
     const responseItems: any[] = [];
     for (const item of items) {
       try {
-        const { pricing, catalog: _catalog } = await buildPricedDesign(
+        const { pricing } = await buildPricedDesign(
           item.config as DesignConfig
         );
         let designDoc = null;
@@ -67,7 +94,13 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    res.json({ cart: { _id: String(cart._id) }, items: responseItems });
+    res.json({
+      cart: {
+        _id: String(cart._id),
+        sessionId: cart.sessionId || undefined,
+      },
+      items: responseItems,
+    });
   } catch (err) {
     handleInternalError(res, err, "[cart] getCart error");
   }
@@ -76,7 +109,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
 // ── POST /api/cart/items ──────────────────────────────────────────────────────
 export const addCartItem = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = req.user!.id;
     const { config, designId, quantity } = req.body as {
       config?: DesignConfig;
       designId?: string;
@@ -113,13 +145,13 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
     if (designId && Types.ObjectId.isValid(designId)) {
       const source = await TreeDesign.findById(designId).lean();
       const isOwner =
-        source?.ownerId && String(source.ownerId) === userId;
+        req.user?.id && source?.ownerId && String(source.ownerId) === req.user.id;
       if (source && (source.isPublic || isOwner)) {
         persistedDesignId = source._id;
       }
     }
 
-    const cart = await getOrCreateCart(userId);
+    const cart = await getOrCreateCart(req);
     const qty = Math.max(1, parseInt(String(quantity ?? 1), 10) || 1);
 
     const item = await CartItem.create({
@@ -131,7 +163,13 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
       checked: false,
     });
 
-    res.status(201).json({ item: shapeItem(item, pricing) });
+    res.status(201).json({
+      item: shapeItem(item, pricing),
+      cart: {
+        _id: String(cart._id),
+        sessionId: cart.sessionId || undefined,
+      },
+    });
   } catch (err) {
     handleInternalError(res, err, "[cart] addCartItem error");
   }
@@ -143,9 +181,8 @@ export const updateCartItem = async (
   res: Response
 ): Promise<void> => {
   try {
-    const userId = req.user!.id;
     const { id } = req.params;
-    const cart = await getOrCreateCart(userId);
+    const cart = await getOrCreateCart(req);
     const item = await CartItem.findOne({ _id: id, cartId: cart._id });
     if (!item) {
       sendError(res, ErrorCode.CART_ITEM_NOT_FOUND, "Không tìm thấy sản phẩm trong giỏ");
@@ -191,13 +228,8 @@ export const deleteCartItem = async (
   res: Response
 ): Promise<void> => {
   try {
-    const userId = req.user!.id;
     const { id } = req.params;
-    const cart = await Cart.findOne({ userId });
-    if (!cart) {
-      sendError(res, ErrorCode.CART_NOT_FOUND, "Giỏ hàng không tồn tại");
-      return;
-    }
+    const cart = await getOrCreateCart(req);
     const item = await CartItem.findOneAndDelete({ _id: id, cartId: cart._id });
     if (!item) {
       sendError(res, ErrorCode.CART_ITEM_NOT_FOUND, "Không tìm thấy sản phẩm trong giỏ");
@@ -212,13 +244,74 @@ export const deleteCartItem = async (
 // ── DELETE /api/cart/clear (and DELETE /api/cart) ─────────────────────────────
 export const clearCart = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = req.user!.id;
-    const cart = await Cart.findOne({ userId });
+    const cart = await getOrCreateCart(req);
     if (cart) {
       await CartItem.deleteMany({ cartId: cart._id });
     }
     res.json({ success: true });
   } catch (err) {
     handleInternalError(res, err, "[cart] clearCart error");
+  }
+};
+
+// ── POST /api/cart/merge (Logged-in Buyer) ────────────────────────────────────
+// Merge guest session cart into authenticated user cart
+export const mergeCart = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { guestSessionId } = req.body as {
+      guestSessionId?: string;
+    };
+
+    let userCart = await Cart.findOne({ userId });
+    if (!userCart) {
+      userCart = await Cart.create({ userId });
+    }
+
+    if (guestSessionId && typeof guestSessionId === "string" && guestSessionId.trim()) {
+      const guestCart = await Cart.findOne({ sessionId: guestSessionId.trim() });
+      if (guestCart && String(guestCart._id) !== String(userCart._id)) {
+        const guestItems = await CartItem.find({ cartId: guestCart._id });
+        for (const gItem of guestItems) {
+          // Check matching variant and style
+          const existing = await CartItem.findOne({
+            cartId: userCart._id,
+            "config.variantId": gItem.config.variantId,
+            "config.styleId": gItem.config.styleId,
+            "config.deliveryOption": gItem.config.deliveryOption,
+          });
+          if (existing) {
+            existing.quantity += gItem.quantity;
+            await existing.save();
+          } else {
+            gItem.cartId = userCart._id as Types.ObjectId;
+            await gItem.save();
+          }
+        }
+        await Cart.deleteOne({ _id: guestCart._id });
+      }
+    }
+
+    const items = await CartItem.find({ cartId: userCart._id }).sort({ createdAt: -1 });
+    const responseItems: any[] = [];
+    for (const item of items) {
+      try {
+        const { pricing } = await buildPricedDesign(item.config as DesignConfig);
+        let designDoc = null;
+        if (item.designId) {
+          designDoc = await TreeDesign.findById(item.designId).lean();
+        }
+        responseItems.push(shapeItem(item, pricing, designDoc));
+      } catch {
+        responseItems.push(shapeItem(item, null));
+      }
+    }
+
+    res.json({
+      cart: { _id: String(userCart._id) },
+      items: responseItems,
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[cart] mergeCart error");
   }
 };

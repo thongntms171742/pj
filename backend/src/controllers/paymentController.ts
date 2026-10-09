@@ -83,3 +83,114 @@ export const checkout = async (
     handleInternalError(res, err, "[payments] checkout error");
   }
 };
+
+// ── POST /api/payments/webhook ────────────────────────────────────────────────
+export const handlePaymentWebhook = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const signature = (req.headers["x-signature"] ||
+      req.headers["x-webhook-signature"] ||
+      req.query.signature) as string | undefined;
+    const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET;
+
+    if (webhookSecret && signature) {
+      const crypto = await import("crypto");
+      const expectedSignature = crypto
+        .createHmac("sha256", webhookSecret)
+        .update(JSON.stringify(req.body))
+        .digest("hex");
+      if (signature !== expectedSignature) {
+        sendError(
+          res,
+          ErrorCode.WEBHOOK_INVALID_SIGNATURE,
+          "Chữ ký xác thực webhook thanh toán không khớp",
+          401
+        );
+        return;
+      }
+    }
+
+    const {
+      orderCode,
+      orderId,
+      transactionId,
+      gateway = "PayOS",
+    } = req.body as {
+      orderCode?: string;
+      orderId?: string;
+      transactionId?: string;
+      gateway?: string;
+    };
+
+    const targetCode = orderCode || orderId;
+    if (!targetCode) {
+      sendError(
+        res,
+        ErrorCode.MISSING_FIELD,
+        "Thiếu orderCode hoặc orderId trong webhook payload"
+      );
+      return;
+    }
+
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(targetCode);
+    const orFilter: any[] = [{ orderCode: targetCode }];
+    if (isObjectId) orFilter.push({ _id: targetCode });
+
+    const order = await Order.findOne({ $or: orFilter });
+    if (!order) {
+      sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng", 404);
+      return;
+    }
+
+    if (order.status === "PAID" || order.status === "CONFIRMED") {
+      res.json({
+        success: true,
+        message: "Đơn hàng đã thanh toán trước đó",
+        orderCode: order.orderCode,
+      });
+      return;
+    }
+
+    const now = new Date();
+    const txnId = transactionId || `TXN-${Date.now()}`;
+    order.status = "PAID";
+    order.paidAt = now;
+    order.paymentTransactionId = txnId;
+    order.paymentId = txnId;
+    order.statusHistory.push({
+      status: "PAID",
+      by: gateway,
+      at: now,
+      reason: `Thanh toán thành công qua ${gateway} (Mã GD: ${txnId})`,
+      note: `Giao dịch ${txnId}`,
+    });
+
+    order.status = "CONFIRMED";
+    order.statusHistory.push({
+      status: "CONFIRMED",
+      by: "system",
+      at: now,
+      reason: "Hệ thống tự động xác nhận sau khi nhận webhook thanh toán",
+      note: "Auto-confirmed",
+    });
+
+    await order.save();
+
+    await Notification.create({
+      userId: order.buyerId,
+      type: "order",
+      title: "Thanh toán thành công qua cổng thanh toán",
+      message: `Đơn hàng ${order.orderCode} đã thanh toán thành công (Mã GD: ${txnId}).`,
+    });
+
+    res.json({
+      success: true,
+      message: "Cập nhật thanh toán thành công",
+      order: mapOrder(order),
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[payments] webhook error");
+  }
+};

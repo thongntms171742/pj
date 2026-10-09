@@ -864,6 +864,125 @@ export const getAdminStats = async (
   }
 };
 
+// ── GET /api/admin/analytics ──────────────────────────────────────────────────
+export const getAdminAnalytics = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+
+    const fromQuery = req.query.from as string | undefined;
+    const toQuery = req.query.to as string | undefined;
+
+    const fromDate = fromQuery ? new Date(fromQuery) : new Date(Date.now() - 30 * 86400_000);
+    const toDate = toQuery ? new Date(toQuery) : new Date();
+
+    const matchDate: any = {
+      createdAt: { $gte: fromDate, $lte: toDate },
+    };
+
+    const [
+      revenueByDay,
+      styleBreakdown,
+      deliveryOptionBreakdown,
+      allOrdersInPeriod,
+    ] = await Promise.all([
+      // 1. Revenue & orders by day
+      Order.aggregate([
+        { $match: { ...matchDate, status: { $ne: "CANCELLED" } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+            revenue: { $sum: "$totalAmount" },
+            orderCount: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
+
+      // 2. Style preference breakdown
+      Order.aggregate([
+        { $match: { ...matchDate, status: { $ne: "CANCELLED" } } },
+        { $unwind: "$items" },
+        {
+          $group: {
+            _id: "$items.style.code",
+            name: { $first: "$items.style.name" },
+            count: { $sum: "$items.quantity" },
+          },
+        },
+        { $sort: { count: -1 } },
+      ]),
+
+      // 3. Delivery option distribution
+      Order.aggregate([
+        { $match: { ...matchDate, status: { $ne: "CANCELLED" } } },
+        { $unwind: "$items" },
+        {
+          $group: {
+            _id: "$items.deliveryOption",
+            count: { $sum: "$items.quantity" },
+          },
+        },
+      ]),
+
+      // 4. Sample items for accessory aggregation
+      Order.find({ ...matchDate, status: { $ne: "CANCELLED" } })
+        .select("items")
+        .lean(),
+    ]);
+
+    // Aggregate top accessories across orders
+    const accessoryMap: Record<string, { name: string; type: string; totalCount: number }> = {};
+    for (const order of allOrdersInPeriod) {
+      for (const item of order.items || []) {
+        for (const line of item.lines || []) {
+          if (line.kind === "ACCESSORY" && line.name) {
+            const key = line.name;
+            if (!accessoryMap[key]) {
+              accessoryMap[key] = {
+                name: line.name,
+                type: line.type || "ORNAMENT",
+                totalCount: 0,
+              };
+            }
+            accessoryMap[key].totalCount += (line.quantity || 1) * (item.quantity || 1);
+          }
+        }
+      }
+    }
+
+    const topAccessories = Object.values(accessoryMap)
+      .sort((a, b) => b.totalCount - a.totalCount)
+      .slice(0, 10);
+
+    res.json({
+      analytics: {
+        from: fromDate.toISOString(),
+        to: toDate.toISOString(),
+        revenueByDay: revenueByDay.map((r) => ({
+          date: r._id,
+          revenue: r.revenue,
+          orderCount: r.orderCount,
+        })),
+        stylesBreakdown: styleBreakdown.map((s) => ({
+          styleCode: s._id || "UNKNOWN",
+          name: s.name || s._id || "Khác",
+          count: s.count,
+        })),
+        deliveryOptions: deliveryOptionBreakdown.map((d) => ({
+          deliveryOption: d._id || "READY_TO_DISPLAY",
+          count: d.count,
+        })),
+        topAccessories,
+      },
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] getAdminAnalytics error");
+  }
+};
+
 // ════════════════════════════════════════════════════════════════════════════
 // User management (kept from legacy)
 // ════════════════════════════════════════════════════════════════════════════

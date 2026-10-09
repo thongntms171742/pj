@@ -29,6 +29,7 @@ const AddressSchema = new Schema({
 export interface IUser extends Document {
   name: string;
   email: string;
+  phone?: string;
   passwordHash: string;
   avatarUrl?: string;
   roles: ("buyer" | "admin")[];
@@ -42,6 +43,7 @@ const UserSchema = new Schema<IUser>(
   {
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    phone: { type: String, default: "" },
     passwordHash: { type: String, required: true },
     avatarUrl: { type: String, default: "" },
     roles: {

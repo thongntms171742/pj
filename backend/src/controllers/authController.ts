@@ -193,6 +193,7 @@ export const updateAvatar = async (req: Request, res: Response): Promise<void> =
         _id: user._id.toString(),
         name: user.name,
         email: user.email,
+        phone: user.phone || "",
         roles: user.roles,
         avatarUrl: user.avatarUrl,
         accountStatus: user.accountStatus,
@@ -202,5 +203,88 @@ export const updateAvatar = async (req: Request, res: Response): Promise<void> =
     });
   } catch (err) {
     handleInternalError(res, err, "[auth] updateAvatar error");
+  }
+};
+
+// ── GET /api/auth/me ──────────────────────────────────────────────────────────
+export const getMe = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const user = await User.findById(userId).select("-passwordHash");
+    if (!user) {
+      sendError(res, ErrorCode.USER_NOT_FOUND, "Không tìm thấy người dùng", 404);
+      return;
+    }
+
+    res.json({
+      user: {
+        _id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        phone: user.phone || "",
+        roles: user.roles,
+        avatarUrl: user.avatarUrl || "",
+        accountStatus: user.accountStatus,
+        accountStatusReason: user.accountStatusReason ?? "",
+        addresses: user.addresses ?? [],
+        createdAt: (user as any).createdAt,
+      },
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[auth] getMe error");
+  }
+};
+
+// ── PATCH /api/auth/me ────────────────────────────────────────────────────────
+export const updateProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { name, phone, avatarUrl } = req.body as {
+      name?: string;
+      phone?: string;
+      avatarUrl?: string;
+    };
+
+    const user = await User.findById(userId);
+    if (!user) {
+      sendError(res, ErrorCode.USER_NOT_FOUND, "Không tìm thấy người dùng", 404);
+      return;
+    }
+
+    if (name !== undefined) {
+      const cleanName = asTrimmedString(name, 100);
+      if (!cleanName) {
+        sendError(res, ErrorCode.INVALID_INPUT, "Họ tên không được để trống");
+        return;
+      }
+      user.name = cleanName;
+    }
+
+    if (phone !== undefined) {
+      user.phone = typeof phone === "string" ? phone.trim() : "";
+    }
+
+    if (avatarUrl !== undefined) {
+      user.avatarUrl = typeof avatarUrl === "string" ? avatarUrl.trim() : "";
+    }
+
+    await user.save();
+
+    res.json({
+      user: {
+        _id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        phone: user.phone || "",
+        roles: user.roles,
+        avatarUrl: user.avatarUrl || "",
+        accountStatus: user.accountStatus,
+        accountStatusReason: user.accountStatusReason ?? "",
+        addresses: user.addresses ?? [],
+        createdAt: (user as any).createdAt,
+      },
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[auth] updateProfile error");
   }
 };

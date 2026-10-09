@@ -7,7 +7,10 @@
 
 **Local**: `http://localhost:4000`
 
-**Production**: `https://api.buildyourchristmas.vn` (TBD khi deploy)
+**Production** (đã deploy): `https://christmas-8ca4.onrender.com` (Render.com free tier, có thể sleep sau 15 phút không traffic)
+
+> ⚠️ URL Render có thể đổi khi tạo lại service. Cập nhật `VITE_API_BASE_URL` trong `frontend/.env.production` cho khớp.
+> Domain `api.buildyourchristmas.vn` (custom) hiện chưa set up — TODO post-MVP.
 
 Health check: `GET /api/health` → `{ status: "ok", timestamp: ISO }`
 
@@ -15,10 +18,17 @@ Health check: `GET /api/health` → `{ status: "ok", timestamp: ISO }`
 
 **Local**: `http://localhost:5173`
 
-**Environment Variables (`.env`)**:
+**Environment Variables** (xem `frontend/.env.example`):
+```bash
+# .env.development — dùng BE Render đã deploy
+VITE_API_BASE_URL=https://christmas-8ca4.onrender.com/api
+VITE_API_TARGET=https://christmas-8ca4.onrender.com
+
+# .env.production — production build
+VITE_API_BASE_URL=https://christmas-8ca4.onrender.com/api
 ```
-VITE_API_URL=http://localhost:4000/api
-```
+
+> Lưu ý: tên biến là `VITE_API_BASE_URL` (không phải `VITE_API_URL`). Xem `frontend/src/lib/api.ts` để biết cách đọc.
 
 ## Test Accounts (sau khi seed)
 

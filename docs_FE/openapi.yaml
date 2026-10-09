@@ -1,0 +1,2489 @@
+openapi: 3.0.3
+
+info:
+  title: Build Your Christmas API
+  description: |
+    REST API for **Build Your Christmas** — single-brand Christmas tree e-commerce platform
+    với 3 sizes (S/M/L) × 6 styles × ~25 accessories, Christmas tree editor (live quote),
+    HCM-only delivery, design save/share, và admin catalog management.
+
+    Backend is the source of truth for:
+    - authentication & user identity (single-brand: chỉ roles `buyer` và `admin`)
+    - catalog (Tree, Style, Accessory)
+    - tree design editor (TreeDesign with live pricing)
+    - shopping cart (DesignConfig-based, không phải product-based)
+    - order lifecycle (HCM-only delivery, snapshot design, atomic stock reservation)
+    - payment (mock, COD + online)
+    - shipment tracking (HCM Delivery in-house)
+    - admin management (catalog CRUD + orders + stats + users)
+  version: 2.0.0
+
+servers:
+  - url: http://localhost:4000
+    description: Local development
+  - url: https://api.buildyourchristmas.vn
+    description: Production (TBD)
+
+tags:
+  - name: Health
+    description: System health check
+  - name: Auth
+    description: Authentication, registration, profile
+  - name: Users
+    description: User saved addresses
+  - name: Addresses
+    description: CAS Address Kit proxy (provinces/communes, HCM focus)
+  - name: Catalog
+    description: Public catalog — trees, styles, accessories, presets, delivery options, live quote
+  - name: Designs
+    description: TreeDesign CRUD — save, share, duplicate, public quote
+  - name: Cart
+    description: DesignConfig-based cart
+  - name: Orders
+    description: HCM-only order creation + state machine + shipment
+  - name: Payments
+    description: Mock online payment checkout
+  - name: Notifications
+    description: User notification feed
+  - name: Admin
+    description: Christmas catalog CRUD + order overview + stats + user management
+
+paths:
+
+  # ============================================================
+  # HEALTH
+  # ============================================================
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: getHealth
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  timestamp: { type: string, format: date-time }
+
+  # ============================================================
+  # AUTH
+  # ============================================================
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: "Register a new user (role: buyer)"
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  user: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Email already used
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  user: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403':
+          description: Account suspended
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /api/auth/me/avatar:
+    put:
+      tags: [Auth]
+      summary: Update user avatar
+      operationId: updateAvatar
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [avatarUrl]
+              properties:
+                avatarUrl: { type: string, format: uri }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ============================================================
+  # USERS (saved addresses)
+  # ============================================================
+  /api/users/me/addresses:
+    get:
+      tags: [Users]
+      summary: List user's saved addresses
+      operationId: getAddresses
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  addresses:
+                    type: array
+                    items: { $ref: '#/components/schemas/Address' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Users]
+      summary: Add a new address
+      operationId: addAddress
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddressInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address: { $ref: '#/components/schemas/Address' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/users/me/addresses/{id}:
+    patch:
+      tags: [Users]
+      summary: Update an address
+      operationId: updateAddress
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddressInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address: { $ref: '#/components/schemas/Address' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Users]
+      summary: Delete an address
+      operationId: deleteAddress
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ============================================================
+  # ADDRESSES (CAS proxy)
+  # ============================================================
+  /api/addresses/provinces:
+    get:
+      tags: [Addresses]
+      summary: List provinces/cities
+      operationId: getProvinces
+      parameters:
+        - in: query
+          name: effectiveDate
+          schema:
+            type: string
+            default: latest
+          description: '"latest" or YYYY-MM-DD'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, example: "79" }
+                        name: { type: string, example: "Thành phố Hồ Chí Minh" }
+                  effectiveDate: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/UpstreamTimeout' }
+
+  /api/addresses/provinces/{provinceId}/communes:
+    get:
+      tags: [Addresses]
+      summary: List communes by province
+      operationId: getCommunesByProvince
+      parameters:
+        - in: path
+          name: provinceId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: effectiveDate
+          schema: { type: string, default: latest }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                  effectiveDate: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/UpstreamTimeout' }
+
+  /api/addresses/communes:
+    get:
+      tags: [Addresses]
+      summary: List all communes nationwide
+      operationId: getAllCommunes
+      parameters:
+        - in: query
+          name: effectiveDate
+          schema: { type: string, default: latest }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        provinceId: { type: string }
+                  effectiveDate: { type: string }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/UpstreamTimeout' }
+
+  # ============================================================
+  # CATALOG (public)
+  # ============================================================
+  /api/catalog/tree-products:
+    get:
+      tags: [Catalog]
+      summary: List 3-tier tree products (Product → Code → Variant)
+      description: |
+        Customer-facing catalog. Returns active products with their codes
+        and variants (size × code SKUs). FE renders 1 product card per
+        product, click to expand and pick code/size.
+      operationId: getTreeProducts
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  treeProducts:
+                    type: array
+                    items: { $ref: '#/components/schemas/TreeProductGrouped' }
+
+  /api/catalog/tree-products/{productId}/codes/{codeId}/variants:
+    get:
+      tags: [Catalog]
+      summary: Get active variants for a code
+      description: Returns active variants (sizes) for a given code. Use when customer picks a code.
+      operationId: getVariantsForCode
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: codeId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { $ref: '#/components/schemas/TreeCode' }
+                  variants:
+                    type: array
+                    items: { $ref: '#/components/schemas/TreeVariant' }
+        '404':
+          description: Code not found
+
+  /api/catalog/trees:
+    get:
+      tags: [Catalog]
+      summary: List 3 tree SKUs (S/M/L) — legacy flat list
+      operationId: getTrees
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trees:
+                    type: array
+                    items: { $ref: '#/components/schemas/Tree' }
+
+  /api/catalog/styles:
+    get:
+      tags: [Catalog]
+      summary: List 6 style concepts
+      operationId: getStyles
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  styles:
+                    type: array
+                    items: { $ref: '#/components/schemas/Style' }
+
+  /api/catalog/accessories:
+    get:
+      tags: [Catalog]
+      summary: List accessories (filter by type/group/style/size)
+      operationId: getAccessories
+      parameters:
+        - in: query
+          name: type
+          schema: { type: string, enum: [LIGHT_STRING, CANDLE, BAUBLE, BELL, CANDY, FIGURINE, BOW, STAR, STOCKING, NAME_TAG, NAME_ORNAMENT] }
+        - in: query
+          name: group
+          schema: { type: string, enum: [LIGHTS, ORNAMENT, DECOR, PERSONAL] }
+        - in: query
+          name: style
+          schema: { type: string, description: 'Style code (vd CLASSIC)' }
+        - in: query
+          name: size
+          schema: { type: string, enum: [S, M, L], description: 'If provided, maxQty returns as number for that size' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessories:
+                    type: array
+                    items: { $ref: '#/components/schemas/Accessory' }
+
+  /api/catalog/presets:
+    get:
+      tags: [Catalog]
+      summary: List ready-made (admin) presets, hydrated with pricing
+      operationId: getPresets
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presets:
+                    type: array
+                    items: { $ref: '#/components/schemas/Design' }
+
+  /api/catalog/delivery-options:
+    get:
+      tags: [Catalog]
+      summary: List delivery options + decoration fee per size
+      operationId: getDeliveryOptions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  options:
+                    type: array
+                    items: { $ref: '#/components/schemas/DeliveryOption' }
+
+  /api/catalog/quote:
+    post:
+      tags: [Catalog]
+      summary: Live price preview from DesignConfig (no auth)
+      operationId: quoteDesign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config]
+              properties:
+                config: { $ref: '#/components/schemas/DesignConfig' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pricing: { $ref: '#/components/schemas/PriceBreakdown' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ============================================================
+  # DESIGNS
+  # ============================================================
+  /api/designs/quote:
+    post:
+      tags: [Designs]
+      summary: Same as catalog/quote (alias for editor UX)
+      operationId: quoteDesignDesigns
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config]
+              properties:
+                config: { $ref: '#/components/schemas/DesignConfig' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pricing: { $ref: '#/components/schemas/PriceBreakdown' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/designs:
+    post:
+      tags: [Designs]
+      summary: Save a TreeDesign for the authenticated user
+      operationId: createDesign
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, config]
+              properties:
+                name: { type: string }
+                config: { $ref: '#/components/schemas/DesignConfig' }
+                previewImage: { type: string }
+                isPublic: { type: boolean, default: true }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  design: { $ref: '#/components/schemas/Design' }
+                  shareUrl: { type: string, example: "/tree/my-design" }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    get:
+      tags: [Designs]
+      summary: List my designs
+      operationId: getMyDesigns
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  designs:
+                    type: array
+                    items: { $ref: '#/components/schemas/Design' }
+                  total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/designs/mine:
+    get:
+      tags: [Designs]
+      summary: List my designs (same as GET /api/designs but explicit)
+      operationId: getMyDesignsExplicit
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  designs:
+                    type: array
+                    items: { $ref: '#/components/schemas/Design' }
+                  total: { type: integer }
+
+  /api/designs/share/{slug}:
+    get:
+      tags: [Designs]
+      summary: Get a design by share slug (public if isPublic, else owner/admin)
+      operationId: getSharedDesign
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  design: { $ref: '#/components/schemas/Design' }
+        '403':
+          description: Design is private and not owned by caller
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/designs/{id}:
+    get:
+      tags: [Designs]
+      summary: Get a design by Mongo _id (owner/admin only)
+      operationId: getDesignById
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  design: { $ref: '#/components/schemas/Design' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Designs]
+      summary: Update a design (owner only)
+      operationId: updateDesign
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                config: { $ref: '#/components/schemas/DesignConfig' }
+                previewImage: { type: string }
+                isPublic: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  design: { $ref: '#/components/schemas/Design' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Designs]
+      summary: Delete a design (owner only — preset cannot be deleted)
+      operationId: deleteDesign
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/designs/{id}/duplicate:
+    post:
+      tags: [Designs]
+      summary: Duplicate a design (own / public / preset)
+      operationId: duplicateDesign
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  design: { $ref: '#/components/schemas/Design' }
+                  shareUrl: { type: string }
+
+  # ============================================================
+  # CART
+  # ============================================================
+  /api/cart:
+    get:
+      tags: [Cart]
+      summary: Get user's cart
+      operationId: getCart
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cart: { $ref: '#/components/schemas/Cart' }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/CartItem' }
+    delete:
+      tags: [Cart]
+      summary: Clear cart (alias of /api/cart/clear)
+      operationId: clearCartAlias
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+
+  /api/cart/items:
+    post:
+      tags: [Cart]
+      summary: Add a design to cart
+      operationId: addCartItem
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config: { $ref: '#/components/schemas/DesignConfig' }
+                designId: { type: string, description: 'Alternative to config' }
+                quantity: { type: integer, minimum: 1, default: 1 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  item: { $ref: '#/components/schemas/CartItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/cart/items/{id}:
+    patch:
+      tags: [Cart]
+      summary: Update cart item (quantity / checked / config)
+      operationId: updateCartItem
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                quantity: { type: integer, minimum: 1 }
+                checked: { type: boolean }
+                config: { $ref: '#/components/schemas/DesignConfig' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  item: { $ref: '#/components/schemas/CartItem' }
+    delete:
+      tags: [Cart]
+      summary: Remove a cart item
+      operationId: deleteCartItem
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /api/cart/clear:
+    delete:
+      tags: [Cart]
+      summary: Clear all cart items
+      operationId: clearCart
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+
+  # ============================================================
+  # ORDERS
+  # ============================================================
+  /api/orders:
+    get:
+      tags: [Orders]
+      summary: "List my orders (admin: all)"
+      operationId: getMyOrders
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, description: 'OrderStatus enum' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items: { $ref: '#/components/schemas/Order' }
+    post:
+      tags: [Orders]
+      summary: Create an order (HCM only, designConfirmed required)
+      operationId: createOrder
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shippingProvinceId, designConfirmed]
+              properties:
+                shippingName: { type: string }
+                shippingPhone: { type: string }
+                shippingAddress: { type: string }
+                shippingProvinceId: { type: string, description: 'HARD-CODED "79" for HCM', example: "79" }
+                shippingProvinceName: { type: string }
+                shippingCommuneId: { type: string }
+                shippingCommuneName: { type: string }
+                addressEffectiveDate: { type: string }
+                paymentMethod: { type: string, enum: [COD, ONLINE], default: COD }
+                idempotencyKey: { type: string }
+                designConfirmed: { type: boolean, description: 'REQUIRED — must be true' }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      config: { $ref: '#/components/schemas/DesignConfig' }
+                      designId: { type: string }
+                      quantity: { type: integer, default: 1 }
+                cartItemIds:
+                  type: array
+                  items: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: HCM-only — DELIVERY_AREA_NOT_SUPPORTED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /api/orders/{id}:
+    get:
+      tags: [Orders]
+      summary: Get order by _id or orderCode
+      operationId: getOrderById
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, description: 'Mongo _id or orderCode (BYC-########)' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: '#/components/schemas/Order' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Orders]
+      summary: Update order status (state machine)
+      operationId: updateOrderStatus
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, description: 'OrderStatus' }
+                reason: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: ORDER_CANCEL_NOT_ALLOWED (personalization + PACKING)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '422': { $ref: '#/components/responses/StateMachineViolation' }
+
+  /api/orders/{id}/shipment:
+    get:
+      tags: [Orders]
+      summary: Get shipment info (buyer/admin)
+      operationId: getOrderShipment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shipment: { $ref: '#/components/schemas/Shipment' }
+    post:
+      tags: [Orders]
+      summary: Create shipment (admin only)
+      operationId: createOrderShipment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pickup: { $ref: '#/components/schemas/PickupInfo' }
+                trackingUrl: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shipment: { $ref: '#/components/schemas/Shipment' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ============================================================
+  # PAYMENTS
+  # ============================================================
+  /api/payments/checkout:
+    post:
+      tags: [Payments]
+      summary: Mock online payment (advances PENDING_PAYMENT → PAID → CONFIRMED)
+      operationId: checkout
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId]
+              properties:
+                orderId: { type: string, description: 'Order _id or orderCode' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/StateMachineViolation' }
+
+  # ============================================================
+  # NOTIFICATIONS
+  # ============================================================
+  /api/notifications:
+    get:
+      tags: [Notifications]
+      summary: List user's notifications (last 50)
+      operationId: getNotifications
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notifications:
+                    type: array
+                    items: { $ref: '#/components/schemas/Notification' }
+
+  /api/notifications/{id}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark a notification as read
+      operationId: markNotificationRead
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ============================================================
+  # ADMIN
+  # ============================================================
+  /api/admin/trees:
+    get:
+      tags: [Admin]
+      summary: List all trees (admin)
+      operationId: adminListTrees
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: isActive
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trees:
+                    type: array
+                    items: { $ref: '#/components/schemas/Tree' }
+    post:
+      tags: [Admin]
+      summary: Create tree SKU
+      operationId: adminCreateTree
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tree: { $ref: '#/components/schemas/Tree' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/admin/trees/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update tree SKU (legacy)
+      operationId: adminUpdateTree
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tree: { $ref: '#/components/schemas/Tree' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ── 3-tier Tree Products (Product → Code → Variant) ──────────────────
+  /api/admin/tree-products:
+    get:
+      tags: [Admin]
+      summary: List 3-tier tree products (admin)
+      operationId: adminListTreeProducts
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  treeProducts:
+                    type: array
+                    items: { $ref: '#/components/schemas/TreeProductGrouped' }
+    post:
+      tags: [Admin]
+      summary: Create new tree product (parent)
+      operationId: adminCreateTreeProduct
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeProductCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  treeProduct: { $ref: '#/components/schemas/TreeProduct' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/admin/tree-products/{productId}:
+    patch:
+      tags: [Admin]
+      summary: Update tree product
+      operationId: adminUpdateTreeProduct
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeProductCreate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  treeProduct: { $ref: '#/components/schemas/TreeProduct' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin]
+      summary: Soft-delete tree product (cascades to codes + variants)
+      operationId: adminDeleteTreeProduct
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  productId: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/tree-products/{productId}/codes:
+    post:
+      tags: [Admin]
+      summary: Add a code (mã cây) to product
+      operationId: adminCreateTreeCode
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeCodeCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  treeCode: { $ref: '#/components/schemas/TreeCode' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/tree-codes/{codeId}:
+    patch:
+      tags: [Admin]
+      summary: Update tree code
+      operationId: adminUpdateTreeCode
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: codeId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeCodeCreate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  treeCode: { $ref: '#/components/schemas/TreeCode' }
+    delete:
+      tags: [Admin]
+      summary: Soft-delete tree code (cascades to variants)
+      operationId: adminDeleteTreeCode
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: codeId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  codeId: { type: string }
+
+  /api/admin/tree-codes/{codeId}/variants:
+    post:
+      tags: [Admin]
+      summary: Add a size variant to code
+      operationId: adminCreateTreeVariant
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: codeId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeVariantCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  variant: { $ref: '#/components/schemas/TreeVariant' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: SKU or (code, size) đã tồn tại
+
+  /api/admin/tree-variants/{variantId}:
+    patch:
+      tags: [Admin]
+      summary: Update a single variant (price, stock, image, ...)
+      operationId: adminUpdateTreeVariant
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: variantId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeVariantUpdate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  variant: { $ref: '#/components/schemas/TreeVariant' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: SKU hoặc (code, size) bị trùng
+    delete:
+      tags: [Admin]
+      summary: Soft-delete variant (preserves _id for order refs)
+      operationId: adminDeleteTreeVariant
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: variantId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  variantId: { type: string }
+
+  /api/admin/tree-variants/bulk:
+    patch:
+      tags: [Admin]
+      summary: Bulk update variants (Shopee "Áp dụng cho tất cả")
+      operationId: adminBulkUpdateTreeVariants
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [field, value]
+              properties:
+                field: { type: string, enum: [price, stockQuantity, isActive] }
+                value: { }
+                productId: { type: string, description: 'Optional filter' }
+                codeId: { type: string, description: 'Optional filter' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  matched: { type: integer }
+                  modified: { type: integer }
+
+  /api/admin/styles:
+    get:
+      tags: [Admin]
+      summary: List all styles (admin)
+      operationId: adminListStyles
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  styles:
+                    type: array
+                    items: { $ref: '#/components/schemas/Style' }
+    post:
+      tags: [Admin]
+      summary: Create style
+      operationId: adminCreateStyle
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StyleInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  style: { $ref: '#/components/schemas/Style' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/admin/styles/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update style
+      operationId: adminUpdateStyle
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StyleInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  style: { $ref: '#/components/schemas/Style' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/accessories:
+    get:
+      tags: [Admin]
+      summary: List all accessories (admin)
+      operationId: adminListAccessories
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessories:
+                    type: array
+                    items: { $ref: '#/components/schemas/Accessory' }
+    post:
+      tags: [Admin]
+      summary: Create accessory SKU
+      operationId: adminCreateAccessory
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AccessoryInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessory: { $ref: '#/components/schemas/Accessory' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/admin/accessories/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update accessory SKU
+      operationId: adminUpdateAccessory
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AccessoryInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessory: { $ref: '#/components/schemas/Accessory' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/presets:
+    get:
+      tags: [Admin]
+      summary: List admin presets (hydrated)
+      operationId: adminListPresets
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presets:
+                    type: array
+                    items: { $ref: '#/components/schemas/Design' }
+    post:
+      tags: [Admin]
+      summary: Create admin preset
+      operationId: adminCreatePreset
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, config]
+              properties:
+                name: { type: string }
+                config: { $ref: '#/components/schemas/DesignConfig' }
+                previewImage: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preset: { $ref: '#/components/schemas/Design' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/admin/presets/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update admin preset
+      operationId: adminUpdatePreset
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                config: { $ref: '#/components/schemas/DesignConfig' }
+                previewImage: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preset: { $ref: '#/components/schemas/Design' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin]
+      summary: Delete admin preset
+      operationId: adminDeletePreset
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+
+  /api/admin/orders:
+    get:
+      tags: [Admin]
+      summary: List all orders (admin)
+      operationId: adminListAllOrders
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items: { $ref: '#/components/schemas/Order' }
+
+  /api/admin/stats:
+    get:
+      tags: [Admin]
+      summary: Dashboard stats
+      operationId: adminGetStats
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stats: { $ref: '#/components/schemas/AdminStats' }
+
+  /api/admin/users:
+    get:
+      tags: [Admin]
+      summary: List all users (paginated, searchable)
+      operationId: adminListUsers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20 }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: '#/components/schemas/User' }
+                  total: { type: integer }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  totalPages: { type: integer }
+
+  /api/admin/users/{id}/status:
+    patch:
+      tags: [Admin]
+      summary: Ban / unban a user
+      operationId: adminUpdateUserStatus
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, suspended] }
+                reason: { type: string }
+      responses:
+        '200':
+          description: OK
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/users/{id}/details:
+    get:
+      tags: [Admin]
+      summary: Get user details + per-user order stats
+      operationId: adminGetUserDetails
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+                  stats: { $ref: '#/components/schemas/UserStats' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Unauthorized:
+      description: Unauthorized — token missing or invalid
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    StateMachineViolation:
+      description: State machine / business rule violation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    UpstreamError:
+      description: Upstream service error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    UpstreamTimeout:
+      description: Upstream service timeout
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+
+  schemas:
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+
+    User:
+      type: object
+      properties:
+        _id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        avatarUrl: { type: string }
+        roles:
+          type: array
+          items: { type: string, enum: [buyer, admin] }
+        accountStatus: { type: string, enum: [active, suspended] }
+        accountStatusReason: { type: string }
+        addresses:
+          type: array
+          items: { $ref: '#/components/schemas/Address' }
+        createdAt: { type: string, format: date-time }
+
+    Address:
+      type: object
+      properties:
+        _id: { type: string }
+        name: { type: string }
+        phone: { type: string }
+        address: { type: string }
+        province: { type: string }
+        district: { type: string }
+        ward: { type: string }
+        isDefault: { type: boolean }
+
+    AddressInput:
+      type: object
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        address: { type: string }
+        province: { type: string }
+        district: { type: string }
+        ward: { type: string }
+        isDefault: { type: boolean }
+
+    Tree:
+      type: object
+      properties:
+        _id: { type: string }
+        size: { type: string, enum: [S, M, L] }
+        name: { type: string }
+        heightCmMin: { type: integer }
+        heightCmMax: { type: integer }
+        diameterCm: { type: integer }
+        material: { type: string }
+        density: { type: string }
+        description: { type: string }
+        images:
+          type: array
+          items: { type: string, format: uri }
+        bareImage: { type: string, format: uri }
+        price: { type: integer, description: 'VND' }
+        stock: { type: integer }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    TreeInput:
+      type: object
+      required: [size, name, price]
+      properties:
+        size: { type: string, enum: [S, M, L] }
+        name: { type: string }
+        price: { type: integer }
+        heightCmMin: { type: integer }
+        heightCmMax: { type: integer }
+        diameterCm: { type: integer }
+        material: { type: string }
+        density: { type: string }
+        description: { type: string }
+        images:
+          type: array
+          items: { type: string }
+        bareImage: { type: string }
+        stock: { type: integer }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    Style:
+      type: object
+      properties:
+        _id: { type: string }
+        code: { type: string, enum: [CLASSIC, MINIMAL, GINGERBREAD, WINTER, CUTE, LUXURY] }
+        name: { type: string }
+        description: { type: string }
+        palette:
+          type: array
+          items: { type: string, description: 'hex color' }
+        coverImage: { type: string, format: uri }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    StyleInput:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, enum: [CLASSIC, MINIMAL, GINGERBREAD, WINTER, CUTE, LUXURY] }
+        name: { type: string }
+        description: { type: string }
+        palette:
+          type: array
+          items: { type: string }
+        coverImage: { type: string }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    Accessory:
+      type: object
+      properties:
+        _id: { type: string }
+        group: { type: string, enum: [LIGHTS, ORNAMENT, DECOR, PERSONAL] }
+        type: { type: string }
+        name: { type: string }
+        description: { type: string }
+        image: { type: string, format: uri }
+        price: { type: integer, description: 'VND' }
+        stock: { type: integer }
+        styleCodes:
+          type: array
+          items: { type: string }
+        maxQty:
+          oneOf:
+            - type: integer
+            - type: object
+              properties:
+                S: { type: integer }
+                M: { type: integer }
+                L: { type: integer }
+          description: 'Number if ?size= is provided, else object {S,M,L}'
+        isPersonalizable: { type: boolean }
+        personalizationMaxLength: { type: integer }
+        productionDays: { type: integer }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    AccessoryInput:
+      type: object
+      required: [group, type, name, price]
+      properties:
+        group: { type: string, enum: [LIGHTS, ORNAMENT, DECOR, PERSONAL] }
+        type: { type: string }
+        name: { type: string }
+        description: { type: string }
+        image: { type: string }
+        price: { type: integer }
+        stock: { type: integer }
+        styleCodes:
+          type: array
+          items: { type: string }
+        maxQtyBySize:
+          type: object
+          properties:
+            S: { type: integer }
+            M: { type: integer }
+            L: { type: integer }
+        isPersonalizable: { type: boolean }
+        personalizationMaxLength: { type: integer }
+        productionDays: { type: integer }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    DesignConfig:
+      type: object
+      required: [variantId, styleId, accessories, deliveryOption]
+      properties:
+        variantId: { type: string, description: 'Mongo ObjectId of Tree variant (size × code SKU)' }
+        styleId: { type: string, description: 'Mongo ObjectId of Style' }
+        accessories:
+          type: array
+          items:
+            type: object
+            required: [accessoryId, quantity]
+            properties:
+              accessoryId: { type: string, description: 'Mongo ObjectId of Accessory' }
+              quantity: { type: integer, minimum: 1 }
+              personalizationText: { type: string, description: 'Required if accessory.isPersonalizable. Regex ^[A-Za-z0-9 ]{1,20}$' }
+        deliveryOption: { type: string, enum: [READY_TO_DISPLAY, DIY_KIT, SEPARATE] }
+
+    PriceBreakdown:
+      type: object
+      properties:
+        tree:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+            size: { type: string, description: 'S | M | L | XL or admin-defined' }
+            unitPrice: { type: integer, description: 'VND' }
+        style:
+          type: object
+          properties:
+            id: { type: string }
+            code: { type: string, enum: [CLASSIC, MINIMAL, GINGERBREAD, WINTER, CUTE, LUXURY] }
+            name: { type: string }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              accessoryId: { type: string }
+              name: { type: string }
+              type: { type: string }
+              group: { type: string, enum: [LIGHTS, ORNAMENT, DECOR, PERSONAL] }
+              image: { type: string }
+              unitPrice: { type: integer, description: 'VND' }
+              quantity: { type: integer }
+              lineTotal: { type: integer, description: 'VND' }
+              isPersonalizable: { type: boolean }
+              personalizationMaxLength: { type: integer }
+              productionDays: { type: integer }
+        decorationFee: { type: integer, description: 'VND — 0 unless READY_TO_DISPLAY' }
+        shippingFee: { type: integer, description: 'VND — 30000' }
+        unitTotal: { type: integer, description: 'VND — full price for 1 set' }
+        productionDays: { type: integer }
+        hasPersonalization: { type: boolean }
+        hasService: { type: boolean, description: 'true if decoration fee > 0' }
+        warnings:
+          type: array
+          items: { type: string }
+
+    Design:
+      type: object
+      properties:
+        _id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        year: { type: integer }
+        config: { $ref: '#/components/schemas/DesignConfig' }
+        isPublic: { type: boolean }
+        isPreset: { type: boolean }
+        duplicatedFrom: { type: string, nullable: true }
+        previewImage: { type: string }
+        ownerId: { type: string, nullable: true }
+        shareUrl: { type: string }
+        pricing: { $ref: '#/components/schemas/PriceBreakdown' }
+
+    Cart:
+      type: object
+      properties:
+        _id: { type: string }
+
+    CartItem:
+      type: object
+      properties:
+        _id: { type: string }
+        cartId: { type: string }
+        designId: { type: string, nullable: true }
+        quantity: { type: integer }
+        priceSnapshot: { type: integer }
+        currentUnitTotal: { type: integer, nullable: true }
+        priceChanged: { type: boolean }
+        checked: { type: boolean }
+        config: { $ref: '#/components/schemas/DesignConfig' }
+        design: { $ref: '#/components/schemas/Design' }
+        warning: { type: string }
+
+    Order:
+      type: object
+      properties:
+        _id: { type: string }
+        orderCode: { type: string, example: "BYC-12345678" }
+        buyerId: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              designId: { type: string, nullable: true }
+              designName: { type: string }
+              previewImage: { type: string }
+              tree: { $ref: '#/components/schemas/OrderItemTree' }
+              style: { $ref: '#/components/schemas/OrderItemStyle' }
+              lines:
+                type: array
+                items: { $ref: '#/components/schemas/OrderItemLine' }
+              deliveryOption: { type: string, enum: [READY_TO_DISPLAY, DIY_KIT, SEPARATE] }
+              unitTotal: { type: integer }
+              quantity: { type: integer }
+              lineTotal: { type: integer }
+              hasPersonalization: { type: boolean }
+              productionDays: { type: integer }
+        subtotal: { type: integer }
+        shippingFee: { type: integer, example: 30000 }
+        decorationFee: { type: integer }
+        discount: { type: integer }
+        totalAmount: { type: integer }
+        status: { type: string, description: 'OrderStatus enum' }
+        statusHistory:
+          type: array
+          items:
+            type: object
+            properties:
+              status: { type: string }
+              by: { type: string }
+              at: { type: string, format: date-time }
+              reason: { type: string }
+        paymentMethod: { type: string, enum: [COD, ONLINE] }
+        paymentId: { type: string }
+        paidAt: { type: string, format: date-time, nullable: true }
+        designConfirmedAt: { type: string, format: date-time }
+        designLockedAt: { type: string, format: date-time }
+        shippingName: { type: string }
+        shippingPhone: { type: string }
+        shippingAddress: { type: string }
+        shippingProvinceId: { type: string, example: "79" }
+        shippingProvinceName: { type: string }
+        shippingCommuneId: { type: string }
+        shippingCommuneName: { type: string }
+        addressEffectiveDate: { type: string }
+        trackingNumber: { type: string }
+        shippingProvider: { type: string }
+        trackingUrl: { type: string }
+        pickupInfo: { $ref: '#/components/schemas/PickupInfo' }
+        shippedAt: { type: string, format: date-time, nullable: true }
+        estimatedDeliveryAt: { type: string, format: date-time, nullable: true }
+        deliveredAt: { type: string, format: date-time, nullable: true }
+        cancelReason: { type: string }
+        cancelRequestedAt: { type: string, format: date-time, nullable: true }
+        idempotencyKey: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    OrderItemTree:
+      type: object
+      description: 'OrderItemVariant — kept as "tree" for backward compat in FE'
+      properties:
+        _id: { type: string }
+        productId: { type: string, description: 'Parent TreeProduct id' }
+        codeId: { type: string, description: 'Parent TreeCode id' }
+        size: { type: string, description: 'S | M | L | XL or admin-defined' }
+        name: { type: string }
+        sku: { type: string, description: 'Unique SKU nội bộ' }
+        price: { type: integer }
+        unitPrice: { type: integer }
+        bareImage: { type: string }
+
+    OrderItemStyle:
+      type: object
+      properties:
+        _id: { type: string }
+        code: { type: string }
+        name: { type: string }
+
+    OrderItemLine:
+      type: object
+      properties:
+        kind: { type: string, enum: [ACCESSORY, SERVICE] }
+        refId: { type: string, nullable: true }
+        type: { type: string }
+        name: { type: string }
+        unitPrice: { type: integer }
+        quantity: { type: integer }
+        lineTotal: { type: integer }
+        personalizationText: { type: string }
+
+    PickupInfo:
+      type: object
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        address: { type: string }
+        province: { type: string }
+        district: { type: string }
+        ward: { type: string }
+        email: { type: string }
+        note: { type: string }
+
+    Shipment:
+      type: object
+      properties:
+        id: { type: string }
+        orderId: { type: string }
+        provider: { type: string, example: "Build Your Christmas - HCM Delivery" }
+        trackingNumber: { type: string, example: "BYC12345678" }
+        trackingUrl: { type: string }
+        status: { type: string, enum: [PENDING, CREATED, PICKED_UP, IN_TRANSIT, DELIVERING, DELIVERED, CANCELLED] }
+        shippedAt: { type: string, format: date-time }
+        estimatedDeliveryAt: { type: string, format: date-time }
+        deliveredAt: { type: string, format: date-time, nullable: true }
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              status: { type: string }
+              description: { type: string }
+              timestamp: { type: string, format: date-time }
+              location: { type: string }
+
+    DeliveryOption:
+      type: object
+      properties:
+        code: { type: string, enum: [READY_TO_DISPLAY, DIY_KIT, SEPARATE] }
+        shippingFee: { type: integer, example: 30000 }
+        decorationFeeBySize:
+          type: object
+          properties:
+            S: { type: integer }
+            M: { type: integer }
+            L: { type: integer }
+
+    Notification:
+      type: object
+      properties:
+        _id: { type: string }
+        userId: { type: string }
+        type: { type: string, enum: [order, chat, promo, system, review] }
+        title: { type: string }
+        message: { type: string }
+        isRead: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    AdminStats:
+      type: object
+      properties:
+        totalOrders: { type: integer }
+        pendingOrders: { type: integer }
+        completedOrders: { type: integer }
+        totalUsers: { type: integer }
+        totalDesigns: { type: integer }
+        designsShared: { type: integer }
+        revenue: { type: integer, description: 'VND' }
+        aov: { type: integer, description: 'VND per order' }
+        personalizationCount: { type: integer }
+        ordersByStatus:
+          type: array
+          items:
+            type: object
+            properties:
+              _id: { type: string, description: 'OrderStatus' }
+              count: { type: integer }
+        lowStock:
+          type: object
+          properties:
+            accessories:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: { type: string }
+                  stock: { type: integer }
+                  type: { type: string }
+            trees:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: { type: string }
+                  size: { type: string }
+                  stock: { type: integer }
+
+    UserStats:
+      type: object
+      properties:
+        totalOrders: { type: integer }
+        cancelledOrders: { type: integer }
+        totalSpent: { type: integer, description: 'VND — sum of COMPLETED orders' }
+
+    # ── 3-tier Tree Catalog (Product → Code → Variant) ──────────────────────
+    TreeProduct:
+      type: object
+      properties:
+        _id: { type: string }
+        name: { type: string, example: "Cây thông Noel trang trí" }
+        slug: { type: string }
+        category: { type: string, example: "Cây thông Noel" }
+        density: { type: string }
+        description: { type: string }
+        coverImage: { type: string }
+        images:
+          type: array
+          items: { type: string }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    TreeCode:
+      type: object
+      properties:
+        _id: { type: string }
+        productId: { type: string }
+        code: { type: string, example: "TREE-GREEN" }
+        name: { type: string, example: "Xanh truyền thống" }
+        description: { type: string }
+        image: { type: string }
+        material: { type: string, example: "PVC cao cấp" }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    TreeVariant:
+      type: object
+      properties:
+        _id: { type: string }
+        productId: { type: string }
+        codeId: { type: string }
+        size: { type: string, example: "M" }
+        sku: { type: string, example: "TREE-GREEN-M" }
+        name: { type: string }
+        heightCmMin: { type: integer }
+        heightCmMax: { type: integer }
+        diameterCm: { type: integer }
+        description: { type: string }
+        bareImage: { type: string }
+        images:
+          type: array
+          items: { type: string }
+        price: { type: integer, description: 'VND' }
+        stockQuantity: { type: integer }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    TreeProductGrouped:
+      type: object
+      properties:
+        product: { $ref: '#/components/schemas/TreeProduct' }
+        codes:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/TreeCode'
+              - type: object
+                properties:
+                  variants:
+                    type: array
+                    items: { $ref: '#/components/schemas/TreeVariant' }
+
+    TreeProductCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        slug: { type: string }
+        category: { type: string }
+        density: { type: string }
+        description: { type: string }
+        coverImage: { type: string }
+        images:
+          type: array
+          items: { type: string }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    TreeCodeCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, example: "TREE-GREEN" }
+        name: { type: string }
+        description: { type: string }
+        image: { type: string }
+        material: { type: string }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    TreeVariantCreate:
+      type: object
+      required: [size, sku, price, stockQuantity]
+      properties:
+        size: { type: string, example: "M" }
+        sku: { type: string, example: "TREE-GREEN-M" }
+        heightCmMin: { type: integer }
+        heightCmMax: { type: integer }
+        diameterCm: { type: integer }
+        description: { type: string }
+        bareImage: { type: string }
+        images:
+          type: array
+          items: { type: string }
+        price: { type: integer, description: 'VND' }
+        stockQuantity: { type: integer }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+
+    TreeVariantUpdate:
+      type: object
+      properties:
+        size: { type: string }
+        sku: { type: string }
+        heightCmMin: { type: integer }
+        heightCmMax: { type: integer }
+        diameterCm: { type: integer }
+        description: { type: string }
+        bareImage: { type: string }
+        images:
+          type: array
+          items: { type: string }
+        price: { type: integer }
+        stockQuantity: { type: integer }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
