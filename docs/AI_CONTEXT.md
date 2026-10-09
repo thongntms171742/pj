@@ -168,6 +168,68 @@ Tất cả docs đang được rewrite theo pivot Christmas. Cập nhật sẽ t
 - Chưa có idempotency cho `/api/orders` (chỉ dùng `idempotencyKey` optional).
 - Lint/format: project KHÔNG có sẵn (để giữ MVP gọn, không thêm dependency).
 
+## 2026-10-09 — Shopee-style tree product refactor
+
+> Refactor admin tree CRUD theo pattern Shopee Seller Centre. Cho phép
+> 1 product family gom N size variants, thay vì mỗi size là 1 doc riêng.
+
+### New schema
+- `TreeProduct` (parent): name, slug (auto), material, density,
+  description, coverImage, images, isActive, sortOrder.
+- `Tree` (now variant): thêm `productId: ObjectId | null` (nullable cho
+  backward compat). Variant fields: size, heightCmMin/Max, diameterCm,
+  bareImage, price, stock, isActive, sortOrder.
+- Unique constraint: `(productId, size)` chỉ khi `productId != null`
+  (partial index — variants cũ null vẫn unique theo `size` global).
+
+### New admin endpoints
+- `GET    /api/admin/tree-products` — Shopee-style grouped list
+  `[{ product, variants[] }]`. Legacy variants (productId=null) được
+  group theo (material, name prefix) thành "legacy" products để admin
+  thấy + migrate dần.
+- `POST   /api/admin/tree-products` — atomic upsert (create hoặc
+  update, truyền `productId` để update). Variants full-replace: bỏ size
+  = xóa variant đó. Validation: ≥1 size, không trùng size, price/stock ≥ 0,
+  heightMin ≤ Max.
+- `DELETE /api/admin/tree-products/:productId` — soft delete product +
+  cascade variants. Variant `_id` giữ nguyên để orders/designs cũ
+  vẫn render.
+- `PATCH  /api/admin/trees/bulk` — Shopee "Áp dụng cho tất cả phân
+  loại". Body: `{ field: "price"|"stock"|"isActive", value, productId? }`.
+
+### Service
+- `loadGroupedTreeCatalog({ isActive?, includeEmptyProducts? })` —
+  trả về `TreeProductGrouped[]`. Dùng cả ở admin list lẫn catalog
+  browse (FE muốn render product card với size chips).
+
+### Scripts
+- `scripts/migrate-tree-products.ts` — idempotent backfill 3 legacy
+  trees → 3 TreeProducts. Production data là 1-product-1-variant
+  (3 doc với name khác nhau — Mây Xanh / Tuyết Bạc / Đại Lễ Hội —
+  không phải 3 size của 1 product).
+- `scripts/cleanup-tree-products.ts` — reset productId trên tất cả
+  variants + drop products. Dùng khi re-run migration sau lỗi.
+- `scripts/verify-tree-products.ts` — dump state hiện tại.
+
+### Backward compatibility
+- `config.treeId` vẫn ref `Tree._id` (giờ là variant, không phải product).
+  Existing orders/designs không cần migration.
+- `GET /api/catalog/trees` vẫn trả list variant (flat shape cũ) — FE
+  không cần đổi cho tới khi muốn render product card.
+- Admin endpoint cũ (`/api/admin/trees`) vẫn work — dùng cho quick edit
+  1 variant.
+
+### Docs
+- `docs/ADMIN_TREE_PRODUCT_FORM.md` — ASCII mockup admin form
+  (desktop + mobile) + UX comparison trước/sau.
+- `docs/openapi.yaml` (FE repo) — 4 paths mới + 4 schemas mới
+  (TreeProduct, TreeVariant, TreeProductGroup, TreeProductUpsertInput).
+
+### Verification
+- ✅ `npx tsc --noEmit` pass.
+- ✅ 203/203 tests pass.
+- ✅ Production `/api/catalog/trees` + `/api/catalog/presets` vẫn 200.
+
 ## 2026-10-09 — Production deploy + auth response shape fix
 
 ### Production live

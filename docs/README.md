@@ -26,6 +26,7 @@
 | [AI_CONTEXT.md](./AI_CONTEXT.md) | BE architecture overview - cho AI agent onboard |
 | [CHANGELOG_AI.md](./CHANGELOG_AI.md) | AI changelog (lịch sử pivot marketplace → Christmas) |
 | [AGENTS.md](./AGENTS.md) | AI coding rules cho dự án này |
+| [ADMIN_TREE_PRODUCT_FORM.md](./ADMIN_TREE_PRODUCT_FORM.md) | ASCII mockup Shopee-style admin form (parent + size matrix) |
 
 ## ⚠️ Folder Archive (KHÔNG dùng khi integrate)
 
