@@ -241,6 +241,7 @@ export const deleteTreeProduct = async (
       return;
     }
     product.isActive = false;
+    product.slug = `${product.slug}-deleted-${Date.now()}`;
     await product.save();
     await TreeCode.updateMany({ productId }, { isActive: false });
     await Tree.updateMany({ productId }, { isActive: false });
@@ -360,6 +361,7 @@ export const deleteTreeCode = async (
       return;
     }
     treeCode.isActive = false;
+    treeCode.code = `${treeCode.code}-deleted-${Date.now()}`;
     await treeCode.save();
     await Tree.updateMany({ codeId }, { isActive: false });
     res.json({ success: true, codeId: String(treeCode._id) });
@@ -523,6 +525,8 @@ export const deleteTreeVariant = async (
       return;
     }
     variant.isActive = false;
+    variant.sku = `${variant.sku}-deleted-${Date.now()}`;
+    variant.size = `${variant.size}-deleted-${Date.now()}`;
     await variant.save();
     res.json({ success: true, variantId: String(variant._id) });
   } catch (err) {
