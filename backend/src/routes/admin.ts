@@ -4,6 +4,10 @@ import {
   listTrees,
   createTree,
   updateTree,
+  listTreeProducts,
+  upsertTreeProduct,
+  deleteTreeProduct,
+  bulkUpdateTreeVariants,
   listStyles,
   createStyle,
   updateStyle,
@@ -25,10 +29,17 @@ const router = Router();
 
 router.use(requireAuth, requireAdmin);
 
-// ── Trees ────────────────────────────────────────────────────────────────────
+// ── Trees (legacy single-doc) ───────────────────────────────────────────────
 router.get("/trees", listTrees);
 router.post("/trees", createTree);
 router.patch("/trees/:id", updateTree);
+
+// ── Tree Products (Shopee-style: parent + size variants) ────────────────────
+router.get("/tree-products", listTreeProducts);
+router.post("/tree-products", upsertTreeProduct); // create or update (id=new|missing)
+router.delete("/tree-products/:productId", deleteTreeProduct);
+// Shopee "Áp dụng cho tất cả phân loại" — bulk update variants.
+router.patch("/trees/bulk", bulkUpdateTreeVariants);
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 router.get("/styles", listStyles);

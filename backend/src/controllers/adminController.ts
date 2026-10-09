@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { Tree } from "../models/Tree";
+import { TreeProduct } from "../models/TreeProduct";
 import { Style } from "../models/Style";
 import { Accessory } from "../models/Accessory";
 import { TreeDesign } from "../models/TreeDesign";
@@ -12,6 +13,7 @@ import {
   buildDesignResponse,
   findUniqueSlug,
 } from "../services/designService";
+import { loadGroupedTreeCatalog } from "../services/catalogService";
 import {
   sendError,
   ErrorCode,
@@ -84,6 +86,293 @@ export const updateTree = async (req: Request, res: Response): Promise<void> => 
     res.json({ tree });
   } catch (err) {
     handleInternalError(res, err, "[admin] updateTree error");
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tree Products (Shopee-style parent + variants) — admin only
+// ════════════════════════════════════════════════════════════════════════════
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+async function ensureUniqueSlug(base: string): Promise<string> {
+  const root = base || "tree";
+  let slug = root;
+  let i = 2;
+  // eslint-disable-next-line no-await-in-loop
+  while (await TreeProduct.exists({ slug })) {
+    slug = `${root}-${i++}`;
+  }
+  return slug;
+}
+
+// GET /api/admin/tree-products
+// Returns Shopee-style grouped list: [{ product, variants[] }]
+export const listTreeProducts = async (
+  _req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(_req, res)) return;
+    const groups = await loadGroupedTreeCatalog({ includeEmptyProducts: true });
+    res.json({ treeProducts: groups });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] listTreeProducts error");
+  }
+};
+
+// POST /api/admin/tree-products
+// Body: { name, material, density, description, coverImage, images, isActive,
+//         sortOrder, variants: [{ size, price, stock, heightCmMin, heightCmMax,
+//         diameterCm, bareImage, isActive, sortOrder }] }
+//
+// Behavior (Shopee-style bulk):
+//   - Atomic: if any variant invalid → 400, no partial write
+//   - Upserts: if productId provided, updates; else creates new
+//   - Variants are full-replace: missing size in variants[] = delete that size
+//   - All variants must have one of S/M/L (at least 1)
+export const upsertTreeProduct = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const body = req.body as {
+      productId?: string;
+      name?: string;
+      material?: string;
+      density?: string;
+      description?: string;
+      coverImage?: string;
+      images?: string[];
+      isActive?: boolean;
+      sortOrder?: number;
+      variants?: Array<{
+        size: "S" | "M" | "L";
+        price: number;
+        stock: number;
+        heightCmMin: number;
+        heightCmMax: number;
+        diameterCm: number;
+        bareImage?: string;
+        isActive?: boolean;
+        sortOrder?: number;
+      }>;
+    };
+
+    if (!body.name || typeof body.name !== "string") {
+      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu tên sản phẩm");
+      return;
+    }
+    if (!Array.isArray(body.variants) || body.variants.length === 0) {
+      sendError(
+        res,
+        ErrorCode.MISSING_FIELD,
+        "Cần ít nhất 1 size variant (S/M/L)"
+      );
+      return;
+    }
+    const sizes = new Set<string>();
+    for (const v of body.variants) {
+      if (!v || !["S", "M", "L"].includes(v.size)) {
+        sendError(
+          res,
+          ErrorCode.INVALID_INPUT,
+          `Variant size không hợp lệ: ${v?.size}`
+        );
+        return;
+      }
+      if (sizes.has(v.size)) {
+        sendError(
+          res,
+          ErrorCode.ACCESSORY_DUPLICATED,
+          `Trùng size ${v.size} trong variants`
+        );
+        return;
+      }
+      sizes.add(v.size);
+      if (typeof v.price !== "number" || v.price < 0) {
+        sendError(
+          res,
+          ErrorCode.INVALID_INPUT,
+          `Giá của size ${v.size} phải là số >= 0`
+        );
+        return;
+      }
+      if (typeof v.stock !== "number" || v.stock < 0) {
+        sendError(
+          res,
+          ErrorCode.INVALID_INPUT,
+          `Kho của size ${v.size} phải là số >= 0`
+        );
+        return;
+      }
+      if (v.heightCmMin < 0 || v.heightCmMax < v.heightCmMin) {
+        sendError(
+          res,
+          ErrorCode.INVALID_INPUT,
+          `Chiều cao size ${v.size} không hợp lệ`
+        );
+        return;
+      }
+    }
+
+    let product: InstanceType<typeof TreeProduct> | null = null;
+    if (body.productId && body.productId !== "new") {
+      product = await TreeProduct.findById(body.productId);
+      if (!product) {
+        sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy tree product");
+        return;
+      }
+      product.name = body.name.trim();
+      product.material = body.material ?? product.material;
+      product.density = body.density ?? product.density;
+      product.description = body.description ?? "";
+      product.coverImage = body.coverImage ?? "";
+      product.images = Array.isArray(body.images) ? body.images : [];
+      if (body.isActive !== undefined) product.isActive = body.isActive;
+      if (body.sortOrder !== undefined) product.sortOrder = body.sortOrder;
+      await product.save();
+    } else {
+      const slug = await ensureUniqueSlug(slugify(body.name));
+      product = await TreeProduct.create({
+        name: body.name.trim(),
+        slug,
+        material: body.material ?? "PVC",
+        density: body.density ?? "standard",
+        description: body.description ?? "",
+        coverImage: body.coverImage ?? "",
+        images: Array.isArray(body.images) ? body.images : [],
+        isActive: body.isActive ?? true,
+        sortOrder: body.sortOrder ?? 0,
+      });
+    }
+
+    // Full-replace variants (Shopee UX: add/edit/remove sizes).
+    await Tree.deleteMany({ productId: product._id });
+    const newVariants = await Tree.insertMany(
+      body.variants.map((v) => ({
+        productId: product!._id,
+        size: v.size,
+        name: `${body.name!.trim()} - ${v.size}`,
+        price: v.price,
+        stock: v.stock,
+        heightCmMin: v.heightCmMin,
+        heightCmMax: v.heightCmMax,
+        diameterCm: v.diameterCm,
+        bareImage: v.bareImage ?? "",
+        material: body.material ?? "PVC",
+        density: body.density ?? "standard",
+        description: body.description ?? "",
+        isActive: v.isActive ?? true,
+        sortOrder: v.sortOrder ?? 0,
+      }))
+    );
+
+    res.status(body.productId && body.productId !== "new" ? 200 : 201).json({
+      treeProduct: {
+        _id: String(product._id),
+        name: product.name,
+        slug: product.slug,
+        material: product.material,
+        density: product.density,
+        description: product.description,
+        coverImage: product.coverImage,
+        images: product.images,
+        isActive: product.isActive,
+        sortOrder: product.sortOrder,
+        variants: newVariants.map((v) => ({
+          _id: String(v._id),
+          size: v.size,
+          price: v.price,
+          stock: v.stock,
+          heightCmMin: v.heightCmMin,
+          heightCmMax: v.heightCmMax,
+          diameterCm: v.diameterCm,
+          bareImage: v.bareImage,
+          isActive: v.isActive,
+          sortOrder: v.sortOrder,
+        })),
+      },
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] upsertTreeProduct error");
+  }
+};
+
+// DELETE /api/admin/tree-products/:productId
+// Soft delete: hide product + cascade-deactivate variants (preserves
+// variant _id refs in existing orders/designs).
+export const deleteTreeProduct = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { productId } = req.params;
+    const productIdStr = Array.isArray(productId) ? productId[0] : productId;
+    if (!productIdStr || productIdStr.startsWith("legacy-")) {
+      sendError(
+        res,
+        ErrorCode.INVALID_INPUT,
+        "Không thể xóa legacy tree product bằng endpoint này — dùng PATCH /api/admin/trees/:id để soft-delete từng variant"
+      );
+      return;
+    }
+    const product = await TreeProduct.findById(productIdStr);
+    if (!product) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy tree product");
+      return;
+    }
+    product.isActive = false;
+    await product.save();
+    await Tree.updateMany({ productId: product._id }, { isActive: false });
+    res.json({ success: true, productId: String(product._id) });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] deleteTreeProduct error");
+  }
+};
+
+// PATCH /api/admin/trees/:id/bulk
+// Shopee-style: "Áp dụng cho tất cả phân loại".
+// Body: { field: "price"|"stock"|"isActive", value: number|boolean }
+// Updates every variant matching a filter (optionally per product).
+export const bulkUpdateTreeVariants = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { field, value, productId } = req.body as {
+      field: string;
+      value: unknown;
+      productId?: string;
+    };
+    const allowed = ["price", "stock", "isActive"];
+    if (!allowed.includes(field)) {
+      sendError(
+        res,
+        ErrorCode.INVALID_INPUT,
+        `Field không hợp lệ: ${field}. Cho phép: ${allowed.join(", ")}`
+      );
+      return;
+    }
+    const update: Record<string, unknown> = {};
+    update[field] = value;
+    const query: Record<string, unknown> = {};
+    if (productId) query.productId = productId;
+    const result = await Tree.updateMany(query, update);
+    res.json({ matched: result.matchedCount, modified: result.modifiedCount });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] bulkUpdateTreeVariants error");
   }
 };
 

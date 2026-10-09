@@ -3,6 +3,7 @@
 // controllers/services try to populate it.
 export * from "./User";
 export * from "./Tree";
+export * from "./TreeProduct";
 export * from "./Style";
 export * from "./Accessory";
 export * from "./TreeDesign";

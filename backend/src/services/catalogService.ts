@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import { Tree } from "../models/Tree";
+import { TreeProduct } from "../models/TreeProduct";
 import { Style } from "../models/Style";
 import { Accessory } from "../models/Accessory";
 import { TreeDesign } from "../models/TreeDesign";
@@ -137,4 +138,143 @@ export async function safelyBuildPricedDesign(
     }
     throw err;
   }
+}
+
+// ── Shopee-style grouped catalog (admin + catalog browse) ──────────────────
+// Returns tree families: each product with its size variants. Used by the
+// admin "tree product" form to render the size matrix, and by FE catalog
+// browse page that wants a single product card with size chips.
+export interface TreeProductGrouped {
+  product: {
+    _id: string;
+    name: string;
+    slug: string;
+    material: string;
+    density: string;
+    description: string;
+    coverImage: string;
+    images: string[];
+    isActive: boolean;
+    sortOrder: number;
+  };
+  variants: Array<{
+    _id: string;
+    size: "S" | "M" | "L";
+    heightCmMin: number;
+    heightCmMax: number;
+    diameterCm: number;
+    bareImage: string;
+    price: number;
+    stock: number;
+    isActive: boolean;
+    sortOrder: number;
+  }>;
+}
+
+export async function loadGroupedTreeCatalog(opts?: {
+  isActive?: boolean;
+  includeEmptyProducts?: boolean;
+}): Promise<TreeProductGrouped[]> {
+  const includeEmpty = opts?.includeEmptyProducts ?? true;
+  const productQuery: Record<string, unknown> = {};
+  if (opts?.isActive !== undefined) productQuery.isActive = opts.isActive;
+
+  const products = await TreeProduct.find(productQuery)
+    .sort({ sortOrder: 1, name: 1 })
+    .lean();
+
+  const productIds = products.map((p) => p._id);
+  // Legacy: variants with productId=null
+  const variants = await Tree.find({
+    $or: [
+      { productId: { $in: productIds } },
+      { productId: null },
+    ],
+  })
+    .sort({ productId: 1, sortOrder: 1, size: 1 })
+    .lean();
+
+  const byProduct = new Map<string, typeof variants>();
+  const legacy: typeof variants = [];
+  for (const v of variants) {
+    if (v.productId) {
+      const key = String(v.productId);
+      const arr = byProduct.get(key) ?? [];
+      arr.push(v);
+      byProduct.set(key, arr);
+    } else {
+      legacy.push(v);
+    }
+  }
+
+  // Group legacy variants into synthetic "Legacy" products (one per unique
+  // material+name pattern) so admins can still see and migrate them.
+  const legacyByMaterial = new Map<string, typeof variants>();
+  for (const v of legacy) {
+    const key = `${v.material}::${v.name.split(/\s-\s|\s\d/).slice(0, 1).join("")}`;
+    const arr = legacyByMaterial.get(key) ?? [];
+    arr.push(v);
+    legacyByMaterial.set(key, arr);
+  }
+
+  const result: TreeProductGrouped[] = products.map((p) => ({
+    product: {
+      _id: String(p._id),
+      name: p.name,
+      slug: p.slug,
+      material: p.material,
+      density: p.density,
+      description: p.description,
+      coverImage: p.coverImage,
+      images: p.images,
+      isActive: p.isActive,
+      sortOrder: p.sortOrder,
+    },
+    variants: (byProduct.get(String(p._id)) ?? []).map((v) => ({
+      _id: String(v._id),
+      size: v.size,
+      heightCmMin: v.heightCmMin,
+      heightCmMax: v.heightCmMax,
+      diameterCm: v.diameterCm,
+      bareImage: v.bareImage,
+      price: v.price,
+      stock: v.stock,
+      isActive: v.isActive,
+      sortOrder: v.sortOrder,
+    })),
+  }));
+
+  if (includeEmpty) {
+    for (const [key, vs] of legacyByMaterial) {
+      if (!vs.length) continue;
+      result.push({
+        product: {
+          _id: `legacy-${key}`,
+          name: vs[0].name.split(/\s-\s/)[0].trim() || "Legacy tree",
+          slug: `legacy-${key.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+          material: vs[0].material,
+          density: vs[0].density,
+          description: vs[0].description,
+          coverImage: "",
+          images: vs[0].images,
+          isActive: vs[0].isActive,
+          sortOrder: -1,
+        },
+        variants: vs.map((v) => ({
+          _id: String(v._id),
+          size: v.size,
+          heightCmMin: v.heightCmMin,
+          heightCmMax: v.heightCmMax,
+          diameterCm: v.diameterCm,
+          bareImage: v.bareImage,
+          price: v.price,
+          stock: v.stock,
+          isActive: v.isActive,
+          sortOrder: v.sortOrder,
+        })),
+      });
+    }
+  }
+
+  return result;
 }
