@@ -130,32 +130,44 @@ export const listTreeProducts = async (
 };
 
 // POST /api/admin/tree-products
-// Body: { name, material, density, description, coverImage, images, isActive,
-//         sortOrder, variants: [{ size, price, stock, heightCmMin, heightCmMax,
-//         diameterCm, bareImage, isActive, sortOrder }] }
+// Body: {
+//   name, colors: TreeColor[], density, description,
+//   coverImage, images, isActive, sortOrder,
+//   variants: [{ color: TreeColor, size: TreeSize, price, stock,
+//                heightCmMin, heightCmMax, diameterCm, bareImage }]
+// }
 //
-// Behavior (Shopee-style bulk):
+// Behavior (Shopee-style 2D matrix):
+//   - Phân loại 1: Color (Mây Xanh, Tuyết Bạc, Đại Lễ Hội)
+//   - Phân loại 2: Size (S, M, L)
+//   - Cartesian: each (color, size) pair creates a variant
 //   - Atomic: if any variant invalid → 400, no partial write
 //   - Upserts: if productId provided, updates; else creates new
-//   - Variants are full-replace: missing size in variants[] = delete that size
-//   - All variants must have one of S/M/L (at least 1)
+//   - Variants are full-replace: missing (color, size) = delete that SKU
 export const upsertTreeProduct = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
     if (!assertAdmin(req, res)) return;
+    const TREE_COLORS_LIST = [
+      "Mây Xanh",
+      "Tuyết Bạc",
+      "Đại Lễ Hội",
+    ] as const;
+    type TreeColor = (typeof TREE_COLORS_LIST)[number];
     const body = req.body as {
       productId?: string;
       name?: string;
-      material?: string;
       density?: string;
       description?: string;
       coverImage?: string;
       images?: string[];
+      colors?: string[];
       isActive?: boolean;
       sortOrder?: number;
       variants?: Array<{
+        color: string;
         size: "S" | "M" | "L";
         price: number;
         stock: number;
@@ -172,17 +184,45 @@ export const upsertTreeProduct = async (
       sendError(res, ErrorCode.MISSING_FIELD, "Thiếu tên sản phẩm");
       return;
     }
+    if (!Array.isArray(body.colors) || body.colors.length === 0) {
+      sendError(
+        res,
+        ErrorCode.MISSING_FIELD,
+        "Cần ít nhất 1 màu (Mây Xanh / Tuyết Bạc / Đại Lễ Hội)"
+      );
+      return;
+    }
+    for (const c of body.colors) {
+      if (!TREE_COLORS_LIST.includes(c as TreeColor)) {
+        sendError(
+          res,
+          ErrorCode.INVALID_INPUT,
+          `Màu không hợp lệ: "${c}". Cho phép: ${TREE_COLORS_LIST.join(", ")}`
+        );
+        return;
+      }
+    }
     if (!Array.isArray(body.variants) || body.variants.length === 0) {
       sendError(
         res,
         ErrorCode.MISSING_FIELD,
-        "Cần ít nhất 1 size variant (S/M/L)"
+        "Cần ít nhất 1 SKU (color × size)"
       );
       return;
     }
-    const sizes = new Set<string>();
+
+    // Validate variants: each must have valid (color, size), no duplicate pair
+    const skuSet = new Set<string>();
     for (const v of body.variants) {
-      if (!v || !["S", "M", "L"].includes(v.size)) {
+      if (!v || !TREE_COLORS_LIST.includes(v.color as TreeColor)) {
+        sendError(
+          res,
+          ErrorCode.INVALID_INPUT,
+          `Variant color không hợp lệ: ${v?.color}`
+        );
+        return;
+      }
+      if (!["S", "M", "L"].includes(v.size)) {
         sendError(
           res,
           ErrorCode.INVALID_INPUT,
@@ -190,20 +230,21 @@ export const upsertTreeProduct = async (
         );
         return;
       }
-      if (sizes.has(v.size)) {
+      const skuKey = `${v.color}::${v.size}`;
+      if (skuSet.has(skuKey)) {
         sendError(
           res,
           ErrorCode.ACCESSORY_DUPLICATED,
-          `Trùng size ${v.size} trong variants`
+          `Trùng SKU: color=${v.color}, size=${v.size}`
         );
         return;
       }
-      sizes.add(v.size);
+      skuSet.add(skuKey);
       if (typeof v.price !== "number" || v.price < 0) {
         sendError(
           res,
           ErrorCode.INVALID_INPUT,
-          `Giá của size ${v.size} phải là số >= 0`
+          `Giá của SKU ${v.color}×${v.size} phải là số >= 0`
         );
         return;
       }
@@ -211,7 +252,7 @@ export const upsertTreeProduct = async (
         sendError(
           res,
           ErrorCode.INVALID_INPUT,
-          `Kho của size ${v.size} phải là số >= 0`
+          `Kho của SKU ${v.color}×${v.size} phải là số >= 0`
         );
         return;
       }
@@ -219,7 +260,7 @@ export const upsertTreeProduct = async (
         sendError(
           res,
           ErrorCode.INVALID_INPUT,
-          `Chiều cao size ${v.size} không hợp lệ`
+          `Chiều cao SKU ${v.color}×${v.size} không hợp lệ`
         );
         return;
       }
@@ -233,7 +274,7 @@ export const upsertTreeProduct = async (
         return;
       }
       product.name = body.name.trim();
-      product.material = body.material ?? product.material;
+      product.colors = body.colors as TreeColor[];
       product.density = body.density ?? product.density;
       product.description = body.description ?? "";
       product.coverImage = body.coverImage ?? "";
@@ -246,30 +287,36 @@ export const upsertTreeProduct = async (
       product = await TreeProduct.create({
         name: body.name.trim(),
         slug,
-        material: body.material ?? "PVC",
         density: body.density ?? "standard",
         description: body.description ?? "",
         coverImage: body.coverImage ?? "",
         images: Array.isArray(body.images) ? body.images : [],
+        colors: body.colors as TreeColor[],
         isActive: body.isActive ?? true,
         sortOrder: body.sortOrder ?? 0,
       });
     }
 
-    // Full-replace variants (Shopee UX: add/edit/remove sizes).
+    // Full-replace variants (Shopee UX: add/edit/remove SKUs).
     await Tree.deleteMany({ productId: product._id });
+    const materialByColor: Record<string, string> = {
+      "Mây Xanh": "PVC cao cấp",
+      "Tuyết Bạc": "PVC phủ bạc",
+      "Đại Lễ Hội": "PVC vàng đồng",
+    };
     const newVariants = await Tree.insertMany(
       body.variants.map((v) => ({
         productId: product!._id,
+        color: v.color as TreeColor,
         size: v.size,
-        name: `${body.name!.trim()} - ${v.size}`,
+        name: `${body.name!.trim()} — ${v.color} — ${v.size}`,
         price: v.price,
         stock: v.stock,
         heightCmMin: v.heightCmMin,
         heightCmMax: v.heightCmMax,
         diameterCm: v.diameterCm,
         bareImage: v.bareImage ?? "",
-        material: body.material ?? "PVC",
+        material: materialByColor[v.color] ?? v.color,
         density: body.density ?? "standard",
         description: body.description ?? "",
         isActive: v.isActive ?? true,
@@ -277,32 +324,35 @@ export const upsertTreeProduct = async (
       }))
     );
 
-    res.status(body.productId && body.productId !== "new" ? 200 : 201).json({
-      treeProduct: {
-        _id: String(product._id),
-        name: product.name,
-        slug: product.slug,
-        material: product.material,
-        density: product.density,
-        description: product.description,
-        coverImage: product.coverImage,
-        images: product.images,
-        isActive: product.isActive,
-        sortOrder: product.sortOrder,
-        variants: newVariants.map((v) => ({
-          _id: String(v._id),
-          size: v.size,
-          price: v.price,
-          stock: v.stock,
-          heightCmMin: v.heightCmMin,
-          heightCmMax: v.heightCmMax,
-          diameterCm: v.diameterCm,
-          bareImage: v.bareImage,
-          isActive: v.isActive,
-          sortOrder: v.sortOrder,
-        })),
-      },
-    });
+    res
+      .status(body.productId && body.productId !== "new" ? 200 : 201)
+      .json({
+        treeProduct: {
+          _id: String(product._id),
+          name: product.name,
+          slug: product.slug,
+          density: product.density,
+          description: product.description,
+          coverImage: product.coverImage,
+          images: product.images,
+          colors: product.colors,
+          isActive: product.isActive,
+          sortOrder: product.sortOrder,
+          variants: newVariants.map((v) => ({
+            _id: String(v._id),
+            color: v.color,
+            size: v.size,
+            price: v.price,
+            stock: v.stock,
+            heightCmMin: v.heightCmMin,
+            heightCmMax: v.heightCmMax,
+            diameterCm: v.diameterCm,
+            bareImage: v.bareImage,
+            isActive: v.isActive,
+            sortOrder: v.sortOrder,
+          })),
+        },
+      });
   } catch (err) {
     handleInternalError(res, err, "[admin] upsertTreeProduct error");
   }

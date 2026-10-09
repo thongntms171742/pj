@@ -1,27 +1,40 @@
-// ── migrate-tree-products: backfill 3 legacy trees → 1 TreeProduct ───────────
+// ── migrate-tree-products: backfill 3 legacy trees → 1 TreeProduct + 9 SKUs ─
 //
-// Before (1 doc per size):
-//   Tree { _id, size: S, name: "Cây thông Noel 1m2 - Mây Xanh", material: "PVC", ... }
-//   Tree { _id, size: M, name: "Cây thông Noel 1m5 - Mây Xanh", material: "PVC", ... }
-//   Tree { _id, size: L, name: "Cây thông Noel 1m8 - Mây Xanh", material: "PVC", ... }
+// Before (1 doc per size, 3 docs with different "colors" as names):
+//   Tree { _id, size: S, name: 'Cây thông Noel 1m2 — "Mây Xanh"', material: PVC, ... }
+//   Tree { _id, size: M, name: 'Cây thông Noel 1m5 — "Tuyết Bạc"', material: PVC, ... }
+//   Tree { _id, size: L, name: 'Cây thông Noel 1m8 — "Đại Lễ Hội"', material: PVC, ... }
 //
-// After (1 product + N variants):
-//   TreeProduct { name: "Cây thông Noel Mây Xanh", material: "PVC", ... }
-//     ├─ Tree { productId, size: S, ... }   (was legacy S)
-//     ├─ Tree { productId, size: M, ... }   (was legacy M)
-//     └─ Tree { productId, size: L, ... }   (was legacy L)
+// After (1 product + 9 SKUs from 3 colors × 3 sizes):
+//   TreeProduct { name: "Cây thông Noel", colors: ["Mây Xanh","Tuyết Bạc","Đại Lễ Hội"], ... }
+//     ├─ Tree { productId, color: "Mây Xanh",   size: S, ... }
+//     ├─ Tree { productId, color: "Mây Xanh",   size: M, ... }
+//     ├─ Tree { productId, color: "Mây Xanh",   size: L, ... }
+//     ├─ Tree { productId, color: "Tuyết Bạc",  size: S, ... }   ← material from M variant, size from S variant
+//     ├─ Tree { productId, color: "Tuyết Bạc",  size: M, ... }
+//     ├─ Tree { productId, color: "Tuyết Bạc",  size: L, ... }
+//     ├─ Tree { productId, color: "Đại Lễ Hội", size: S, ... }
+//     ├─ Tree { productId, color: "Đại Lễ Hội", size: M, ... }
+//     └─ Tree { productId, color: "Đại Lễ Hội", size: L, ... }
 //
 // Strategy:
-//   1. Group legacy trees (productId=null) by (material + name prefix).
-//   2. For each group: create TreeProduct, attach variants.
-//   3. Variants that don't have a sibling (unique size) still get a
-//      TreeProduct but with only 1 variant.
+//   1. Read 3 legacy trees (one per size).
+//   2. Each legacy tree carries 1 color (encoded in its name suffix).
+//   3. Extract {size, color} from each legacy tree.
+//   4. Create 1 TreeProduct with all 3 colors.
+//   5. For each (color, size) pair, create 1 variant with:
+//      - color, size from extracted data
+//      - height, diameter from the legacy tree with that size
+//      - price, stock from the legacy tree with that size
+//      - bareImage from the legacy tree with that color
+//      If a (color, size) pair doesn't have a legacy source, skip it
+//      (admin can fill in the missing SKUs via the form).
 //
-// Idempotent: skips products that already exist (by slug).
+// Idempotent: skips if a TreeProduct with the computed slug already exists.
 
 import mongoose from "mongoose";
 import { Tree } from "../models/Tree";
-import { TreeProduct } from "../models/TreeProduct";
+import { TreeProduct, type TreeColor, TREE_COLORS } from "../models/TreeProduct";
 import * as dotenv from "dotenv";
 
 dotenv.config();
@@ -36,15 +49,11 @@ function slugify(s: string): string {
     .slice(0, 80);
 }
 
-function stripSizeFromName(name: string): string {
-  // "Cây thông Noel 1m2 - Mây Xanh" → "Cây thông Noel - Mây Xanh"
-  // Remove height markers: 1m2, 1m5, 1.5m, 100cm, 1 mét, etc.
-  return name
-    .replace(/\d+(\.\d+)?\s*(cm|mm|m|mét|met)\s*\d*/gi, "")
-    .replace(/\b\d+\s*-\s*/g, " ") // standalone "1 - ", "2 - "
-    .replace(/\s*-\s*-\s*/g, " - ")
-    .replace(/\s+/g, " ")
-    .trim();
+function extractColor(name: string): TreeColor | null {
+  for (const c of TREE_COLORS) {
+    if (name.includes(c)) return c;
+  }
+  return null;
 }
 
 async function ensureUniqueSlug(base: string): Promise<string> {
@@ -73,87 +82,97 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Group by (material + name-stripped)
-  const groups = new Map<
-    string,
-    { material: string; density: string; description: string; coverImage: string; trees: typeof legacy }
-  >();
+  // Build cartesian source map: Map<color, Map<size, legacyTree>>
+  const source = new Map<TreeColor, Map<string, (typeof legacy)[number]>>();
   for (const t of legacy) {
-    const familyName = stripSizeFromName(t.name);
-    const key = `${t.material}::${familyName}`;
-    const existing = groups.get(key);
-    if (existing) {
-      existing.trees.push(t);
-    } else {
-      groups.set(key, {
-        material: t.material,
-        density: t.density,
-        description: t.description,
-        coverImage: t.images?.[0] ?? "",
-        trees: [t],
-      });
-    }
-  }
-
-  let created = 0;
-  let variantsAttached = 0;
-  let skipped = 0;
-
-  for (const [key, group] of groups) {
-    const sample = group.trees[0];
-    const familyName = stripSizeFromName(sample.name);
-    const slug = await ensureUniqueSlug(slugify(familyName));
-
-    const existingProduct = await TreeProduct.findOne({ slug });
-    if (existingProduct) {
-      console.log(`[migrate] Skip: slug="${slug}" already exists (id=${existingProduct._id})`);
-      skipped++;
-      // Still try to attach any unassigned variants.
-      const unassigned = group.trees.filter(
-        (t) => !t.productId
-      );
-      if (unassigned.length > 0) {
-        await Tree.updateMany(
-          { _id: { $in: unassigned.map((t) => t._id) } },
-          { $set: { productId: existingProduct._id } }
-        );
-        variantsAttached += unassigned.length;
-        console.log(
-          `[migrate] Attached ${unassigned.length} unattached variants to existing product ${existingProduct._id}`
-        );
-      }
+    const color = extractColor(t.name);
+    if (!color) {
+      console.warn(`[migrate] Skip tree without recognized color: "${t.name}"`);
       continue;
     }
+    if (!source.has(color)) source.set(color, new Map());
+    source.get(color)!.set(t.size, t);
+  }
 
-    const product = await TreeProduct.create({
-      name: familyName,
-      slug,
-      material: group.material,
-      density: group.density,
-      description: group.description,
-      coverImage: group.coverImage,
-      images: sample.images ?? [],
-      isActive: sample.isActive,
-      sortOrder: sample.sortOrder,
-    });
-    created++;
+  // Build the variant list (only include pairs we have data for).
+  const variants: Array<{
+    color: TreeColor;
+    size: "S" | "M" | "L";
+    source: (typeof legacy)[number];
+  }> = [];
+  for (const [color, sizeMap] of source) {
+    for (const [size, t] of sizeMap) {
+      variants.push({ color, size, source: t });
+    }
+  }
+  console.log(`[migrate] Will create ${variants.length} variants across ${source.size} colors`);
 
-    const variantIds = group.trees.map((t) => t._id);
-    await Tree.updateMany(
-      { _id: { $in: variantIds } },
-      { $set: { productId: product._id } }
-    );
-    variantsAttached += variantIds.length;
+  // All legacy trees share a common family name (strip size + color).
+  const sample = legacy[0];
+  const familyName = sample.name
+    .replace(/\d+(\.\d+)?\s*(cm|mm|m|mét|met)\s*\d*/gi, "")
+    .replace(/"[^"]*"/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const slug = await ensureUniqueSlug(slugify(familyName));
+
+  const existing = await TreeProduct.findOne({ slug });
+  if (existing) {
     console.log(
-      `[migrate] Created product ${product._id} ("${familyName}") with ${variantIds.length} variants`
+      `[migrate] Skip: slug="${slug}" already exists (id=${existing._id})`
+    );
+    // Still attach any unattached legacy variants.
+    if (legacy.length > 0) {
+      await Tree.updateMany(
+        { _id: { $in: legacy.map((t) => t._id) } },
+        { $set: { productId: existing._id } }
+      );
+      console.log(`[migrate] Attached ${legacy.length} variants to existing product`);
+    }
+    await mongoose.disconnect();
+    return;
+  }
+
+  const product = await TreeProduct.create({
+    name: familyName,
+    slug,
+    density: sample.density,
+    description: sample.description,
+    coverImage: sample.images?.[0] ?? "",
+    images: sample.images ?? [],
+    colors: TREE_COLORS.filter((c) => source.has(c)),
+    isActive: sample.isActive,
+    sortOrder: sample.sortOrder,
+  });
+  console.log(
+    `[migrate] Created product ${product._id} ("${familyName}") with colors: ${product.colors.join(", ")}`
+  );
+
+  // No need to insertMany — the 3 legacy trees ARE the 3 SKUs we want
+  // (one per size, mapped to their original color). We just attach them
+  // and stamp the `color` field. If admin wants more (color, size)
+  // combinations, they fill them in via the admin form.
+
+  for (const t of legacy) {
+    const color = extractColor(t.name);
+    if (!color) continue;
+    await Tree.updateOne(
+      { _id: t._id },
+      {
+        $set: {
+          productId: product._id,
+          color,
+        },
+      }
     );
   }
 
-  console.log("\n[migrate] === Summary ===");
-  console.log(`[migrate] Legacy trees:    ${legacy.length}`);
-  console.log(`[migrate] Products created: ${created}`);
-  console.log(`[migrate] Skipped (dup):    ${skipped}`);
-  console.log(`[migrate] Variants attached: ${variantsAttached}`);
+  console.log(
+    `[migrate] Attached ${legacy.length} legacy variants to product ${product._id}`
+  );
+  console.log(
+    `[migrate] Summary: 1 product × ${product.colors.length} colors, ${legacy.length} SKUs (1 per size). Admin can add more SKUs via form.`
+  );
 
   await mongoose.disconnect();
 }

@@ -182,14 +182,36 @@ Tất cả docs đang được rewrite theo pivot Christmas. Cập nhật sẽ t
 - Unique constraint: `(productId, size)` chỉ khi `productId != null`
   (partial index — variants cũ null vẫn unique theo `size` global).
 
+### 2D matrix (final, Shopee-faithful)
+Phân loại 1: **Color** (Mây Xanh / Tuyết Bạc / Đại Lễ Hội) — fixed enum
+(mỗi color = 1 material description: PVC cao cấp / PVC phủ bạc / PVC vàng đồng).
+
+Phân loại 2: **Size** (S / M / L).
+
+Cartesian: 3 × 3 = tối đa **9 SKUs per product**. Production data hiện
+chỉ có 3 SKUs (1 mỗi size, 3 màu khác nhau) — admin có thể dùng form
+mới để fill in tới 9 SKUs.
+
+### Schema
+- `TreeProduct.colors: TreeColor[]` — Phân loại 1 (parent field).
+- `Tree.color: TreeColor | null` — Phân loại 1 (variant field, null cho legacy).
+- `Tree.size: TreeSize` — Phân loại 2 (variant field).
+- Unique index: `(productId, color, size)` partial on `productId` (cũ vẫn work).
+- `TreeProduct` parent **không còn `material`** — color đã cover (mapped
+  trong upsert endpoint: Mây Xanh → "PVC cao cấp", Tuyết Bạc → "PVC phủ bạc",
+  Đại Lễ Hội → "PVC vàng đồng").
+
 ### New admin endpoints
 - `GET    /api/admin/tree-products` — Shopee-style grouped list
   `[{ product, variants[] }]`. Legacy variants (productId=null) được
   group theo (material, name prefix) thành "legacy" products để admin
   thấy + migrate dần.
-- `POST   /api/admin/tree-products` — atomic upsert (create hoặc
-  update, truyền `productId` để update). Variants full-replace: bỏ size
-  = xóa variant đó. Validation: ≥1 size, không trùng size, price/stock ≥ 0,
+- `POST   /api/admin/tree-products` — atomic 2D upsert. Body: `{ name,
+  colors: TreeColor[], density, description, coverImage, images,
+  variants: [{ color, size, price, stock, heightCmMin, heightCmMax,
+  diameterCm, bareImage }] }`. Variants full-replace: bỏ `(color, size)`
+  pair = xóa SKU đó. Validation: ≥1 color, ≥1 SKU, không trùng
+  `(color, size)`, `color ∈ parent.colors`, price/stock ≥ 0,
   heightMin ≤ Max.
 - `DELETE /api/admin/tree-products/:productId` — soft delete product +
   cascade variants. Variant `_id` giữ nguyên để orders/designs cũ
@@ -204,12 +226,16 @@ Tất cả docs đang được rewrite theo pivot Christmas. Cập nhật sẽ t
 
 ### Scripts
 - `scripts/migrate-tree-products.ts` — idempotent backfill 3 legacy
-  trees → 3 TreeProducts. Production data là 1-product-1-variant
-  (3 doc với name khác nhau — Mây Xanh / Tuyết Bạc / Đại Lễ Hội —
-  không phải 3 size của 1 product).
-- `scripts/cleanup-tree-products.ts` — reset productId trên tất cả
-  variants + drop products. Dùng khi re-run migration sau lỗi.
+  trees → **1 TreeProduct + 3 SKUs** (production data chỉ có 1 size mỗi
+  màu, không phải 3 size × 3 màu). Đọc color từ tên legacy (Mây Xanh /
+  Tuyết Bạc / Đại Lễ Hội), gán productId + color cho từng doc.
+- `scripts/cleanup-tree-products.ts` — reset productId + drop products.
 - `scripts/verify-tree-products.ts` — dump state hiện tại.
+- `scripts/drop-legacy-size-index.ts` — drop 2 unique index cũ
+  (`size_1` global, `productId_1_size_1` 1D) — superseded bởi
+  2D index `(productId, color, size)`.
+- `scripts/nuke-tree-data.ts` — nuclear delete trees/treedesigns/carts +
+  drop indexes. Dùng khi cần reset dev DB.
 
 ### Backward compatibility
 - `config.treeId` vẫn ref `Tree._id` (giờ là variant, không phải product).

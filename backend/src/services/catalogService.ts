@@ -149,16 +149,17 @@ export interface TreeProductGrouped {
     _id: string;
     name: string;
     slug: string;
-    material: string;
     density: string;
     description: string;
     coverImage: string;
     images: string[];
+    colors: string[];
     isActive: boolean;
     sortOrder: number;
   };
   variants: Array<{
     _id: string;
+    color: string | null;
     size: "S" | "M" | "L";
     heightCmMin: number;
     heightCmMax: number;
@@ -217,21 +218,22 @@ export async function loadGroupedTreeCatalog(opts?: {
     legacyByMaterial.set(key, arr);
   }
 
-  const result: TreeProductGrouped[] = products.map((p) => ({
+    const result: TreeProductGrouped[] = products.map((p) => ({
     product: {
       _id: String(p._id),
       name: p.name,
       slug: p.slug,
-      material: p.material,
       density: p.density,
       description: p.description,
       coverImage: p.coverImage,
       images: p.images,
+      colors: p.colors,
       isActive: p.isActive,
       sortOrder: p.sortOrder,
     },
     variants: (byProduct.get(String(p._id)) ?? []).map((v) => ({
       _id: String(v._id),
+      color: v.color,
       size: v.size,
       heightCmMin: v.heightCmMin,
       heightCmMax: v.heightCmMax,
@@ -252,16 +254,17 @@ export async function loadGroupedTreeCatalog(opts?: {
           _id: `legacy-${key}`,
           name: vs[0].name.split(/\s-\s/)[0].trim() || "Legacy tree",
           slug: `legacy-${key.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-          material: vs[0].material,
           density: vs[0].density,
           description: vs[0].description,
           coverImage: "",
           images: vs[0].images,
+          colors: [],
           isActive: vs[0].isActive,
           sortOrder: -1,
         },
         variants: vs.map((v) => ({
           _id: String(v._id),
+          color: v.color,
           size: v.size,
           heightCmMin: v.heightCmMin,
           heightCmMax: v.heightCmMax,
