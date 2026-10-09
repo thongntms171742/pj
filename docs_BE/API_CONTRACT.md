@@ -380,7 +380,9 @@ Trả về danh sách active tree products, mỗi product kèm codes (Phân lo�
         "category": "Cây thông Noel",
         "description": "...",
         "coverImage": "/images/trees/cover.jpg",
-        "images": ["..."],
+        "images": ["/images/trees/img1.jpg", "/images/trees/img2.jpg"],
+        "aspectRatio": "1:1",
+        "videoUrl": "/uploads/vid_1728500000_tree_intro.mp4",
         "density": "Dày (380-820 cành)",
         "isActive": true,
         "sortOrder": 1
@@ -1645,13 +1647,19 @@ hoặc
 
 ### POST `/api/uploads`
 
-**Mục đích**: Tải ảnh preview cây từ Canvas Editor hoặc hình ảnh phụ kiện lên máy chủ.
+**Mục đích**: Tải ảnh preview cây từ Canvas Editor, hình ảnh phụ kiện, ảnh gallery sản phẩm và video giới thiệu sản phẩm MP4 chuẩn Shopee.
 
 **Auth**: Optional (hoặc Buyer / Admin).
 
-**Request**: `Content-Type: application/json` với `{ file: "data:image/png;base64,..." }` HOẶC `Content-Type: multipart/form-data` với trường `file`.
+**Request**:
+- `Content-Type: application/json` với `{ file: "data:image/png;base64,..." }` hoặc `{ file: "data:video/mp4;base64,..." }`.
+- HOẶC `Content-Type: multipart/form-data` với trường `file`.
 
-**Success (201)**:
+**Quy định giới hạn dung lượng & định dạng**:
+- **Hình ảnh**: `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg` — Dung lượng tối đa: **5MB**.
+- **Video sản phẩm**: `.mp4` — Dung lượng tối đa: **30MB** (Khuyến nghị độ dài 10s–60s).
+
+**Success (201) — Hình ảnh**:
 ```json
 {
   "url": "http://localhost:4000/uploads/img_1728500000_abc123.webp",
@@ -1662,10 +1670,21 @@ hoặc
 }
 ```
 
+**Success (201) — Video**:
+```json
+{
+  "url": "http://localhost:4000/uploads/vid_1728500000_def456.mp4",
+  "path": "/uploads/vid_1728500000_def456.mp4",
+  "publicId": "uploads/vid_1728500000_def456",
+  "format": "mp4",
+  "size": 15420000
+}
+```
+
 **Errors**:
-- `400 MISSING_FIELD`
-- `400 FILE_TOO_LARGE` (vượt quá 5MB)
-- `415 UNSUPPORTED_MEDIA_TYPE` (không phải PNG, JPG, WebP)
+- `400 MISSING_FIELD` (Thiếu file trong request)
+- `400 FILE_TOO_LARGE` (Ảnh > 5MB hoặc Video > 30MB)
+- `415 UNSUPPORTED_MEDIA_TYPE` (Chỉ chấp nhận PNG, JPG, WebP, SVG hoặc MP4)
 
 ---
 

@@ -148,6 +148,9 @@ export const createTreeProduct = async (
       description?: string;
       coverImage?: string;
       images?: string[];
+      aspectRatio?: string;
+      videoUrl?: string;
+      video?: string;
       isActive?: boolean;
       sortOrder?: number;
     };
@@ -164,6 +167,8 @@ export const createTreeProduct = async (
       description: body.description ?? "",
       coverImage: body.coverImage ?? "",
       images: Array.isArray(body.images) ? body.images : [],
+      aspectRatio: body.aspectRatio ?? "1:1",
+      videoUrl: body.videoUrl ?? body.video ?? "",
       isActive: body.isActive ?? true,
       sortOrder: body.sortOrder ?? 0,
     });
@@ -194,6 +199,9 @@ export const updateTreeProduct = async (
       description: string;
       coverImage: string;
       images: string[];
+      aspectRatio: string;
+      videoUrl: string;
+      video: string;
       isActive: boolean;
       sortOrder: number;
     }>;
@@ -206,6 +214,9 @@ export const updateTreeProduct = async (
     if (body.description !== undefined) product.description = body.description;
     if (body.coverImage !== undefined) product.coverImage = body.coverImage;
     if (Array.isArray(body.images)) product.images = body.images;
+    if (body.aspectRatio !== undefined) product.aspectRatio = body.aspectRatio;
+    if (body.videoUrl !== undefined) product.videoUrl = body.videoUrl;
+    else if (body.video !== undefined) product.videoUrl = body.video;
     if (body.isActive !== undefined) product.isActive = body.isActive;
     if (body.sortOrder !== undefined) product.sortOrder = body.sortOrder;
     await product.save();
@@ -393,9 +404,10 @@ export const createTreeVariant = async (
       isActive?: boolean;
       sortOrder?: number;
     };
-    if (!body.size || !body.sku) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu size hoặc sku");
-      return;
+    const size = (body.size && body.size.trim()) || "STANDARD";
+    let sku = (body.sku && body.sku.trim().toUpperCase()) || `${treeCode.code}-${size}`.toUpperCase();
+    if (await Tree.exists({ sku })) {
+      sku = `${sku}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     }
     if (typeof body.price !== "number" || body.price < 0) {
       sendError(res, ErrorCode.INVALID_INPUT, "Giá phải là số >= 0");
@@ -412,9 +424,9 @@ export const createTreeVariant = async (
     const variant = await Tree.create({
       productId: product._id,
       codeId: treeCode._id,
-      size: body.size.trim(),
-      sku: body.sku.trim().toUpperCase(),
-      name: `${product.name} — ${treeCode.name} — ${body.size}`,
+      size,
+      sku,
+      name: `${product.name} — ${treeCode.name} — ${size}`,
       heightCmMin: body.heightCmMin ?? 0,
       heightCmMax: body.heightCmMax ?? 0,
       diameterCm: body.diameterCm ?? 0,

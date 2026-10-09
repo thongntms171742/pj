@@ -19,6 +19,8 @@ export interface ITreeProduct extends Document {
   description: string;
   coverImage: string;
   images: string[];
+  aspectRatio?: "1:1" | "3:4" | string;
+  videoUrl?: string;
   isActive: boolean;
   sortOrder: number;
 }
@@ -38,6 +40,8 @@ const TreeProductSchema = new Schema<ITreeProduct>(
     description: { type: String, default: "" },
     coverImage: { type: String, default: "" },
     images: { type: [String], default: [] },
+    aspectRatio: { type: String, enum: ["1:1", "3:4"], default: "1:1" },
+    videoUrl: { type: String, default: "" },
     isActive: { type: Boolean, default: true, index: true },
     sortOrder: { type: Number, default: 0 },
   },

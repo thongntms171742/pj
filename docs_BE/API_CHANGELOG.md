@@ -5,6 +5,40 @@ Track changes to the API contract over time to ensure synchronization between Ba
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Christmas entries (2026-10-07+) là contract hiện tại. Entries cũ (2026-10-06 trở về trước) là **lịch sử marketplace** - chỉ tham khảo context, KHÔNG áp dụng cho code Christmas. Source of truth cho FE = `backend/src/`.
 
 ---
+## 2026-10-09 — 🛒 SHOPEE SELLER CENTRE: SINGLE-TIER FALLBACK, FULL MEDIA MANAGEMENT & MP4 VIDEO (FE Pass 9 Sync)
+
+> **FE-BE Synchronization Pass 9**:
+> - **FE Update**:
+>   - **Chế độ Không phân loại (`hasTiers=false`)**: Khi xóa hết phân loại, form Thông tin bán hàng tự động chuyển về chế độ sản phẩm đơn lẻ (Nút `+ Thêm nhóm phân loại`, ô `* Giá` `₫`, ô `* Kho hàng` `🛈`, `Mua nhiều giảm giá` với `+ Thêm khoảng giá`).
+>   - **Khu vực Quản lý Media & Thông tin cơ bản**: Tùy chọn tỷ lệ ảnh `1:1` / `3:4`, Gallery tối đa 9 ảnh kèm cảnh báo chất lượng, Ảnh bìa 1:1, Video sản phẩm MP4 (tối đa 30MB, độ dài 10s-60s), Tên sản phẩm có bộ đếm ký tự `(X/120)`.
+> - **BE Updates & Adaptations**:
+>   - **Media Upload Mở rộng (`POST /api/uploads`)**: Bổ sung hỗ trợ tệp Video MP4 (`.mp4`, MIME `video/mp4`) dung lượng tối đa lên đến **30MB** (song song với ảnh 5MB), hỗ trợ cả Multipart form-data và Base64 Data URL.
+>   - **Model `TreeProduct`**: Bổ sung trường `aspectRatio` (`"1:1" | "3:4"`, default `"1:1"`) và `videoUrl?: string`.
+>   - **Admin Controllers (`adminController.ts`)**:
+>     - `createTreeProduct` & `updateTreeProduct`: Tiếp nhận và lưu trữ `aspectRatio` và `videoUrl` (hoặc alias `video`).
+>     - `createTreeVariant`: Hỗ trợ fallback linh hoạt cho sản phẩm đơn lẻ không phân loại (Single-tier mode) — tự động gán `size: "STANDARD"` và tự sinh `sku` duy nhất (`${code}-${size}`) nếu FE không truyền vào, tránh lỗi `MISSING_FIELD`.
+
+---
+## 2026-10-09 — 🛍️ PRODUCT DETAIL MODAL & SHOPEE SELLER CENTRE VARIATION MATRIX FORM (FE Pass 8 Sync)
+
+> **FE-BE Synchronization Pass 8**:
+> - **FE Update**:
+>   - **Quick-View / Detail Modal (`TreeDetailModal`)**: Khách hàng xem nhanh chi tiết cây thông tại Catalog (ảnh zoom, gallery thumbnails, chọn Phân loại 1 Mã cây & Phân loại 2 Kích thước, kiểm tra tồn kho real-time, bộ chọn số lượng `quantity`, nút Thêm giỏ và Mua ngay).
+>   - **Form Phân loại hàng kiểu Shopee**: Phân loại 1 (upload ảnh riêng cho từng option), Phân loại 2, thanh công cụ cam `#ee4d2d` "Áp dụng cho tất cả", bảng ma trận phân loại gộp hàng `rowSpan`.
+>   - **Đa năng**: Hỗ trợ thêm cả Cây thông Noel (`TreeProduct`) và Phụ kiện trang trí (`Accessory`).
+> - **BE Updates & Adaptations**:
+>   - `GET /api/catalog/tree-products`: Cung cấp đầy đủ `treeCodes` và `variants` chi tiết với dữ liệu tồn kho thực tế để FE render tức thì `TreeDetailModal`.
+>   - `POST /api/cart/items`: Nhận trực tiếp `variantId` từ modal và xử lý tồn kho nguyên tử.
+>   - `PATCH /api/admin/tree-variants/bulk`: Xử lý áp dụng hàng loạt giá/kho cho tất cả biến thể khi bấm nút màu cam Shopee.
+
+> **FE-BE Synchronization Pass**:
+> - **FE Shift**: Frontend chuyển đổi Catalog sang thuần **TreeProducts (3-tier)** & **Accessories (Phụ kiện)**. Bỏ 3 kích thước tĩnh tách rời, bỏ điều hướng Presets; bổ sung `TreeDetailModal` (chọn mã cây, chọn size, gallery ảnh, thêm giỏ / mua ngay).
+> - **BE Compatibility**: Backend đáp ứng hoàn hảo:
+>   - `GET /api/catalog/tree-products`: Cung cấp danh sách cây dạng nhóm (Product → Codes → Variants) kèm giá, SKU và tồn kho nguyên tử.
+>   - `POST /api/cart/items`: Cho phép thêm trực tiếp 1 variant cây (`config.variantId`) hoặc thêm phụ kiện lẻ (`config.accessories`) mà không bắt buộc phải qua Canvas Editor.
+>   - `POST /api/orders`: Tự động nhận diện `DIY_KIT` và `SEPARATE` cho phép giao toàn quốc (chỉ hạn chế HCM đối với `READY_TO_DISPLAY`).
+
+---
 ## 2026-10-09 — 🚀 FE PROPOSALS ALIGNMENT & SYSTEM UPGRADE
 
 > **Đồng bộ toàn diện đề xuất FE**: Triển khai các module theo `BE_RECOMMENDATIONS.md` và thống nhất triết lý: **Cây thông là Product (sản phẩm cốt lõi)**, còn **Phụ kiện & Mẫu trang trí là Category / Danh mục sản phẩm vệ tinh**, gom về 1 luồng cấu hình thống nhất, tránh phân mảnh cấu trúc.
