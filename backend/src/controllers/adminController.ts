@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { Tree } from "../models/Tree";
 import { TreeProduct } from "../models/TreeProduct";
+import { TreeCode } from "../models/TreeCode";
 import { Style } from "../models/Style";
 import { Accessory } from "../models/Accessory";
 import { TreeDesign } from "../models/TreeDesign";
@@ -47,7 +48,7 @@ export const listTrees = async (req: Request, res: Response): Promise<void> => {
         size: t.size,
         name: t.name,
         price: t.price,
-        stock: t.stock,
+        stock: (t as { stockQuantity?: number }).stockQuantity ?? 0,
         isActive: t.isActive,
         images: t.images,
         heightCmMin: t.heightCmMin,
@@ -90,7 +91,7 @@ export const updateTree = async (req: Request, res: Response): Promise<void> => 
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// Tree Products (Shopee-style parent + variants) — admin only
+// Tree Products (Shopee-style 3-tier: Product → Code → Variant) — admin only
 // ════════════════════════════════════════════════════════════════════════════
 
 function slugify(s: string): string {
@@ -114,253 +115,108 @@ async function ensureUniqueSlug(base: string): Promise<string> {
   return slug;
 }
 
-// GET /api/admin/tree-products
-// Returns Shopee-style grouped list: [{ product, variants[] }]
+// ── GET /api/admin/tree-products ─────────────────────────────────────────────
+// Returns 3-tier grouped list: [{ product, codes: [{ ..., variants: [] }] }]
 export const listTreeProducts = async (
   _req: Request,
   res: Response
 ): Promise<void> => {
   try {
     if (!assertAdmin(_req, res)) return;
-    const groups = await loadGroupedTreeCatalog({ includeEmptyProducts: true });
+    const groups = await loadGroupedTreeCatalog();
     res.json({ treeProducts: groups });
   } catch (err) {
     handleInternalError(res, err, "[admin] listTreeProducts error");
   }
 };
 
-// POST /api/admin/tree-products
-// Body: {
-//   name, colors: TreeColor[], density, description,
-//   coverImage, images, isActive, sortOrder,
-//   variants: [{ color: TreeColor, size: TreeSize, price, stock,
-//                heightCmMin, heightCmMax, diameterCm, bareImage }]
-// }
-//
-// Behavior (Shopee-style 2D matrix):
-//   - Phân loại 1: Color (Mây Xanh, Tuyết Bạc, Đại Lễ Hội)
-//   - Phân loại 2: Size (S, M, L)
-//   - Cartesian: each (color, size) pair creates a variant
-//   - Atomic: if any variant invalid → 400, no partial write
-//   - Upserts: if productId provided, updates; else creates new
-//   - Variants are full-replace: missing (color, size) = delete that SKU
-export const upsertTreeProduct = async (
+// ── POST /api/admin/tree-products ────────────────────────────────────────────
+// Body: { name, slug?, category, density, description, coverImage, images,
+//         isActive, sortOrder }
+// Creates the parent product only. Codes/variants are managed separately.
+export const createTreeProduct = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
     if (!assertAdmin(req, res)) return;
-    const TREE_COLORS_LIST = [
-      "Mây Xanh",
-      "Tuyết Bạc",
-      "Đại Lễ Hội",
-    ] as const;
-    type TreeColor = (typeof TREE_COLORS_LIST)[number];
     const body = req.body as {
-      productId?: string;
       name?: string;
+      slug?: string;
+      category?: string;
       density?: string;
       description?: string;
       coverImage?: string;
       images?: string[];
-      colors?: string[];
       isActive?: boolean;
       sortOrder?: number;
-      variants?: Array<{
-        color: string;
-        size: "S" | "M" | "L";
-        price: number;
-        stock: number;
-        heightCmMin: number;
-        heightCmMax: number;
-        diameterCm: number;
-        bareImage?: string;
-        isActive?: boolean;
-        sortOrder?: number;
-      }>;
     };
-
-    if (!body.name || typeof body.name !== "string") {
+    if (!body.name || typeof body.name !== "string" || !body.name.trim()) {
       sendError(res, ErrorCode.MISSING_FIELD, "Thiếu tên sản phẩm");
       return;
     }
-    if (!Array.isArray(body.colors) || body.colors.length === 0) {
-      sendError(
-        res,
-        ErrorCode.MISSING_FIELD,
-        "Cần ít nhất 1 màu (Mây Xanh / Tuyết Bạc / Đại Lễ Hội)"
-      );
-      return;
-    }
-    for (const c of body.colors) {
-      if (!TREE_COLORS_LIST.includes(c as TreeColor)) {
-        sendError(
-          res,
-          ErrorCode.INVALID_INPUT,
-          `Màu không hợp lệ: "${c}". Cho phép: ${TREE_COLORS_LIST.join(", ")}`
-        );
-        return;
-      }
-    }
-    if (!Array.isArray(body.variants) || body.variants.length === 0) {
-      sendError(
-        res,
-        ErrorCode.MISSING_FIELD,
-        "Cần ít nhất 1 SKU (color × size)"
-      );
-      return;
-    }
-
-    // Validate variants: each must have valid (color, size), no duplicate pair
-    const skuSet = new Set<string>();
-    for (const v of body.variants) {
-      if (!v || !TREE_COLORS_LIST.includes(v.color as TreeColor)) {
-        sendError(
-          res,
-          ErrorCode.INVALID_INPUT,
-          `Variant color không hợp lệ: ${v?.color}`
-        );
-        return;
-      }
-      if (!["S", "M", "L"].includes(v.size)) {
-        sendError(
-          res,
-          ErrorCode.INVALID_INPUT,
-          `Variant size không hợp lệ: ${v?.size}`
-        );
-        return;
-      }
-      const skuKey = `${v.color}::${v.size}`;
-      if (skuSet.has(skuKey)) {
-        sendError(
-          res,
-          ErrorCode.ACCESSORY_DUPLICATED,
-          `Trùng SKU: color=${v.color}, size=${v.size}`
-        );
-        return;
-      }
-      skuSet.add(skuKey);
-      if (typeof v.price !== "number" || v.price < 0) {
-        sendError(
-          res,
-          ErrorCode.INVALID_INPUT,
-          `Giá của SKU ${v.color}×${v.size} phải là số >= 0`
-        );
-        return;
-      }
-      if (typeof v.stock !== "number" || v.stock < 0) {
-        sendError(
-          res,
-          ErrorCode.INVALID_INPUT,
-          `Kho của SKU ${v.color}×${v.size} phải là số >= 0`
-        );
-        return;
-      }
-      if (v.heightCmMin < 0 || v.heightCmMax < v.heightCmMin) {
-        sendError(
-          res,
-          ErrorCode.INVALID_INPUT,
-          `Chiều cao SKU ${v.color}×${v.size} không hợp lệ`
-        );
-        return;
-      }
-    }
-
-    let product: InstanceType<typeof TreeProduct> | null = null;
-    if (body.productId && body.productId !== "new") {
-      product = await TreeProduct.findById(body.productId);
-      if (!product) {
-        sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy tree product");
-        return;
-      }
-      product.name = body.name.trim();
-      product.colors = body.colors as TreeColor[];
-      product.density = body.density ?? product.density;
-      product.description = body.description ?? "";
-      product.coverImage = body.coverImage ?? "";
-      product.images = Array.isArray(body.images) ? body.images : [];
-      if (body.isActive !== undefined) product.isActive = body.isActive;
-      if (body.sortOrder !== undefined) product.sortOrder = body.sortOrder;
-      await product.save();
-    } else {
-      const slug = await ensureUniqueSlug(slugify(body.name));
-      product = await TreeProduct.create({
-        name: body.name.trim(),
-        slug,
-        density: body.density ?? "standard",
-        description: body.description ?? "",
-        coverImage: body.coverImage ?? "",
-        images: Array.isArray(body.images) ? body.images : [],
-        colors: body.colors as TreeColor[],
-        isActive: body.isActive ?? true,
-        sortOrder: body.sortOrder ?? 0,
-      });
-    }
-
-    // Full-replace variants (Shopee UX: add/edit/remove SKUs).
-    await Tree.deleteMany({ productId: product._id });
-    const materialByColor: Record<string, string> = {
-      "Mây Xanh": "PVC cao cấp",
-      "Tuyết Bạc": "PVC phủ bạc",
-      "Đại Lễ Hội": "PVC vàng đồng",
-    };
-    const newVariants = await Tree.insertMany(
-      body.variants.map((v) => ({
-        productId: product!._id,
-        color: v.color as TreeColor,
-        size: v.size,
-        name: `${body.name!.trim()} — ${v.color} — ${v.size}`,
-        price: v.price,
-        stock: v.stock,
-        heightCmMin: v.heightCmMin,
-        heightCmMax: v.heightCmMax,
-        diameterCm: v.diameterCm,
-        bareImage: v.bareImage ?? "",
-        material: materialByColor[v.color] ?? v.color,
-        density: body.density ?? "standard",
-        description: body.description ?? "",
-        isActive: v.isActive ?? true,
-        sortOrder: v.sortOrder ?? 0,
-      }))
-    );
-
-    res
-      .status(body.productId && body.productId !== "new" ? 200 : 201)
-      .json({
-        treeProduct: {
-          _id: String(product._id),
-          name: product.name,
-          slug: product.slug,
-          density: product.density,
-          description: product.description,
-          coverImage: product.coverImage,
-          images: product.images,
-          colors: product.colors,
-          isActive: product.isActive,
-          sortOrder: product.sortOrder,
-          variants: newVariants.map((v) => ({
-            _id: String(v._id),
-            color: v.color,
-            size: v.size,
-            price: v.price,
-            stock: v.stock,
-            heightCmMin: v.heightCmMin,
-            heightCmMax: v.heightCmMax,
-            diameterCm: v.diameterCm,
-            bareImage: v.bareImage,
-            isActive: v.isActive,
-            sortOrder: v.sortOrder,
-          })),
-        },
-      });
+    const slug = await ensureUniqueSlug(slugify(body.slug || body.name));
+    const product = await TreeProduct.create({
+      name: body.name.trim(),
+      slug,
+      category: body.category ?? "Cây thông Noel",
+      density: body.density ?? "standard",
+      description: body.description ?? "",
+      coverImage: body.coverImage ?? "",
+      images: Array.isArray(body.images) ? body.images : [],
+      isActive: body.isActive ?? true,
+      sortOrder: body.sortOrder ?? 0,
+    });
+    res.status(201).json({ treeProduct: product });
   } catch (err) {
-    handleInternalError(res, err, "[admin] upsertTreeProduct error");
+    handleInternalError(res, err, "[admin] createTreeProduct error");
   }
 };
 
-// DELETE /api/admin/tree-products/:productId
-// Soft delete: hide product + cascade-deactivate variants (preserves
-// variant _id refs in existing orders/designs).
+// ── PATCH /api/admin/tree-products/:productId ────────────────────────────────
+export const updateTreeProduct = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { productId } = req.params;
+    const product = await TreeProduct.findById(productId);
+    if (!product) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy tree product");
+      return;
+    }
+    const body = req.body as Partial<{
+      name: string;
+      slug: string;
+      category: string;
+      density: string;
+      description: string;
+      coverImage: string;
+      images: string[];
+      isActive: boolean;
+      sortOrder: number;
+    }>;
+    if (body.name !== undefined) product.name = body.name.trim();
+    if (body.slug !== undefined && body.slug !== product.slug) {
+      product.slug = await ensureUniqueSlug(slugify(body.slug));
+    }
+    if (body.category !== undefined) product.category = body.category;
+    if (body.density !== undefined) product.density = body.density;
+    if (body.description !== undefined) product.description = body.description;
+    if (body.coverImage !== undefined) product.coverImage = body.coverImage;
+    if (Array.isArray(body.images)) product.images = body.images;
+    if (body.isActive !== undefined) product.isActive = body.isActive;
+    if (body.sortOrder !== undefined) product.sortOrder = body.sortOrder;
+    await product.save();
+    res.json({ treeProduct: product });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] updateTreeProduct error");
+  }
+};
+
+// ── DELETE /api/admin/tree-products/:productId ───────────────────────────────
+// Soft delete: hide product + cascade-deactivate all codes + variants.
 export const deleteTreeProduct = async (
   req: Request,
   res: Response
@@ -368,45 +224,315 @@ export const deleteTreeProduct = async (
   try {
     if (!assertAdmin(req, res)) return;
     const { productId } = req.params;
-    const productIdStr = Array.isArray(productId) ? productId[0] : productId;
-    if (!productIdStr || productIdStr.startsWith("legacy-")) {
-      sendError(
-        res,
-        ErrorCode.INVALID_INPUT,
-        "Không thể xóa legacy tree product bằng endpoint này — dùng PATCH /api/admin/trees/:id để soft-delete từng variant"
-      );
-      return;
-    }
-    const product = await TreeProduct.findById(productIdStr);
+    const product = await TreeProduct.findById(productId);
     if (!product) {
       sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy tree product");
       return;
     }
     product.isActive = false;
     await product.save();
-    await Tree.updateMany({ productId: product._id }, { isActive: false });
+    await TreeCode.updateMany({ productId }, { isActive: false });
+    await Tree.updateMany({ productId }, { isActive: false });
     res.json({ success: true, productId: String(product._id) });
   } catch (err) {
     handleInternalError(res, err, "[admin] deleteTreeProduct error");
   }
 };
 
-// PATCH /api/admin/trees/:id/bulk
-// Shopee-style: "Áp dụng cho tất cả phân loại".
-// Body: { field: "price"|"stock"|"isActive", value: number|boolean }
-// Updates every variant matching a filter (optionally per product).
+// ── POST /api/admin/tree-products/:productId/codes ──────────────────────────
+// Body: { code, name, description, image, material, isActive, sortOrder }
+export const createTreeCode = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { productId } = req.params;
+    const product = await TreeProduct.findById(productId);
+    if (!product) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy tree product");
+      return;
+    }
+    const body = req.body as {
+      code?: string;
+      name?: string;
+      description?: string;
+      image?: string;
+      material?: string;
+      isActive?: boolean;
+      sortOrder?: number;
+    };
+    if (!body.code || !body.name) {
+      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu mã hoặc tên mã cây");
+      return;
+    }
+    const treeCode = await TreeCode.create({
+      productId: product._id,
+      code: body.code.trim(),
+      name: body.name.trim(),
+      description: body.description ?? "",
+      image: body.image ?? "",
+      material: body.material ?? "",
+      isActive: body.isActive ?? true,
+      sortOrder: body.sortOrder ?? 0,
+    });
+    res.status(201).json({ treeCode });
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) {
+      sendError(
+        res,
+        ErrorCode.ACCESSORY_DUPLICATED,
+        "Mã cây đã tồn tại trong sản phẩm này"
+      );
+      return;
+    }
+    handleInternalError(res, err, "[admin] createTreeCode error");
+  }
+};
+
+// ── PATCH /api/admin/tree-codes/:codeId ──────────────────────────────────────
+export const updateTreeCode = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { codeId } = req.params;
+    const treeCode = await TreeCode.findById(codeId);
+    if (!treeCode) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy mã cây");
+      return;
+    }
+    const body = req.body as Partial<{
+      code: string;
+      name: string;
+      description: string;
+      image: string;
+      material: string;
+      isActive: boolean;
+      sortOrder: number;
+    }>;
+    if (body.code !== undefined) treeCode.code = body.code.trim();
+    if (body.name !== undefined) treeCode.name = body.name.trim();
+    if (body.description !== undefined) treeCode.description = body.description;
+    if (body.image !== undefined) treeCode.image = body.image;
+    if (body.material !== undefined) treeCode.material = body.material;
+    if (body.isActive !== undefined) treeCode.isActive = body.isActive;
+    if (body.sortOrder !== undefined) treeCode.sortOrder = body.sortOrder;
+    await treeCode.save();
+    res.json({ treeCode });
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) {
+      sendError(
+        res,
+        ErrorCode.ACCESSORY_DUPLICATED,
+        "Mã cây đã tồn tại trong sản phẩm này"
+      );
+      return;
+    }
+    handleInternalError(res, err, "[admin] updateTreeCode error");
+  }
+};
+
+// ── DELETE /api/admin/tree-codes/:codeId ─────────────────────────────────────
+// Soft delete: hide code + cascade-deactivate its variants.
+export const deleteTreeCode = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { codeId } = req.params;
+    const treeCode = await TreeCode.findById(codeId);
+    if (!treeCode) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy mã cây");
+      return;
+    }
+    treeCode.isActive = false;
+    await treeCode.save();
+    await Tree.updateMany({ codeId }, { isActive: false });
+    res.json({ success: true, codeId: String(treeCode._id) });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] deleteTreeCode error");
+  }
+};
+
+// ── POST /api/admin/tree-codes/:codeId/variants ─────────────────────────────
+// Body: { size, sku, heightCmMin, heightCmMax, diameterCm, description,
+//         bareImage, images, price, stockQuantity, isActive, sortOrder }
+// Each request adds ONE variant (1 size). Admin can call repeatedly to add
+// S, M, L, XL, etc. No bulk to keep the contract simple & auditable.
+export const createTreeVariant = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { codeId } = req.params;
+    const treeCode = await TreeCode.findById(codeId);
+    if (!treeCode) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy mã cây");
+      return;
+    }
+    const product = await TreeProduct.findById(treeCode.productId);
+    if (!product) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy sản phẩm cha");
+      return;
+    }
+    const body = req.body as {
+      size?: string;
+      sku?: string;
+      heightCmMin?: number;
+      heightCmMax?: number;
+      diameterCm?: number;
+      description?: string;
+      bareImage?: string;
+      images?: string[];
+      price?: number;
+      stockQuantity?: number;
+      isActive?: boolean;
+      sortOrder?: number;
+    };
+    if (!body.size || !body.sku) {
+      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu size hoặc sku");
+      return;
+    }
+    if (typeof body.price !== "number" || body.price < 0) {
+      sendError(res, ErrorCode.INVALID_INPUT, "Giá phải là số >= 0");
+      return;
+    }
+    if (typeof body.stockQuantity !== "number" || body.stockQuantity < 0) {
+      sendError(
+        res,
+        ErrorCode.INVALID_INPUT,
+        "Tồn kho phải là số >= 0"
+      );
+      return;
+    }
+    const variant = await Tree.create({
+      productId: product._id,
+      codeId: treeCode._id,
+      size: body.size.trim(),
+      sku: body.sku.trim().toUpperCase(),
+      name: `${product.name} — ${treeCode.name} — ${body.size}`,
+      heightCmMin: body.heightCmMin ?? 0,
+      heightCmMax: body.heightCmMax ?? 0,
+      diameterCm: body.diameterCm ?? 0,
+      description: body.description ?? product.description,
+      bareImage: body.bareImage ?? "",
+      images: Array.isArray(body.images) ? body.images : [],
+      price: body.price,
+      stockQuantity: body.stockQuantity,
+      isActive: body.isActive ?? true,
+      sortOrder: body.sortOrder ?? 0,
+    });
+    res.status(201).json({ variant });
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) {
+      sendError(
+        res,
+        ErrorCode.ACCESSORY_DUPLICATED,
+        "SKU đã tồn tại hoặc (mã, size) đã tồn tại"
+      );
+      return;
+    }
+    handleInternalError(res, err, "[admin] createTreeVariant error");
+  }
+};
+
+// ── PATCH /api/admin/tree-variants/:variantId ────────────────────────────────
+export const updateTreeVariant = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { variantId } = req.params;
+    const variant = await Tree.findById(variantId);
+    if (!variant) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy biến thể");
+      return;
+    }
+    const body = req.body as Partial<{
+      size: string;
+      sku: string;
+      heightCmMin: number;
+      heightCmMax: number;
+      diameterCm: number;
+      description: string;
+      bareImage: string;
+      images: string[];
+      price: number;
+      stockQuantity: number;
+      isActive: boolean;
+      sortOrder: number;
+    }>;
+    if (body.size !== undefined) variant.size = body.size.trim();
+    if (body.sku !== undefined) variant.sku = body.sku.trim().toUpperCase();
+    if (body.heightCmMin !== undefined) variant.heightCmMin = body.heightCmMin;
+    if (body.heightCmMax !== undefined) variant.heightCmMax = body.heightCmMax;
+    if (body.diameterCm !== undefined) variant.diameterCm = body.diameterCm;
+    if (body.description !== undefined) variant.description = body.description;
+    if (body.bareImage !== undefined) variant.bareImage = body.bareImage;
+    if (Array.isArray(body.images)) variant.images = body.images;
+    if (body.price !== undefined) variant.price = body.price;
+    if (body.stockQuantity !== undefined)
+      variant.stockQuantity = body.stockQuantity;
+    if (body.isActive !== undefined) variant.isActive = body.isActive;
+    if (body.sortOrder !== undefined) variant.sortOrder = body.sortOrder;
+    await variant.save();
+    res.json({ variant });
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) {
+      sendError(
+        res,
+        ErrorCode.ACCESSORY_DUPLICATED,
+        "SKU đã tồn tại hoặc (mã, size) đã tồn tại"
+      );
+      return;
+    }
+    handleInternalError(res, err, "[admin] updateTreeVariant error");
+  }
+};
+
+// ── DELETE /api/admin/tree-variants/:variantId ───────────────────────────────
+// Soft delete: just flip isActive=false. Preserves _id so historical orders
+// and cart snapshots can still resolve their references.
+export const deleteTreeVariant = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!assertAdmin(req, res)) return;
+    const { variantId } = req.params;
+    const variant = await Tree.findById(variantId);
+    if (!variant) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy biến thể");
+      return;
+    }
+    variant.isActive = false;
+    await variant.save();
+    res.json({ success: true, variantId: String(variant._id) });
+  } catch (err) {
+    handleInternalError(res, err, "[admin] deleteTreeVariant error");
+  }
+};
+
+// ── PATCH /api/admin/tree-variants/bulk ──────────────────────────────────────
+// Shopee-style "Áp dụng cho tất cả". Updates many variants at once.
 export const bulkUpdateTreeVariants = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
     if (!assertAdmin(req, res)) return;
-    const { field, value, productId } = req.body as {
+    const { field, value, productId, codeId } = req.body as {
       field: string;
       value: unknown;
       productId?: string;
+      codeId?: string;
     };
-    const allowed = ["price", "stock", "isActive"];
+    const allowed = ["price", "stockQuantity", "isActive"];
     if (!allowed.includes(field)) {
       sendError(
         res,
@@ -419,6 +545,7 @@ export const bulkUpdateTreeVariants = async (
     update[field] = value;
     const query: Record<string, unknown> = {};
     if (productId) query.productId = productId;
+    if (codeId) query.codeId = codeId;
     const result = await Tree.updateMany(query, update);
     res.json({ matched: result.matchedCount, modified: result.modifiedCount });
   } catch (err) {
@@ -701,8 +828,8 @@ export const getAdminStats = async (
         .select("name stock type")
         .limit(20)
         .lean(),
-      Tree.find({ stock: { $lte: 5 }, isActive: true })
-        .select("name size stock")
+      Tree.find({ stockQuantity: { $lte: 5 }, isActive: true })
+        .select("name size stockQuantity sku")
         .limit(20)
         .lean(),
     ]);

@@ -4,7 +4,9 @@
 // What it does:
 //   1. Connects to MONGODB_URI from .env
 //   2. Refuses to run if the target DB is still named "thriftit"
-//   3. Upserts 3 Tree SKUs (S/M/L), 6 Styles, ~25 Accessories, 8 presets
+//   3. Upserts 1 TreeProduct with 3 codes (Xanh truyền thống / Phủ tuyết /
+//      Đèn LED) × 3 sizes (S/M/L) = 9 SKUs, 6 Styles, ~25 Accessories,
+//      8 presets
 //   4. Upserts 1 admin + 1 buyer demo account (passwords from env)
 //
 // All operations are idempotent: re-running the script won't duplicate
@@ -15,6 +17,8 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import { Tree } from "./models/Tree";
+import { TreeProduct } from "./models/TreeProduct";
+import { TreeCode } from "./models/TreeCode";
 import { Style } from "./models/Style";
 import { Accessory } from "./models/Accessory";
 import { TreeDesign } from "./models/TreeDesign";
@@ -53,56 +57,160 @@ if (/\/thriftit(\?|$)/.test(MONGO_URI) || MONGO_URI.endsWith("/thriftit")) {
 const SEED_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "ChangeMe!Admin#2026";
 const SEED_BUYER_PASSWORD = process.env.SEED_BUYER_PASSWORD || "ChangeMe!Buyer#2026";
 
-// ── Seed data ─────────────────────────────────────────────────────────────────
-const TREES = [
+// ── Seed data (3-tier: Product → Code → Variant) ────────────────────────────
+const TREE_PRODUCT = {
+  name: "Cây thông Noel trang trí",
+  slug: "cay-thong-noel-trang-tri",
+  category: "Cây thông Noel",
+  density: "Dày (380-820 cành)",
+  description:
+    "Cây thông Noel chất lượng cao, nhiều kích thước cho mọi không gian.",
+  coverImage: "/images/trees/cover.jpg",
+  images: ["/images/trees/cover.jpg"],
+  isActive: true,
+  sortOrder: 1,
+};
+
+// Mã cây (Phân loại 1) — 3 mã cho 3 phong cách khác nhau.
+const TREE_CODES = [
   {
-    size: "S",
-    name: 'Cây thông Noel 1m2 — "Mây Xanh"',
-    heightCmMin: 110,
-    heightCmMax: 130,
-    diameterCm: 70,
+    code: "TREE-GREEN",
+    name: "Xanh truyền thống",
+    description: "Cây thông màu xanh rêu cổ điển, phù hợp mọi phong cách.",
+    image: "/images/trees/code-green.jpg",
     material: "PVC cao cấp",
-    density: "Dày (380 cành)",
-    description:
-      "Cây thông mini xanh tươi, lý tưởng cho bàn làm việc, góc nhỏ hoặc làm quà tặng.",
-    images: ["/images/trees/s-1.jpg", "/images/trees/s-2.jpg"],
-    bareImage: "/images/trees/s-bare.png",
-    price: 169_000,
-    stock: 100,
-    isActive: true,
     sortOrder: 1,
   },
   {
-    size: "M",
-    name: 'Cây thông Noel 1m5 — "Tuyết Bạc"',
-    heightCmMin: 140,
-    heightCmMax: 160,
-    diameterCm: 100,
+    code: "TREE-SNOW",
+    name: "Phủ tuyết",
+    description: "Cây thông phủ bông tuyết trắng, không khí Bắc Âu.",
+    image: "/images/trees/code-snow.jpg",
     material: "PVC + bông tuyết",
-    density: "Dày (560 cành)",
-    description: "Cây trung bình cỡ đẹp, phù hợp phòng khách và văn phòng.",
-    images: ["/images/trees/m-1.jpg", "/images/trees/m-2.jpg"],
-    bareImage: "/images/trees/m-bare.png",
-    price: 249_000,
-    stock: 80,
-    isActive: true,
     sortOrder: 2,
   },
   {
+    code: "TREE-LED",
+    name: "Đèn LED đa sắc",
+    description: "Cây tích hợp đèn LED đổi màu, sẵn sàng trang trí.",
+    image: "/images/trees/code-led.jpg",
+    material: "PVC cao cấp + LED RGB",
+    sortOrder: 3,
+  },
+];
+
+// Size × Code → variant. Mỗi mã có 3 size S/M/L.
+const TREE_VARIANTS = [
+  // TREE-GREEN
+  {
+    code: "TREE-GREEN",
+    size: "S",
+    sku: "TREE-GREEN-S",
+    name: 'Cây thông Noel 1m2 — "Xanh truyền thống"',
+    heightCmMin: 110,
+    heightCmMax: 130,
+    diameterCm: 70,
+    price: 169_000,
+    stockQuantity: 100,
+    bareImage: "/images/trees/green-s-bare.png",
+  },
+  {
+    code: "TREE-GREEN",
+    size: "M",
+    sku: "TREE-GREEN-M",
+    name: 'Cây thông Noel 1m5 — "Xanh truyền thống"',
+    heightCmMin: 140,
+    heightCmMax: 160,
+    diameterCm: 100,
+    price: 249_000,
+    stockQuantity: 80,
+    bareImage: "/images/trees/green-m-bare.png",
+  },
+  {
+    code: "TREE-GREEN",
     size: "L",
-    name: 'Cây thông Noel 1m8 — "Đại Lễ Hội"',
+    sku: "TREE-GREEN-L",
+    name: 'Cây thông Noel 1m8 — "Xanh truyền thống"',
     heightCmMin: 170,
     heightCmMax: 190,
     diameterCm: 130,
-    material: "PVC cao cấp + tuyết",
-    density: "Rất dày (820 cành)",
-    description: "Cây lớn cho không gian rộng, sảnh, hoặc sự kiện cuối năm.",
-    images: ["/images/trees/l-1.jpg", "/images/trees/l-2.jpg"],
-    bareImage: "/images/trees/l-bare.png",
     price: 399_000,
-    stock: 50,
-    isActive: true,
-    sortOrder: 3,
+    stockQuantity: 50,
+    bareImage: "/images/trees/green-l-bare.png",
+  },
+  // TREE-SNOW
+  {
+    code: "TREE-SNOW",
+    size: "S",
+    sku: "TREE-SNOW-S",
+    name: 'Cây thông Noel 1m2 — "Phủ tuyết"',
+    heightCmMin: 110,
+    heightCmMax: 130,
+    diameterCm: 75,
+    price: 199_000,
+    stockQuantity: 80,
+    bareImage: "/images/trees/snow-s-bare.png",
+  },
+  {
+    code: "TREE-SNOW",
+    size: "M",
+    sku: "TREE-SNOW-M",
+    name: 'Cây thông Noel 1m5 — "Phủ tuyết"',
+    heightCmMin: 140,
+    heightCmMax: 160,
+    diameterCm: 105,
+    price: 299_000,
+    stockQuantity: 60,
+    bareImage: "/images/trees/snow-m-bare.png",
+  },
+  {
+    code: "TREE-SNOW",
+    size: "L",
+    sku: "TREE-SNOW-L",
+    name: 'Cây thông Noel 1m8 — "Phủ tuyết"',
+    heightCmMin: 170,
+    heightCmMax: 190,
+    diameterCm: 135,
+    price: 459_000,
+    stockQuantity: 40,
+    bareImage: "/images/trees/snow-l-bare.png",
+  },
+  // TREE-LED
+  {
+    code: "TREE-LED",
+    size: "S",
+    sku: "TREE-LED-S",
+    name: 'Cây thông Noel 1m2 — "Đèn LED đa sắc"',
+    heightCmMin: 110,
+    heightCmMax: 130,
+    diameterCm: 70,
+    price: 349_000,
+    stockQuantity: 50,
+    bareImage: "/images/trees/led-s-bare.png",
+  },
+  {
+    code: "TREE-LED",
+    size: "M",
+    sku: "TREE-LED-M",
+    name: 'Cây thông Noel 1m5 — "Đèn LED đa sắc"',
+    heightCmMin: 140,
+    heightCmMax: 160,
+    diameterCm: 100,
+    price: 499_000,
+    stockQuantity: 40,
+    bareImage: "/images/trees/led-m-bare.png",
+  },
+  {
+    code: "TREE-LED",
+    size: "L",
+    sku: "TREE-LED-L",
+    name: 'Cây thông Noel 1m8 — "Đèn LED đa sắc"',
+    heightCmMin: 170,
+    heightCmMax: 190,
+    diameterCm: 130,
+    price: 699_000,
+    stockQuantity: 25,
+    bareImage: "/images/trees/led-l-bare.png",
   },
 ];
 
@@ -667,11 +775,55 @@ const PRESETS: Array<{
 ];
 
 // ── Run ─────────────────────────────────────────────────────────────────────
-async function upsertTrees() {
-  for (const t of TREES) {
-    await Tree.findOneAndUpdate({ size: t.size }, t, { upsert: true, new: true });
+async function upsertTreeCatalog() {
+  // 1. Product (parent)
+  const product = await TreeProduct.findOneAndUpdate(
+    { slug: TREE_PRODUCT.slug },
+    TREE_PRODUCT,
+    { upsert: true, new: true }
+  );
+
+  // 2. Codes
+  const codeBySlug = new Map<string, InstanceType<typeof TreeCode>>();
+  for (const c of TREE_CODES) {
+    const code = await TreeCode.findOneAndUpdate(
+      { productId: product._id, code: c.code },
+      { ...c, productId: product._id, isActive: true },
+      { upsert: true, new: true }
+    );
+    codeBySlug.set(c.code, code);
   }
-  console.log(`[seed] Upserted ${TREES.length} trees`);
+
+  // 3. Variants
+  for (const v of TREE_VARIANTS) {
+    const code = codeBySlug.get(v.code);
+    if (!code) continue;
+    await Tree.findOneAndUpdate(
+      { sku: v.sku },
+      {
+        productId: product._id,
+        codeId: code._id,
+        size: v.size,
+        sku: v.sku,
+        name: v.name,
+        heightCmMin: v.heightCmMin,
+        heightCmMax: v.heightCmMax,
+        diameterCm: v.diameterCm,
+        description: product.description,
+        bareImage: v.bareImage,
+        images: [],
+        price: v.price,
+        stockQuantity: v.stockQuantity,
+        isActive: true,
+        sortOrder: TREE_CODES.findIndex((c) => c.code === v.code) * 10 +
+          ["S", "M", "L", "XL"].indexOf(v.size),
+      },
+      { upsert: true, new: true }
+    );
+  }
+  console.log(
+    `[seed] Upserted 1 product, ${TREE_CODES.length} codes, ${TREE_VARIANTS.length} variants`
+  );
 }
 
 async function upsertStyles() {
@@ -695,24 +847,24 @@ async function upsertAccessories() {
 }
 
 async function upsertPresets() {
-  // Resolve all tree/style/accessory refs once
-  const trees = await Tree.find();
+  // Resolve all variant (any size) refs once
+  const variants = await Tree.find();
   const styles = await Style.find();
   const accessories = await Accessory.find();
 
-  const treeBySize = new Map<string, (typeof trees)[number]>();
-  trees.forEach((t) => treeBySize.set(t.size, t));
+  const variantBySize = new Map<string, (typeof variants)[number]>();
+  variants.forEach((v) => variantBySize.set(v.size, v));
   const styleByCode = new Map<string, (typeof styles)[number]>();
   styles.forEach((s) => styleByCode.set(s.code, s));
   const accByName = new Map<string, (typeof accessories)[number]>();
   accessories.forEach((a) => accByName.set(a.name, a));
 
   for (const preset of PRESETS) {
-    const tree = treeBySize.get(preset.config.treeSize);
+    const variant = variantBySize.get(preset.config.treeSize);
     const style = styleByCode.get(preset.config.styleCode);
-    if (!tree || !style) {
+    if (!variant || !style) {
       console.warn(
-        `[seed] Skipping preset "${preset.name}" — missing tree or style`
+        `[seed] Skipping preset "${preset.name}" — missing variant or style`
       );
       continue;
     }
@@ -737,7 +889,7 @@ async function upsertPresets() {
       );
 
     const config = {
-      treeId: tree._id as Types.ObjectId,
+      variantId: variant._id as Types.ObjectId,
       styleId: style._id as Types.ObjectId,
       accessories: accessoryEntries,
       deliveryOption: preset.config.deliveryOption,
@@ -823,7 +975,7 @@ async function main() {
   await mongoose.connect(MONGO_URI!);
   console.log(`[seed] Connected. Running idempotent seed...`);
 
-  await upsertTrees();
+  await upsertTreeCatalog();
   await upsertStyles();
   await upsertAccessories();
   await upsertPresets();

@@ -6,6 +6,11 @@ import type { TreeSize } from "./Tree";
 // Used by TreeDesign.config, CartItem.config, and the snapshot baked into
 // OrderItem.tree/style/lines. Keeping one shape across all 3 layers means
 // the editor, cart, and order speak the same language.
+//
+// After 3-tier refactor (Product → Code → Variant):
+//   `variantId` points to a specific Tree variant (code × size SKU).
+//   At runtime, callers may also include productId/codeId in the body for
+//   convenience, but the source of truth is variantId.
 
 export type DeliveryOption = "READY_TO_DISPLAY" | "DIY_KIT" | "SEPARATE";
 
@@ -16,21 +21,27 @@ export interface DesignAccessoryEntry {
 }
 
 export interface DesignConfig {
-  treeId: Types.ObjectId;
+  variantId: Types.ObjectId;  // (was treeId) — points to Tree (size × code SKU)
   styleId: Types.ObjectId;
   accessories: DesignAccessoryEntry[];
   deliveryOption: DeliveryOption;
 }
 
 // Lightweight refs populated when serving a design/cart/order to FE.
-export interface ResolvedTreeRef {
+export interface ResolvedVariantRef {
   _id: string;
+  productId: string;     // parent product
+  codeId: string;        // parent code (mã cây)
   size: TreeSize;
   name: string;
   price: number;
+  sku: string;
   bareImage: string;
   unitPrice?: number; // captured for OrderItem; FE often reads `price`
 }
+
+// Backward-compat alias — older code may still reference ResolvedTreeRef.
+export type ResolvedTreeRef = ResolvedVariantRef;
 
 export interface ResolvedStyleRef {
   _id: string;
@@ -91,7 +102,7 @@ const TreeDesignSchema = new Schema<ITreeDesign>(
     },
     year: { type: Number, required: true, default: () => new Date().getFullYear() },
     config: {
-      treeId: { type: Schema.Types.ObjectId, ref: "Tree", required: true },
+      variantId: { type: Schema.Types.ObjectId, ref: "Tree", required: true },
       styleId: { type: Schema.Types.ObjectId, ref: "Style", required: true },
       accessories: [
         {

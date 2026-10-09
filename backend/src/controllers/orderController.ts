@@ -15,7 +15,7 @@ import {
   ErrorCode,
   handleInternalError,
 } from "../utils/errors";
-import type { DesignConfig, DeliveryOption, ResolvedAccessoryRef, ResolvedTreeRef, ResolvedStyleRef } from "../models/TreeDesign";
+import type { DesignConfig, DeliveryOption, ResolvedAccessoryRef, ResolvedVariantRef, ResolvedStyleRef } from "../models/TreeDesign";
 import type { PriceBreakdown } from "../services/pricingService";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -63,12 +63,15 @@ async function buildOrderItems(opts: {
     }
 
     // Build the snapshot for OrderItem
-    const treeSnapshot: ResolvedTreeRef = {
+    const variantSnapshot: ResolvedVariantRef = {
       _id: String(catalog.tree._id),
+      productId: catalog.tree.productId,
+      codeId: catalog.tree.codeId,
       size: catalog.tree.size,
       name: catalog.tree.name,
       price: catalog.tree.price,
       unitPrice: catalog.tree.price,
+      sku: "",
       bareImage: "", // FE hydrates from catalog; we keep empty here
     };
     const styleSnapshot: ResolvedStyleRef = {
@@ -108,7 +111,7 @@ async function buildOrderItems(opts: {
       designId: entry.designId ? new Types.ObjectId(entry.designId) : null,
       designName: entry.designId ? (await getDesignName(entry.designId)) : "My Christmas",
       previewImage: "",
-      tree: treeSnapshot,
+      variant: variantSnapshot,
       style: styleSnapshot,
       lines,
       deliveryOption: cfg.deliveryOption as DeliveryOption,
@@ -492,11 +495,11 @@ export const updateOrderStatus = async (
     }
 
     if (nextStatus === "CANCELLED") {
-      // Restore stock for every accessory + tree in the order
+      // Restore stock for every variant + accessory in the order
       const restore: Array<{ refId: Types.ObjectId; quantity: number }> = [];
       for (const item of order.items) {
-        if (item.tree && item.tree._id) {
-          await restoreTreeStock(new Types.ObjectId(String(item.tree._id)), item.quantity);
+        if (item.variant && item.variant._id) {
+          await restoreTreeStock(new Types.ObjectId(String(item.variant._id)), item.quantity);
         }
         for (const line of item.lines) {
           if (line.kind === "ACCESSORY" && line.refId) {
@@ -724,7 +727,7 @@ export const mapOrder = (o: any) => ({
     designId: it.designId ? String(it.designId) : null,
     designName: it.designName,
     previewImage: it.previewImage || "",
-    tree: it.tree,
+    variant: it.variant ?? it.tree, // tolerate legacy docs
     style: it.style,
     lines: (it.lines || []).map((l: any) => ({
       kind: l.kind,

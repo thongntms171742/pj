@@ -5,6 +5,7 @@ import type {
   DesignConfig,
   DeliveryOption,
   ResolvedAccessoryRef,
+  ResolvedVariantRef,
 } from "../models/TreeDesign";
 import {
   DECORATION_FEE_BY_SIZE,
@@ -15,11 +16,17 @@ import {
 import { sendError, ErrorCode, type ErrorCodeValue } from "../utils/errors";
 
 // ── Lean shapes (only the fields pricing needs) ──────────────────────────────
+// Note: CatalogSnapshot.tree now represents a TREE VARIANT (size × code combo).
+// Each variant is identified by its _id (variantId), and includes the parent
+// productId + codeId for hydration upstream.
 export interface TreeLean {
   _id: string;
+  productId: string;
+  codeId: string;
   size: TreeSize;
   name: string;
   price: number;
+  stockQuantity: number;
   isActive: boolean;
 }
 
@@ -189,9 +196,9 @@ export function priceDesign(
     }
 
     // quantity bounds per tree size
-    const maxForSize = acc.maxQtyBySize?.[tree.size];
-    const qty = Number(entry.quantity);
-    if (!Number.isInteger(qty) || qty < 1 || qty > (maxForSize ?? 1)) {
+  const maxForSize = acc.maxQtyBySize?.[tree.size as keyof typeof acc.maxQtyBySize];
+  const qty = Number(entry.quantity);
+  if (!Number.isInteger(qty) || qty < 1 || qty > (maxForSize ?? 1)) {
       throw new DesignValidationError(
         ErrorCode.ACCESSORY_QUANTITY_INVALID,
         `Số lượng "${acc.name}" cho cây ${tree.size} phải trong khoảng 1 đến ${maxForSize}`
@@ -252,7 +259,7 @@ export function priceDesign(
   // 5) Decoration fee
   const decorationFee =
     config.deliveryOption === "READY_TO_DISPLAY"
-      ? DECORATION_FEE_BY_SIZE[tree.size]
+      ? DECORATION_FEE_BY_SIZE[tree.size as keyof typeof DECORATION_FEE_BY_SIZE]
       : 0;
 
   // 6) unit total = tree + accessories + decoration; shipping is added at

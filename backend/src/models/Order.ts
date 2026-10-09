@@ -1,5 +1,10 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
-import type { DeliveryOption, ResolvedTreeRef, ResolvedStyleRef, ResolvedAccessoryRef } from "./TreeDesign";
+import type {
+  DeliveryOption,
+  ResolvedStyleRef,
+  ResolvedAccessoryRef,
+  ResolvedVariantRef,
+} from "./TreeDesign";
 
 // ── Order line item ──────────────────────────────────────────────────────────
 // `tree` + `style` + `lines[]` = the fully-resolved, immutable snapshot of
@@ -25,7 +30,7 @@ export interface IOrderItem {
   designId: Types.ObjectId | null;
   designName: string;
   previewImage: string;
-  tree: ResolvedTreeRef & { unitPrice: number };
+  variant: ResolvedVariantRef & { unitPrice: number };
   style: ResolvedStyleRef;
   lines: IOrderLine[];
   deliveryOption: DeliveryOption;
@@ -168,12 +173,15 @@ const OrderItemSchema = new Schema<IOrderItem>(
     designId: { type: Schema.Types.ObjectId, ref: "TreeDesign", default: null },
     designName: { type: String, required: true, default: "My Christmas" },
     previewImage: { type: String, default: "" },
-    tree: {
+    variant: {
       _id: { type: String, required: true },
-      size: { type: String, enum: ["S", "M", "L"], required: true },
+      productId: { type: String, required: true },
+      codeId: { type: String, required: true },
+      size: { type: String, required: true },
       name: { type: String, required: true },
       unitPrice: { type: Number, required: true, min: 0 },
       price: { type: Number, required: true, min: 0 },
+      sku: { type: String, default: "" },
       bareImage: { type: String, default: "" },
     },
     style: {

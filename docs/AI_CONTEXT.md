@@ -6,17 +6,20 @@
 - **Frontend**: Vite + React + TypeScript + Tailwind CSS (port 5173, proxy `/api` → `http://localhost:4000`)
 - **Backend**: Express + TypeScript + Mongoose (port 4000)
 - **Database**: MongoDB Atlas — `MONGODB_URI` trong `backend/.env` trỏ tới DB `christmas` (đang chạy). DB cũ `thriftit` bị seed script từ chối nếu cố ghi vào.
-- **Scope MVP**: HCM-only delivery. 3 sizes (S/M/L) × 6 styles × ~25 phụ kiện × 8 ready-made presets. Không có marketplace: không seller, không hoa hồng, không duyệt listing.
+- **Scope MVP**: HCM-only delivery. **3-tier catalog** (Product → Code → Variant) — 1 sản phẩm cha "Cây thông Noel trang trí" chứa N mã (vd: Xanh truyền thống, Phủ tuyết, Đèn LED) × M size (S, M, L). 6 styles × ~25 phụ kiện × 8 ready-made presets. Không có marketplace: không seller, không hoa hồng, không duyệt listing.
 
 ## Backend Structure (`backend/src/`)
 ### Models
 - `User.ts`: người dùng với `roles: ["buyer", "admin"]`, embedded `addresses`. **Không** còn `sellerProfile` hay role `seller`.
-- `Tree.ts`: SKU cây thông (size S/M/L — unique), gồm price/stock, kích thước, vật liệu, ảnh.
+- **Tree Catalog (3-tier, refactor 2026-10-09)**: cấu trúc chuẩn Shopee Seller Centre:
+  - `TreeProduct.ts`: sản phẩm CHA — `name`, `slug`, `category`, `density`, `description`, `coverImage`, `images[]`, `isActive`, `sortOrder`. **Không** chứa giá / tồn kho.
+  - `TreeCode.ts` (MỚI): mã cây (Phân loại 1) — `productId`, `code` (vd: `TREE-GREEN`), `name` (vd: "Xanh truyền thống"), `description`, `image`, `material`, `isActive`, `sortOrder`. Mỗi mã có ảnh riêng.
+  - `Tree.ts` (refactor): variant SKU (Phân loại 2) — `productId`, `codeId`, `size` (string, mặc định S/M/L/XL), `sku` (UNIQUE toàn hệ thống, vd: `TREE-GREEN-M`), `name` (auto-generated), `heightCmMin/Max`, `diameterCm`, `description`, `bareImage`, `images[]`, `price`, `stockQuantity`, `isActive`, `sortOrder`. Unique index `(codeId, size)`.
 - `Style.ts`: 6 concept trang trí (CLASSIC, MINIMAL, GINGERBREAD, WINTER, CUTE, LUXURY), palette hex + coverImage.
 - `Accessory.ts`: phụ kiện trang trí — 10 loại (LIGHT_STRING, BAUBLE, BELL, CANDY, FIGURINE, BOW, STOCKING, STAR, NAME_TAG, NAME_ORNAMENT), có `styleCodes` để filter theo style và `maxQtyBySize` để giới hạn số lượng theo size cây.
-- `TreeDesign.ts`: thiết kế của người dùng (hoặc preset admin), có `slug` unique, `isPreset`, `isPublic`, `duplicatedFrom`, `previewImage`, `config: DesignConfig`.
-- `Cart.ts`, `CartItem.ts`: giỏ hàng với item mới — `designId` + `config: DesignConfig` + `priceSnapshot` + `quantity` (số bộ) + `checked`.
-- `Order.ts`: giữ `ORDER_STATUSES` + `VALID_TRANSITIONS` + shipping fields. OrderItem viết lại — `tree` (snapshot), `style` (snapshot), `lines[]` (ACCESSORY/SERVICE), `unitTotal`, `quantity`, `deliveryOption`, `hasPersonalization`, `productionDays`, `designId/designName/previewImage`, `designConfirmedAt`, `designLockedAt`.
+- `TreeDesign.ts`: thiết kế của người dùng (hoặc preset admin), có `slug` unique, `isPreset`, `isPublic`, `duplicatedFrom`, `previewImage`, `config: DesignConfig` (đã đổi `treeId` → `variantId`).
+- `Cart.ts`, `CartItem.ts`: giỏ hàng với item mới — `designId` + `config: DesignConfig` (dùng `variantId`) + `priceSnapshot` + `quantity` (số bộ) + `checked`.
+- `Order.ts`: giữ `ORDER_STATUSES` + `VALID_TRANSITIONS` + shipping fields. OrderItem viết lại — `variant` (snapshot thay cho `tree`: productId, codeId, size, sku), `style` (snapshot), `lines[]` (ACCESSORY/SERVICE), `unitTotal`, `quantity`, `deliveryOption`, `hasPersonalization`, `productionDays`, `designId/designName/previewImage`, `designConfirmedAt`, `designLockedAt`.
 - `Notification.ts`: thông báo cho buyer.
 - `models/index.ts`: re-export tất cả.
 
@@ -31,12 +34,12 @@
 - `authController.ts` + `routes/auth.ts`: `register`, `login`, `updateAvatar`. **Bỏ**: `applySeller`, `/auth/cart/merge`, fields `sellerStatus`/`sellerProfile` trong response.
 - `userController.ts` + `routes/users.ts`: sổ địa chỉ (`/me/addresses`) — **giữ nguyên** từ codebase cũ.
 - `addressController.ts` + `routes/addresses.ts`: CAS Address Kit proxy — **giữ nguyên** (đã có từ 2026-10-03).
-- `catalogController.ts` + `routes/catalog.ts` (MỚI): public. `GET /trees`, `/styles`, `/accessories` (filter group/type/style/size), `/presets`, `/delivery-options`. `POST /quote` cho live pricing.
+- `catalogController.ts` + `routes/catalog.ts` (MỚI): public. `GET /tree-products` (3-tier browse), `GET /tree-products/:productId/codes/:codeId/variants` (size grid), `GET /trees` (legacy flat), `GET /styles`, `GET /accessories` (filter group/type/style/size), `GET /presets`, `GET /delivery-options`. `POST /quote` cho live pricing.
 - `designController.ts` + `routes/designs.ts` (MỚI): `POST /quote` (public), `POST /` (auth), `GET /mine` (auth), `GET /share/:slug` (public/owner), `GET /:id` (owner/admin), `PATCH /:id` (owner), `DELETE /:id` (owner), `POST /:id/duplicate` (auth). Mọi response kèm `pricing` (live total).
 - `cartController.ts` + `routes/cart.ts`: `GET /api/cart` (items kèm `currentUnitTotal` + `priceChanged`), `POST /items` (`{ config | designId, quantity }`), `PATCH /items/:id`, `DELETE /items/:id`, `DELETE /clear`. **Bỏ**: `POST /merge` (không có giỏ guest ở MVP).
 - `orderController.ts` + `routes/orders.ts`: `POST /` (yêu cầu `designConfirmed: true`, kiểm tra `shippingProvinceId === "79"`, recompute pricing, atomic reserve stock, tạo order, COD → `CONFIRMED` / online → `PENDING_PAYMENT`), `GET /mine`, `GET /:id`, `PATCH /:id/status` (buyer: CANCELLED/CANCEL_REQUESTED/DELIVERED/COMPLETED/DISPUTED, admin: mọi valid transition; hủy cá nhân hóa khi `PACKING` → `ORDER_CANCEL_NOT_ALLOWED`), `POST /:id/shipment` (admin only), `GET /:id/shipment`. **Bỏ**: `GET /seller`.
 - `paymentController.ts` + `routes/payments.ts`: `POST /checkout` mock. KHÔNG trừ kho (đã trừ lúc createOrder), KHÔNG thông báo seller. Chỉ chuyển `PENDING_PAYMENT → PAID → CONFIRMED` + idempotent + gửi notification cho buyer.
-- `adminController.ts` + `routes/admin.ts` (rewrite): CRUD `trees`, `styles`, `accessories`, `presets` (DELETE được cho presets). `GET /orders?status=`. `GET /stats` (totalOrders, revenue, aov, ordersByStatus, designsCreated/Shared, personalizationCount, lowStock). `GET /users`, `PATCH /users/:id/status`, `GET /users/:id/details`. **Bỏ**: pending-listings, pending-sellers, commission-rate.
+- `adminController.ts` + `routes/admin.ts` (rewrite): **3-tier tree CRUD** — `GET/POST/PATCH/DELETE /tree-products`, `POST /tree-products/:productId/codes`, `PATCH/DELETE /tree-codes/:codeId`, `POST /tree-codes/:codeId/variants`, `PATCH/DELETE /tree-variants/:variantId`, `PATCH /tree-variants/bulk` (Shopee "Áp dụng cho tất cả"). CRUD `styles`, `accessories`, `presets`. `GET /orders?status=`. `GET /stats`. `GET /users`, `PATCH /users/:id/status`, `GET /users/:id/details`. **Bỏ**: pending-listings, pending-sellers, commission-rate.
 - `notificationController.ts` + `routes/notifications.ts`: **giữ nguyên**.
 - `app.ts`: mount `/api/{auth,users,addresses,catalog,designs,cart,orders,payments,notifications,admin}` + `/api/health` + 404 + global error handler.
 

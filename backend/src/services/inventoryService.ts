@@ -23,8 +23,8 @@ export async function reserveStock(items: StockReservation[]): Promise<void> {
       const updated =
         item.kind === "TREE"
           ? await Tree.updateOne(
-              { _id: item.refId, stock: { $gte: item.quantity }, isActive: true },
-              { $inc: { stock: -item.quantity } }
+              { _id: item.refId, stockQuantity: { $gte: item.quantity }, isActive: true },
+              { $inc: { stockQuantity: -item.quantity } }
             )
           : await Accessory.updateOne(
               { _id: item.refId, stock: { $gte: item.quantity }, isActive: true },
@@ -45,7 +45,7 @@ async function rollback(decremented: StockReservation[]): Promise<void> {
   for (const item of decremented) {
     try {
       if (item.kind === "TREE") {
-        await Tree.updateOne({ _id: item.refId }, { $inc: { stock: item.quantity } });
+        await Tree.updateOne({ _id: item.refId }, { $inc: { stockQuantity: item.quantity } });
       } else {
         await Accessory.updateOne(
           { _id: item.refId },
@@ -85,7 +85,7 @@ export async function restoreTreeStock(
 ): Promise<void> {
   if (!treeId || !quantity) return;
   try {
-    await Tree.updateOne({ _id: treeId }, { $inc: { stock: quantity } });
+    await Tree.updateOne({ _id: treeId }, { $inc: { stockQuantity: quantity } });
   } catch (err) {
     console.error(`[inventory] restoreTreeStock failed for ${treeId}:`, err);
   }

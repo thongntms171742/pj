@@ -5,6 +5,63 @@ Track changes to the API contract over time to ensure synchronization between Ba
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Christmas entries (2026-10-07+) là contract hiện tại. Entries cũ (2026-10-06 trở về trước) là **lịch sử marketplace** - chỉ tham khảo context, KHÔNG áp dụng cho code Christmas. Source of truth cho FE = `backend/src/`.
 
 ---
+## 2026-10-09 — 🌲 3-TIER TREE CATALOG REFACTOR (Breaking)
+
+> **Domain shift**: Catalog cây thông chuyển từ 2-tier (Product + Variant có `color` field) sang **3-tier chuẩn Shopee Seller Centre** (Product → Code → Variant). Customer nhìn thấy 1 sản phẩm, chọn mã cây (Phân loại 1), chọn size (Phân loại 2) rồi thêm giỏ. Mỗi (code × size) là 1 SKU riêng với giá + tồn kho + SKU nội bộ duy nhất.
+
+### Added endpoints
+
+**Public (Customer) — Catalog browse 3-tier**
+- `GET /api/catalog/tree-products` → trả về danh sách Product + codes + variants
+- `GET /api/catalog/tree-products/:productId/codes/:codeId/variants` → size grid cho 1 code
+
+**Admin — 3-tier CRUD**
+- `POST /api/admin/tree-products` → tạo sản phẩm cha
+- `PATCH /api/admin/tree-products/:productId` → sửa thông tin chung
+- `POST /api/admin/tree-products/:productId/codes` → thêm mã cây (Phân loại 1)
+- `PATCH /api/admin/tree-codes/:codeId` → sửa mã cây
+- `POST /api/admin/tree-codes/:codeId/variants` → thêm 1 size variant (Phân loại 2)
+- `PATCH /api/admin/tree-variants/:variantId` → sửa giá / tồn kho / ảnh / SKU
+- `PATCH /api/admin/tree-variants/bulk` → "Áp dụng cho tất cả"
+
+### Removed / Deprecated
+
+- `POST /api/admin/tree-products` body `colors[]` (2D matrix) — bỏ. Thay bằng tạo Product → Code → Variant tuần tự.
+- `upsertTreeProduct` controller — bỏ. Tách thành 3-tier CRUD riêng.
+
+### Changed
+
+- `DesignConfig.treeId` → `DesignConfig.variantId` (mọi cart, order, preset, design đều dùng variantId)
+- `Tree.stock` → `Tree.stockQuantity` (cây dùng `stockQuantity`, phụ kiện vẫn `stock`)
+- `Tree` schema bỏ `color`, `material`, `density` — các thuộc tính này chuyển lên `TreeCode` (material) hoặc `TreeProduct` (density).
+- `OrderItem.tree` → `OrderItem.variant` (có thêm `productId`, `codeId`, `sku`)
+- `TreeProduct.colors[]` (enum cố định) → bỏ. Admin tự tạo Code với tên tự do.
+
+### Migration
+
+Chạy 1 lần: `npx ts-node src/scripts/migrate-to-3tier.ts` (an toàn, idempotent — chỉ xử lý docs cũ còn field `colors`).
+
+### Example flow
+
+```
+# Tạo sản phẩm cha
+POST /api/admin/tree-products { name: "Cây thông Noel trang trí" }
+# → { treeProduct: { _id: "P1", ... } }
+
+# Thêm mã cây
+POST /api/admin/tree-products/P1/codes { code: "TREE-GREEN", name: "Xanh truyền thống" }
+# → { treeCode: { _id: "C1", ... } }
+
+# Thêm size variants cho mã
+POST /api/admin/tree-codes/C1/variants { size: "M", sku: "TREE-GREEN-M", price: 249000, stockQuantity: 80 }
+# → { variant: { _id: "V1", ... } }
+
+# Customer xem
+GET /api/catalog/tree-products
+# → [{ product: { _id: "P1", name, ... }, codes: [{ _id: "C1", variants: [{ _id: "V1", ... }] }] }]
+```
+
+---
 ## 2026-10-07 — 🎄 CHRISTMAS PIVOT (Breaking)
 
 > **Domain shift**: dự án chuyển từ **thrift it! (vintage marketplace)** sang **Build Your Christmas** (single-brand Christmas tree e-commerce với tree editor + HCM-only delivery). Mọi endpoint thuộc marketplace bị xóa, mọi endpoint thuộc Christmas được thêm mới. FE PHẢI bám theo contract mới (single-source-of-truth = code thực tế trong `backend/src/`).

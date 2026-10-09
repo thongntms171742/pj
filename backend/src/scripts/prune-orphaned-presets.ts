@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   const styleIds = new Set<string>();
   const accessoryIds = new Set<string>();
   for (const p of presets) {
-    treeIds.add(String(p.config?.treeId));
+    treeIds.add(String(p.config?.variantId));
     styleIds.add(String(p.config?.styleId));
     for (const a of p.config?.accessories ?? []) {
       accessoryIds.add(String(a.accessoryId));
@@ -116,10 +116,10 @@ async function main(): Promise<void> {
     const missingAccessoryIds: string[] = [];
     const inactiveAccessoryIds: string[] = [];
 
-    const t = treeById.get(String(p.config?.treeId));
+    const t = treeById.get(String(p.config?.variantId));
     if (!t) {
-      missingTreeIds.push(String(p.config?.treeId));
-      reasons.push(`missing tree ${p.config?.treeId}`);
+      missingTreeIds.push(String(p.config?.variantId));
+      reasons.push(`missing variant ${p.config?.variantId}`);
     } else if (!(t as { isActive?: boolean }).isActive) {
       // Tree exists but soft-deleted. Treat as orphan for FE rendering.
       reasons.push(`tree ${t._id} is inactive`);

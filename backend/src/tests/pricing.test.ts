@@ -35,9 +35,12 @@ const ACC_STAR = "acc-star";
 function tree(overrides: Partial<TreeLean> = {}): TreeLean {
   return {
     _id: TREE_M,
+    productId: "p-1",
+    codeId: "c-1",
     size: "M",
     name: "Cây M",
     price: 249_000,
+    stockQuantity: 100,
     isActive: true,
     ...overrides,
   };
@@ -84,7 +87,7 @@ function buildCatalog(o: {
 
 function config(o: Partial<DesignConfig> = {}): DesignConfig {
   return {
-    treeId: TREE_M as unknown as Types.ObjectId,
+    variantId: TREE_M as unknown as Types.ObjectId,
     styleId: STYLE_CLASSIC as unknown as Types.ObjectId,
     accessories: [],
     deliveryOption: "READY_TO_DISPLAY",
@@ -216,17 +219,17 @@ console.log("\n── Decoration fee scales with tree size ──\n");
   const m = buildCatalog({ tree: tree({ _id: TREE_M, size: "M" }) });
   const l = buildCatalog({ tree: tree({ _id: TREE_L, size: "L" }) });
   assert(
-    priceDesign(config({ treeId: TREE_S as unknown as Types.ObjectId }), s)
+    priceDesign(config({ variantId: TREE_S as unknown as Types.ObjectId }), s)
       .decorationFee === 50_000,
     "S = 50k"
   );
   assert(
-    priceDesign(config({ treeId: TREE_M as unknown as Types.ObjectId }), m)
+    priceDesign(config({ variantId: TREE_M as unknown as Types.ObjectId }), m)
       .decorationFee === 80_000,
     "M = 80k"
   );
   assert(
-    priceDesign(config({ treeId: TREE_L as unknown as Types.ObjectId }), l)
+    priceDesign(config({ variantId: TREE_L as unknown as Types.ObjectId }), l)
       .decorationFee === 120_000,
     "L = 120k"
   );

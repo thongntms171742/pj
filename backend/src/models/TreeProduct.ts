@@ -1,36 +1,24 @@
 import mongoose, { Schema, Document } from "mongoose";
 
-// ── Tree product family (parent) ────────────────────────────────────────────
-// A "Cây thông Noel" is a family. It groups N size variants that
-// share the same density/description but differ in color and size.
+// ── Tree product (Shopee-style parent) ──────────────────────────────────────
+// Sản phẩm CHA — chỉ chứa thông tin chung, KHÔNG chứa giá / tồn kho.
+// Cấu trúc 3 cấp: TreeProduct → TreeCode (mã cây) → TreeVariant (size)
 //
-// Following Shopee Seller Centre pattern: 1 parent product groups N
-// variants across 2 classification dimensions:
+// 1 Product = 1 cây thông vật lý tên "Cây thông Noel trang trí"
+// 1 Product có N mã (vd: Xanh truyền thống, Phủ tuyết, Đèn LED)
+// 1 Mã có M size (vd: S, M, L, XL — không bắt buộc đồng đều)
+// → Tổng SKU = Σ (size per code) — có thể khác nhau giữa các mã.
 //
-//   Phân loại 1: Color (e.g. Mây Xanh, Tuyết Bạc, Đại Lễ Hội)
-//   Phân loại 2: Size (S, M, L)
-//
-// Cartesian product: up to 3 × 3 = 9 variants per product.
-
-export type TreeColor =
-  | "Mây Xanh"
-  | "Tuyết Bạc"
-  | "Đại Lễ Hội";
-
-export const TREE_COLORS: TreeColor[] = [
-  "Mây Xanh",
-  "Tuyết Bạc",
-  "Đại Lễ Hội",
-];
+// Customer nhìn thấy 1 sản phẩm → chọn mã → chọn size → add giỏ hàng.
 
 export interface ITreeProduct extends Document {
   name: string;
   slug: string;
+  category: string; // vd "Cây thông Noel"
   density: string;
   description: string;
   coverImage: string;
   images: string[];
-  colors: TreeColor[]; // Phân loại 1 — e.g. ["Mây Xanh", "Tuyết Bạc", "Đại Lễ Hội"]
   isActive: boolean;
   sortOrder: number;
 }
@@ -45,15 +33,11 @@ const TreeProductSchema = new Schema<ITreeProduct>(
       lowercase: true,
       trim: true,
     },
+    category: { type: String, default: "Cây thông Noel" },
     density: { type: String, required: true, default: "standard" },
     description: { type: String, default: "" },
     coverImage: { type: String, default: "" },
     images: { type: [String], default: [] },
-    colors: {
-      type: [String],
-      enum: ["Mây Xanh", "Tuyết Bạc", "Đại Lễ Hội"],
-      default: ["Mây Xanh"],
-    },
     isActive: { type: Boolean, default: true, index: true },
     sortOrder: { type: Number, default: 0 },
   },

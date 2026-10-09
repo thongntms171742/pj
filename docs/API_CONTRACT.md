@@ -307,6 +307,93 @@
 
 ## Catalog (public)
 
+> **Refactor 2026-10-09**: Tree catalog chuyển sang cấu trúc **3-tier chuẩn Shopee** (Product → Code → Variant). Endpoint cũ `/api/catalog/trees` (flat list) vẫn hoạt động cho backward-compat nhưng KHÔNG khuyến nghị cho FE mới. Customer flow chuẩn: xem danh sách Product → click → xem codes → chọn size → add cart (với `variantId`).
+
+### GET /api/catalog/tree-products
+
+Trả về danh sách active tree products, mỗi product kèm codes (Phân loại 1) và variants (Phân loại 2 — size × code).
+
+- **Auth**: không yêu cầu
+- **Response 200**:
+```json
+{
+  "treeProducts": [
+    {
+      "product": {
+        "_id": "P1",
+        "name": "Cây thông Noel trang trí",
+        "slug": "cay-thong-noel-trang-tri",
+        "category": "Cây thông Noel",
+        "description": "...",
+        "coverImage": "/images/trees/cover.jpg",
+        "images": ["..."],
+        "density": "Dày (380-820 cành)",
+        "isActive": true,
+        "sortOrder": 1
+      },
+      "codes": [
+        {
+          "_id": "C1",
+          "productId": "P1",
+          "code": "TREE-GREEN",
+          "name": "Xanh truyền thống",
+          "image": "/images/trees/code-green.jpg",
+          "material": "PVC cao cấp",
+          "isActive": true,
+          "sortOrder": 1,
+          "variants": [
+            {
+              "_id": "V1",
+              "size": "S",
+              "sku": "TREE-GREEN-S",
+              "price": 169000,
+              "stockQuantity": 100,
+              "bareImage": "..."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### GET /api/catalog/tree-products/:productId/codes/:codeId/variants
+
+Trả về active variants (sizes) cho 1 code cụ thể. Dùng khi customer chọn xong code và FE cần render size grid.
+
+- **Auth**: không yêu cầu
+- **Response 200**:
+```json
+{
+  "code": {
+    "_id": "C1",
+    "code": "TREE-GREEN",
+    "name": "Xanh truyền thống",
+    "image": "...",
+    "material": "PVC cao cấp"
+  },
+  "variants": [
+    {
+      "_id": "V1",
+      "size": "M",
+      "sku": "TREE-GREEN-M",
+      "price": 249000,
+      "stockQuantity": 80,
+      "heightCmMin": 140,
+      "heightCmMax": 160,
+      "diameterCm": 100,
+      "bareImage": "..."
+    }
+  ]
+}
+```
+- **Lỗi**: 404 `TREE_NOT_FOUND` nếu code không tồn tại / không active.
+
+### GET /api/catalog/trees (LEGACY — flat list)
+
+Trả về danh sách variants phẳng (flat). Giữ lại cho back-compat, KHÔNG khuyến nghị dùng cho FE mới.
+
 ### GET `/api/catalog/trees`
 
 **Auth**: Public.

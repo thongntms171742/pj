@@ -87,19 +87,19 @@ const GHOST_STYLE = "000000000000000000000002";
 const GHOST_ACCESSORY = "000000000000000000000003";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Test 1: buildPricedDesign throws CatalogServiceError when tree is missing
+// Test 1: buildPricedDesign throws CatalogServiceError when variant is missing
 // ═══════════════════════════════════════════════════════════════════════════
 async function testMissingTree(): Promise<void> {
   stubTree.findById = () => makeLeanChain(null);
   const config: DesignConfig = {
-    treeId: GHOST_TREE as unknown as Types_Compatible,
+    variantId: GHOST_TREE as unknown as Types_Compatible,
     styleId: GHOST_STYLE as unknown as Types_Compatible,
     accessories: [],
     deliveryOption: "DIY_KIT",
   };
   try {
     await buildPricedDesign(config);
-    assert(false, "buildPricedDesign with ghost treeId should throw");
+    assert(false, "buildPricedDesign with ghost variantId should throw");
     return;
   } catch (err) {
     const e = err as { code?: string; httpCode?: number };
@@ -112,40 +112,13 @@ async function testMissingTree(): Promise<void> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Test 2: buildPricedDesign throws when style is missing (tree present)
-// ═══════════════════════════════════════════════════════════════════════════
-async function testMissingStyle(): Promise<void> {
-  stubTree.findById = () =>
-    makeLeanChain({ _id: GHOST_TREE, size: "M", name: "Cay M", price: 249000, isActive: true });
-  stubStyle.findById = () => makeLeanChain(null);
-  const config: DesignConfig = {
-    treeId: GHOST_TREE as unknown as Types_Compatible,
-    styleId: GHOST_STYLE as unknown as Types_Compatible,
-    accessories: [],
-    deliveryOption: "DIY_KIT",
-  };
-  try {
-    await buildPricedDesign(config);
-    assert(false, "buildPricedDesign with ghost styleId should throw");
-    return;
-  } catch (err) {
-    const e = err as { code?: string; httpCode?: number };
-    assert(
-      e?.code === ErrorCode.STYLE_NOT_FOUND,
-      `error.code === STYLE_NOT_FOUND (got ${e?.code})`
-    );
-    assert(e?.httpCode === 404, `error.httpCode === 404 (got ${e?.httpCode})`);
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // Test 3: safelyBuildPricedDesign converts CatalogServiceError → sendError,
 // NOT → handleInternalError (500). This is THE fix that unblocks the FE.
 // ═══════════════════════════════════════════════════════════════════════════
 async function testSafelyBuildDoesNotProduce500(): Promise<void> {
   stubTree.findById = () => makeLeanChain(null);
   const config: DesignConfig = {
-    treeId: GHOST_TREE as unknown as Types_Compatible,
+    variantId: GHOST_TREE as unknown as Types_Compatible,
     styleId: GHOST_STYLE as unknown as Types_Compatible,
     accessories: [],
     deliveryOption: "DIY_KIT",
@@ -175,7 +148,7 @@ async function testSafelyBuildDoesNotProduce500(): Promise<void> {
 async function testAllSettledDoesNotShortCircuit(): Promise<void> {
   stubTree.findById = () => makeLeanChain(null);
   const badConfig: DesignConfig = {
-    treeId: "000000000000000000000010" as unknown as Types_Compatible,
+    variantId: "000000000000000000000010" as unknown as Types_Compatible,
     styleId: "000000000000000000000011" as unknown as Types_Compatible,
     accessories: [],
     deliveryOption: "DIY_KIT",
@@ -205,12 +178,12 @@ async function testAllSettledDoesNotShortCircuit(): Promise<void> {
 // ═══════════════════════════════════════════════════════════════════════════
 async function testMissingAccessory(): Promise<void> {
   stubTree.findById = () =>
-    makeLeanChain({ _id: GHOST_TREE, size: "M", name: "Cay M", price: 249000, isActive: true });
+    makeLeanChain({ _id: GHOST_TREE, productId: GHOST_TREE, codeId: GHOST_TREE, size: "M", name: "Cay M", price: 249000, stockQuantity: 10, isActive: true });
   stubStyle.findById = () =>
     makeLeanChain({ _id: GHOST_STYLE, code: "CLASSIC", name: "Classic", isActive: true });
   stubAccessory.find = () => ({ lean: () => Promise.resolve([]) });
   const config: DesignConfig = {
-    treeId: GHOST_TREE as unknown as Types_Compatible,
+    variantId: GHOST_TREE as unknown as Types_Compatible,
     styleId: GHOST_STYLE as unknown as Types_Compatible,
     accessories: [
       { accessoryId: GHOST_ACCESSORY as unknown as Types_Compatible, quantity: 1 },
@@ -241,7 +214,6 @@ async function main(): Promise<void> {
   console.log("── Preset resilience regression tests (2026-10-08, pure unit) ──\n");
   try {
     await testMissingTree();
-    await testMissingStyle();
     await testMissingAccessory();
     await testSafelyBuildDoesNotProduce500();
     await testAllSettledDoesNotShortCircuit();

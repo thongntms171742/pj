@@ -1,9 +1,12 @@
 import { Request, Response } from "express";
+import { TreeProduct } from "../models/TreeProduct";
+import { TreeCode } from "../models/TreeCode";
 import { Tree } from "../models/Tree";
 import { Style } from "../models/Style";
 import { Accessory } from "../models/Accessory";
 import { TreeDesign } from "../models/TreeDesign";
 import { safelyBuildPricedDesign } from "../services/catalogService";
+import { loadGroupedTreeCatalog } from "../services/catalogService";
 import {
   DELIVERY_OPTIONS,
   DECORATION_FEE_BY_SIZE,
@@ -19,7 +22,81 @@ import type { TreeSize } from "../models/Tree";
 // Re-export the marker so TS doesn't drop it
 export type _ReservedTreeSize = TreeSize;
 
-// ── GET /api/catalog/trees ───────────────────────────────────────────────────
+// ── GET /api/catalog/tree-products ──────────────────────────────────────────
+// Customer browse: returns active tree products with their codes + variants.
+// FE renders: 1 product card → click → show codes → pick code → show sizes
+// per code → add to cart with variantId.
+export const getTreeProducts = async (
+  _req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const groups = await loadGroupedTreeCatalog({
+      isActive: true,
+      includeEmptyProducts: false,
+    });
+    // Only return products that have at least 1 active code with at least
+    // 1 active variant — otherwise the customer can't buy anything.
+    const filtered = groups.filter((g) =>
+      g.codes.some(
+        (c) => c.isActive && c.variants.some((v) => v.isActive)
+      )
+    );
+    res.json({ treeProducts: filtered });
+  } catch (err) {
+    handleInternalError(res, err, "[catalog] getTreeProducts error");
+  }
+};
+
+// ── GET /api/catalog/tree-products/:productId/codes/:codeId/variants ────────
+// Convenience: when a customer clicks a code, FE fetches its active variants
+// (sizes) with price + stockQuantity to render the size grid.
+export const getVariantsForCode = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { productId, codeId } = req.params;
+    const code = await TreeCode.findOne({
+      _id: codeId,
+      productId,
+      isActive: true,
+    }).lean();
+    if (!code) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy mã cây");
+      return;
+    }
+    const variants = await Tree.find({ codeId, isActive: true })
+      .sort({ sortOrder: 1, size: 1 })
+      .lean();
+    res.json({
+      code: {
+        _id: String(code._id),
+        code: code.code,
+        name: code.name,
+        description: code.description,
+        image: code.image,
+        material: code.material,
+      },
+      variants: variants.map((v) => ({
+        _id: String(v._id),
+        size: v.size,
+        sku: v.sku,
+        heightCmMin: v.heightCmMin,
+        heightCmMax: v.heightCmMax,
+        diameterCm: v.diameterCm,
+        bareImage: v.bareImage,
+        price: v.price,
+        stockQuantity: v.stockQuantity,
+      })),
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[catalog] getVariantsForCode error");
+  }
+};
+
+// Legacy tree catalog kept for backward compat — returns flat list of
+// active variants. Read-only. Used by older FE pages.
 export const getTrees = async (_req: Request, res: Response): Promise<void> => {
   try {
     const trees = await Tree.find({ isActive: true })
@@ -33,13 +110,16 @@ export const getTrees = async (_req: Request, res: Response): Promise<void> => {
         heightCmMin: t.heightCmMin,
         heightCmMax: t.heightCmMax,
         diameterCm: t.diameterCm,
-        material: t.material,
-        density: t.density,
+        material: "",
+        density: "",
         description: t.description,
         images: t.images,
         bareImage: t.bareImage,
         price: t.price,
-        stock: t.stock,
+        stock: t.stockQuantity,
+        productId: String(t.productId ?? ""),
+        codeId: String(t.codeId ?? ""),
+        sku: t.sku,
       })),
     });
   } catch (err) {
@@ -100,8 +180,8 @@ export const getAccessories = async (req: Request, res: Response): Promise<void>
         styleCodes: a.styleCodes,
         // If a `size` is provided, expose the per-size max qty so FE can
         // bound its inputs immediately without an extra roundtrip.
-        maxQty: size && ["S", "M", "L"].includes(size)
-          ? a.maxQtyBySize[size as TreeSize]
+        maxQty: size && (["S", "M", "L"] as string[]).includes(size)
+          ? (a.maxQtyBySize as Record<string, number>)[size]
           : a.maxQtyBySize,
         isPersonalizable: a.isPersonalizable,
         personalizationMaxLength: a.personalizationMaxLength,

@@ -25,7 +25,7 @@ const CartItemSchema = new Schema<ICartItem>(
       default: null,
     },
     config: {
-      treeId: { type: Schema.Types.ObjectId, ref: "Tree", required: true },
+      variantId: { type: Schema.Types.ObjectId, ref: "Tree", required: true },
       styleId: { type: Schema.Types.ObjectId, ref: "Style", required: true },
       accessories: [
         {

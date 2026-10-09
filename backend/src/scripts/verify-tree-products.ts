@@ -20,7 +20,7 @@ async function main(): Promise<void> {
     );
     for (const v of variants) {
       console.log(
-        `      size=${v.size} price=${v.price} stock=${v.stock} isActive=${v.isActive}`
+        `      size=${v.size} price=${v.price} stockQuantity=${v.stockQuantity} isActive=${v.isActive}`
       );
     }
   }

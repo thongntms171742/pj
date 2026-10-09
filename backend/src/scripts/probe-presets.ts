@@ -21,7 +21,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < presets.length; i++) {
     const p = presets[i];
     console.log(`\n[probe] [${i + 1}/${presets.length}] "${p.name}" (id=${p._id})`);
-    console.log(`         treeId=${p.config?.treeId} styleId=${p.config?.styleId} accessories=${p.config?.accessories?.length ?? 0}`);
+      console.log(`         variantId=${p.config?.variantId} styleId=${p.config?.styleId} accessories=${p.config?.accessories?.length ?? 0}`);
     try {
       const { design, pricing } = await loadCatalogForDesign(p);
       const response = buildDesignResponse(design, pricing);
