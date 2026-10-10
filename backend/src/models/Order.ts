@@ -31,7 +31,7 @@ export interface IOrderItem {
   designName: string;
   previewImage: string;
   variant: ResolvedVariantRef & { unitPrice: number };
-  style: ResolvedStyleRef;
+  style: ResolvedStyleRef | null;
   lines: IOrderLine[];
   deliveryOption: DeliveryOption;
   unitTotal: number;
@@ -188,11 +188,17 @@ const OrderItemSchema = new Schema<IOrderItem>(
       bareImage: { type: String, default: "" },
     },
     style: {
-      _id: { type: String, required: true },
-      code: { type: String, required: true },
-      name: { type: String, required: true },
-      coverImage: { type: String, default: "" },
-      palette: { type: [String], default: [] },
+      type: new Schema(
+        {
+          _id: { type: String, default: "" },
+          code: { type: String, default: "" },
+          name: { type: String, default: "" },
+          coverImage: { type: String, default: "" },
+          palette: { type: [String], default: [] },
+        },
+        { _id: false }
+      ),
+      default: null,
     },
     lines: [
       {

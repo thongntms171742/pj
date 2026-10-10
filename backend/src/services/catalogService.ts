@@ -51,9 +51,12 @@ export async function loadCatalogForConfig(
       404
     );
   }
-  const style = await Style.findById(config.styleId).lean();
-  if (!style) {
-    throw makeServiceError(ErrorCode.STYLE_NOT_FOUND, "Không tìm thấy style", 404);
+  let style: any = null;
+  if (config.styleId) {
+    style = await Style.findById(config.styleId).lean();
+    if (!style) {
+      throw makeServiceError(ErrorCode.STYLE_NOT_FOUND, "Không tìm thấy style", 404);
+    }
   }
   const accDocs = accessoryIds.length
     ? await Accessory.find({ _id: { $in: accessoryIds } }).lean()
@@ -87,12 +90,14 @@ export async function loadCatalogForConfig(
       stockQuantity: tree.stockQuantity,
       isActive: tree.isActive,
     },
-    style: {
-      _id: String(style._id),
-      code: style.code,
-      name: style.name,
-      isActive: style.isActive,
-    },
+    style: style
+      ? {
+          _id: String(style._id),
+          code: style.code,
+          name: style.name,
+          isActive: style.isActive,
+        }
+      : null,
     accessories: accessoryMap,
   };
 }

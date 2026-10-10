@@ -1,12 +1,129 @@
-  # FE API Reference — 3-tier Tree Catalog (chốt response shape)
+# FE API Reference — Cẩm nang Tích hợp Frontend
 
-  > Tài liệu này dành riêng cho **Frontend team** — copy-paste các kiểu TypeScript vào project FE, dùng làm ground-truth khi parse response từ BE.
-  >
-  > **Source of truth**: code thực tế trong `backend/src/`. Nếu khác → báo lại để update tài liệu.
+> Tài liệu này dành riêng cho **Frontend team** — cung cấp thông tin môi trường, tài khoản test, quy tắc tích hợp, hợp đồng dữ liệu, code mẫu React và cURL.
+>
+> **Source of truth**: Code thực tế trong `backend/src/`.
+> **Maintainer**: Backend team (`docs_BE write/`).
 
-  ---
+---
 
-  ## 1. Tổng quan flow
+## 📌 THÔNG TIN MÔI TRƯỜNG & TÀI KHOẢN TEST
+
+### Môi trường API
+- **Production (Render)**: `https://christmas-8ca4.onrender.com` (API: `https://christmas-8ca4.onrender.com/api`)
+- **Local**: `http://localhost:4000` (API: `http://localhost:4000/api`)
+- **Frontend local**: `http://localhost:5173`
+- **Env Frontend** (`.env.development` / `.env.production`):
+  ```bash
+  VITE_API_BASE_URL=https://christmas-8ca4.onrender.com/api
+  VITE_API_TARGET=https://christmas-8ca4.onrender.com
+  ```
+
+### Tài khoản Test (sau khi seed)
+- **Admin**: `admin@buildyourchristmas.vn` | Password: lấy từ `SEED_ADMIN_PASSWORD` trong `backend/.env` (Quyền: quản lý sản phẩm 3 tầng, đơn hàng, preset, thống kê).
+- **Buyer demo**: `buyer@buildyourchristmas.vn` | Password: lấy từ `SEED_BUYER_PASSWORD` trong `backend/.env` (Quyền: mua hàng, lưu thiết kế, giỏ hàng, checkout).
+
+### Quy tắc tích hợp quan trọng
+1. **JWT Auth**: Lưu token vào `localStorage("token")`, gửi kèm header `Authorization: Bearer <token>`. Khi token hết hạn (mã `TOKEN_INVALID`), tự động logout và redirect về `/login`.
+2. **Error Envelope**: Mọi response lỗi đều có dạng `{ error: { code: string, message: string } }`. Hãy xử lý logic dựa trên `error.code`.
+3. **Cart Item**: Giỏ hàng **không bắt buộc `styleId`**. Client có thể thêm trực tiếp biến thể cây (`variantId`) và phụ kiện lẻ (`accessories`) mà không cần chọn Style.
+4. **Guest Session & Merge**: Khách chưa đăng nhập gửi kèm header `X-Session-Id`. Khi khách đăng nhập, gọi `POST /api/cart/merge` với body `{ guestSessionId }` để tự động gộp giỏ hàng vào tài khoản.
+5. **Giao hàng (Delivery)**:
+   - `READY_TO_DISPLAY` (cây trang trí sẵn): Chỉ hỗ trợ TP.HCM (`shippingProvinceId === "79"`).
+   - `DIY_KIT` (bộ tự trang trí) và `SEPARATE` (giao riêng lẻ): Hỗ trợ giao hàng toàn quốc (63 tỉnh thành qua CAS proxy `GET /api/addresses/provinces`).
+
+---
+
+## 0. 🚨 BREAKING CHANGE 2026-10-10 — Legacy `/api/admin/trees` đã bị chặn ghi
+
+> Đọc mục này **trước khi** viết code gọi API. Đây là thay đổi phá vỡ hợp đồng API.
+
+### Bảng trạng thái
+
+| Endpoint | Trạng thái | Dùng thay bằng |
+| :--- | :--- | :--- |
+| `GET /api/admin/trees` | ⚠️ Deprecated — còn chạy, read-only | `GET /api/admin/tree-products` |
+| `POST /api/admin/trees` | ❌ **ĐÃ CHẶN** → 400 `INVALID_INPUT` | `POST /api/admin/tree-products` |
+| `PATCH /api/admin/trees/:id` | ❌ **ĐÃ CHẶN** → 400 `INVALID_INPUT` | `PATCH /api/admin/tree-products/:productId` |
+| `GET /api/catalog/trees` | ⚠️ Deprecated — còn chạy, read-only | `GET /api/catalog/tree-products` |
+
+### Tại sao chặn
+
+Handler cũ nhận `req.body` thô rồi đưa thẳng vào `Tree.create(body)` — **không validate** `productId` / `codeId`:
+
+```typescript
+// Code CŨ — đã bị thay thế
+export const createTree = ah(async (req, res) => {
+  const body = req.body as any;
+  if (!body.size || !body.name || body.price == null) { /* ... */ }
+  const tree = await Tree.create(body);   // ← bypass hoàn toàn cấu trúc 3 tầng
+});
+```
+
+Hệ quả: tạo được **variant mồ côi** — thuộc về product nào? code nào? Không ai biết.
+
+Vấn đề nghiêm trọng vì `GET /api/catalog/tree-products` duyệt dữ liệu theo đường **product → code → variant**. Variant mồ côi không nằm trên bất kỳ đường nào → **không hiện trên catalog, không ai thấy, không ai xoá được** — nhưng vẫn là dòng live trong collection `Tree`, vẫn được tính vào các phép thống kê, vẫn có thể bị tham chiếu bởi order cũ.
+
+```
+TreeProduct
+   └── TreeCode
+         └── Tree          ← 3 tầng bắt buộc
+                 ↑
+                 └── Tree.create(body)   ← tạo thẳng, bỏ qua 2 tầng trên
+```
+
+### Response lỗi khi gọi endpoint đã chặn
+
+HTTP `400`:
+
+```json
+{
+  "error": {
+    "code": "INVALID_INPUT",
+    "message": "POST/PATCH /api/admin/trees đã bị vô hiệu hoá (create). Hãy dùng luồng 3 bước: POST /api/admin/tree-products → POST /api/admin/tree-products/:productId/codes → POST /api/admin/tree-codes/:codeId/variants"
+  }
+}
+```
+
+### Luồng thay thế (3 bước)
+
+```
+1.  POST   /api/admin/tree-products
+            body: { name, category?, density, coverImage?, images?, aspectRatio?, videoUrl? }
+    ← { treeProduct: { _id, name, slug, ... } }
+
+2.  POST   /api/admin/tree-products/:productId/codes
+            body: { code, name, material?, image?, sortOrder? }
+    ← { treeCode: { _id, code, name, ... } }
+
+3.  POST   /api/admin/tree-codes/:codeId/variants
+            body: { size, price, stockQuantity, heightCmMin, heightCmMax,
+                    diameterCm?, sku?, images?, bareImage? }
+    ← { variant: { _id, sku, name, price, stockQuantity, ... } }
+```
+
+Bước 3 là nơi **duy nhất** chứa `price` và `stockQuantity`.
+
+### Hành động cần làm cho FE
+
+1. Grep codebase FE mọi chỗ gọi `POST /api/admin/trees` hoặc `PATCH /api/admin/trees/` → đổi sang flow 3 bước.
+2. Form admin chỉ gọi `POST /api/admin/trees` thì **đã hỏng** — phải viết lại.
+3. Chỗ gọi `GET` vẫn chạy, nên migrate dần sang `/tree-products` để có dữ liệu grouped 3 tầng.
+4. Deadline **BE xoá hẳn** endpoint legacy: `2026-12-01`.
+
+### Quan sát được trong prod logs
+
+Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được gọi:
+
+```json
+{"ts":"...","level":"warn","ctx":"[legacy] GET /api/admin/trees called — migrate to /admin/tree-products","userId":"..."}
+```
+
+→ Trước ngày xoá hẳn, kiểm tra Render logs để biết còn client nào gọi endpoint cũ.
+
+---
+
+## 1. Tổng quan flow
 
   ```
   Admin form                          Customer browse
@@ -422,7 +539,6 @@
   {
     "config": {
       "variantId": "65f1a2b3c4d5e6f7g8h9i0j4",   // ← từ variant._id ở trên
-      "styleId": "STYLE_ID",
       "accessories": [
         { "accessoryId": "ACC_ID", "quantity": 12 }
       ],
@@ -431,6 +547,8 @@
     "quantity": 1
   }
   ```
+
+  > ℹ️ **Lưu ý**: Giỏ hàng (`CartItem`) không yêu cầu trường `styleId`. FE có thể thêm trực tiếp cây và phụ kiện vào giỏ hàng mà không cần chọn Style.
 
   **Response 201** (cart item với pricing snapshot)
   ```json
@@ -446,7 +564,6 @@
       "checked": false,
       "config": {
         "variantId": "65f1a2b3c4d5e6f7g8h9i0j4",
-        "styleId": "...",
         "accessories": [ ... ],
         "deliveryOption": "READY_TO_DISPLAY"
       }
@@ -822,7 +939,6 @@
                   await addCartItem({
                     config: {
                       variantId: selectedVariant._id,   // ← QUAN TRỌNG
-                      styleId: "STYLE_DEFAULT",          // hoặc lấy từ editor
                       accessories: [],
                       deliveryOption: "READY_TO_DISPLAY",
                     },
@@ -871,9 +987,9 @@
       -d '{"size":"M","sku":"TREE-TEST-M","price":199000,"stockQuantity":50}' \
       http://localhost:4000/api/admin/tree-codes/<CID>/variants | jq
 
-  # Cart add (dùng variant._id ở trên)
+  # Cart add (dùng variant._id ở trên, không cần styleId)
   curl -X POST -H "Authorization: Bearer $USER_TOKEN" -H "Content-Type: application/json" \
-      -d "{\"config\":{\"variantId\":\"<VID>\",\"styleId\":\"<SID>\",\"accessories\":[],\"deliveryOption\":\"READY_TO_DISPLAY\"},\"quantity\":1}" \
+      -d "{\"config\":{\"variantId\":\"<VID>\",\"accessories\":[],\"deliveryOption\":\"READY_TO_DISPLAY\"},\"quantity\":1}" \
       http://localhost:4000/api/cart/items | jq
   ```
 

@@ -4,57 +4,137 @@ Track changes to the API contract over time to ensure synchronization between Ba
 
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Christmas entries (2026-10-07+) là contract hiện tại. Entries cũ (2026-10-06 trở về trước) là **lịch sử marketplace** - chỉ tham khảo context, KHÔNG áp dụng cho code Christmas. Source of truth cho FE = `backend/src/`.
 
-## 2026-10-09 — 🛒 SHOPEE SELLER CENTRE: SINGLE-TIER FALLBACK & MEDIA MANAGEMENT SECTION
+---
+## 2026-10-10 — 🚨 BREAKING: LEGACY `/api/admin/trees` WRITES BLOCKED + DEAD CODE CLEANUP
 
-> **Product Management UI Evolution**:
-> - **Khi xóa hết phân loại (Single-tier non-variation view)**: Form chuyển sang giao diện sản phẩm đơn giản với nút nét đứt đỏ `+ Thêm nhóm phân loại`, ô `* Giá` (`₫ | [Input]`), ô `* Kho hàng 🛈` (`[0]`), và mục `Mua nhiều giảm giá` với `+ Thêm khoảng giá`.
-> - **Khu vực Media & Thông tin cơ bản**:
->   - Tùy chọn tỷ lệ ảnh `1:1` và `3:4` với radio button chuẩn Shopee.
->   - Quản lý gallery hình ảnh sản phẩm (tối đa 9 ảnh) với ô nét đứt `Thêm hình ảnh (X/9)` và banner cảnh báo chất lượng hình ảnh.
->   - Quản lý Ảnh bìa 1:1 với danh sách hướng dẫn chi tiết.
->   - Quản lý Video sản phẩm MP4 (tối đa 30MB) với hướng dẫn độ dài 10s-60s.
->   - Tên sản phẩm có bộ đếm ký tự `(X/120)`.
+> **Breaking change** — FE phải migrate trước khi endpoint bị xoá hẳn (`2026-12-01`).
+> Chi tiết + code mẫu: `docs_BE/FE_API_REFERENCE.md` §0.
+
+### Removed endpoints (writes only)
+
+| Endpoint | Trạng thái | Thay bằng |
+| :--- | :--- | :--- |
+| `POST /api/admin/trees` | ❌ `400 INVALID_INPUT` | `POST /api/admin/tree-products` → `POST /api/admin/tree-products/:productId/codes` → `POST /api/admin/tree-codes/:codeId/variants` |
+| `PATCH /api/admin/trees/:id` | ❌ `400 INVALID_INPUT` | `PATCH /api/admin/tree-products/:productId` (hoặc `PATCH /api/admin/tree-variants/:variantId`) |
+
+Error response:
+
+```json
+{
+  "error": {
+    "code": "INVALID_INPUT",
+    "message": "POST/PATCH /api/admin/trees đã bị vô hiệu hoá (create). Hãy dùng luồng 3 bước: POST /api/admin/tree-products → POST /api/admin/tree-products/:productId/codes → POST /api/admin/tree-codes/:codeId/variants"
+  }
+}
+```
+
+**Root cause**: handler cũ forward thẳng `req.body` vào `Tree.create(body)`, bỏ qua
+toàn bộ cấu trúc 3 tầng. `productId` / `codeId` không được validate → tạo được
+**variant mồ côi**. Variant mồ côi không nằm trên đường duyệt
+product → code → variant của `GET /api/catalog/tree-products`, nên nó vô hình
+trên catalog nhưng vẫn là dòng live trong collection `Tree`.
+
+### Deprecated (read-only, vẫn hoạt động)
+
+| Endpoint | Thay bằng | Ghi chú |
+| :--- | :--- | :--- |
+| `GET /api/admin/trees` | `GET /api/admin/tree-products` | Log `warn` mỗi lần gọi |
+| `GET /api/catalog/trees` | `GET /api/catalog/tree-products` | Log `warn` mỗi lần gọi |
+
+Cả hai log mức `warn` với `ctx` `[legacy] ...` → dùng Render logs để phát hiện
+client cũ trước ngày xoá.
+
+### Bug fix (không breaking)
+
+- **`Order.discountAmount`**: interface khai báo trùng field 2 lần → `tsc` fail
+  (`TS2300`) và runtime crash (`Cannot overwrite 'discount' model option`).
+  Đã gộp còn 1 field + 1 schema entry. Virtual `discount` bị xoá vì ghi đè
+  real path `discountAmount`.
+  → **FE không cần đổi**: `dto/order.ts` vẫn fallback `o.discountAmount || o.discount || 0`.
+
+### Internal cleanup (no API surface change)
+
+- Xoá `backend/src/routes/_archive/` (2 router file, không được import ở đâu).
+- Xoá `backend/src/scripts/migrate-tree-products.ts` (no-op sau 3-tier refactor).
+- `controllers/admin/treeCodes.ts`: static import thay cho `await import()`.
+- `controllers/catalogController.ts`: bỏ re-export marker thừa `_ReservedTreeSize`.
+- Header 3 model (`TreeProduct` / `TreeCode` / `Tree`) ghi rõ tầng nào chứa giá.
+
+### Verification
+
+- ✅ `npm run build` (`tsc`) — pass
+- ✅ `npm run test:all` — **201/201 PASS** (61 errorContract + 25 pricing + 16 address + 87 authValidation + 12 presetsResilience)
+- ⚠️ **NOT VERIFIED**: chưa smoke-test trên Render (cần deploy). Breaking change → cần báo FE trước khi merge.
 
 ---
+## 2026-10-09 — 🛒 SHOPEE SELLER CENTRE: SINGLE-TIER FALLBACK, FULL MEDIA MANAGEMENT & MP4 VIDEO (FE Pass 9 Sync)
 
-## 2026-10-09 — 🛍️ PRODUCT DETAIL MODAL & SHOPEE SELLER CENTRE VARIATION MATRIX FORM
-
-> **Customer & Admin Alignment**:
-> - **Customer Quick-View / Detail Modal**: Bổ sung `TreeDetailModal` xem chi tiết cây thông tại Catalog (ảnh zoom, gallery thumbnails, chọn phân loại 1 & 2, giá cập nhật theo size, kiểm tra tồn kho, bộ chọn số lượng, Thêm giỏ và Mua ngay).
-> - **Admin Sales Information Matrix (Shopee Style)**: Tái thiết kế toàn diện khu vực "Thông tin bán hàng" trong `TreeProductForm`:
->   - Phân loại 1 (Tên phân loại tùy chỉnh, danh sách tùy chọn có mô tả và ô tải ảnh đại diện riêng cho từng tùy chọn).
->   - Phân loại 2 (Tên phân loại tùy chỉnh, danh sách tùy chọn, nút xóa phân loại 2 hoặc thêm lại).
->   - Thanh công cụ trên bảng: `₫ | Giá`, `Kho hàng`, `SKU phân loại` + nút màu cam `#ee4d2d` `Áp dụng cho tất cả phân loại`.
->   - Bảng ma trận: Cột Phân loại 1 (gộp hàng `rowSpan` + khung upload ảnh nét đứt), Cột Phân loại 2, Cột * Giá, Cột * Kho hàng, Cột SKU phân loại, Cột GTIN.
->   - Mua nhiều giảm giá (chú thích giá sỉ).
->   - Đa năng: Cho phép thêm cả Cây thông Noel (`TreeProduct`) hoặc Phụ kiện trang trí (`Accessory`).
-
----
-
-## 2026-10-09 — 🛍️ CATALOG UI REFACTOR: PURE TREE PRODUCTS & ACCESSORIES ONLY (Bỏ 3 kích thước tĩnh & Mẫu có sẵn)
-
-> **Customer Flow Shift**: Đơn giản hóa toàn diện trải nghiệm mua hàng cho khách:
-> - **Bỏ 3 kích thước tĩnh**: Bỏ các thẻ kích thước rời rạc (S 60cm, M 90cm, L 120cm). Size nay là thuộc tính biến thể (`TreeVariant`) trực thuộc từng sản phẩm cây thông được admin quản lý.
-> - **Bỏ hoàn toàn Mẫu có sẵn (Presets)**: Không còn trưng bày hoặc điều hướng sang trang "Mẫu có sẵn" hay Editor. Toàn bộ route `/presets` và `/tree/:slug` được redirect về `/catalog`.
-> - **Hiển thị 100% TreeProduct từ Backend**: Sản phẩm cây thông (`TreeProduct`) hiển thị đầy đủ hình ảnh, cho phép chọn Mã màu (`TreeCode`) và Kích thước (`TreeVariant` S/M/L) với số lượng tồn kho và giá tiền cập nhật tức thì, kèm nút "Thêm vào giỏ" nhanh chóng.
-> - **Phụ kiện trang trí (`Accessory`)**: Phân nhóm trực quan, thêm vào giỏ 1 chạm.
+> **FE-BE Synchronization Pass 9**:
+> - **FE Update**:
+>   - **Chế độ Không phân loại (`hasTiers=false`)**: Khi xóa hết phân loại, form Thông tin bán hàng tự động chuyển về chế độ sản phẩm đơn lẻ (Nút `+ Thêm nhóm phân loại`, ô `* Giá` `₫`, ô `* Kho hàng` `🛈`, `Mua nhiều giảm giá` với `+ Thêm khoảng giá`).
+>   - **Khu vực Quản lý Media & Thông tin cơ bản**: Tùy chọn tỷ lệ ảnh `1:1` / `3:4`, Gallery tối đa 9 ảnh kèm cảnh báo chất lượng, Ảnh bìa 1:1, Video sản phẩm MP4 (tối đa 30MB, độ dài 10s-60s), Tên sản phẩm có bộ đếm ký tự `(X/120)`.
+> - **BE Updates & Adaptations**:
+>   - **Media Upload Mở rộng (`POST /api/uploads`)**: Bổ sung hỗ trợ tệp Video MP4 (`.mp4`, MIME `video/mp4`) dung lượng tối đa lên đến **30MB** (song song với ảnh 5MB), hỗ trợ cả Multipart form-data và Base64 Data URL.
+>   - **Model `TreeProduct`**: Bổ sung trường `aspectRatio` (`"1:1" | "3:4"`, default `"1:1"`) và `videoUrl?: string`.
+>   - **Admin Controllers (`adminController.ts`)**:
+>     - `createTreeProduct` & `updateTreeProduct`: Tiếp nhận và lưu trữ `aspectRatio` và `videoUrl` (hoặc alias `video`).
+>     - `createTreeVariant`: Hỗ trợ fallback linh hoạt cho sản phẩm đơn lẻ không phân loại (Single-tier mode) — tự động gán `size: "STANDARD"` và tự sinh `sku` duy nhất (`${code}-${size}`) nếu FE không truyền vào, tránh lỗi `MISSING_FIELD`.
 
 ---
+## 2026-10-09 — 🛍️ PRODUCT DETAIL MODAL & SHOPEE SELLER CENTRE VARIATION MATRIX FORM (FE Pass 8 Sync)
 
-## 2026-10-09 — 📋 FE REFACTOR & BACKEND PROPOSALS (UI/UX Alignment)
+> **FE-BE Synchronization Pass 8**:
+> - **FE Update**:
+>   - **Quick-View / Detail Modal (`TreeDetailModal`)**: Khách hàng xem nhanh chi tiết cây thông tại Catalog (ảnh zoom, gallery thumbnails, chọn Phân loại 1 Mã cây & Phân loại 2 Kích thước, kiểm tra tồn kho real-time, bộ chọn số lượng `quantity`, nút Thêm giỏ và Mua ngay).
+>   - **Form Phân loại hàng kiểu Shopee**: Phân loại 1 (upload ảnh riêng cho từng option), Phân loại 2, thanh công cụ cam `#ee4d2d` "Áp dụng cho tất cả", bảng ma trận phân loại gộp hàng `rowSpan`.
+>   - **Đa năng**: Hỗ trợ thêm cả Cây thông Noel (`TreeProduct`) và Phụ kiện trang trí (`Accessory`).
+> - **BE Updates & Adaptations**:
+>   - `GET /api/catalog/tree-products`: Cung cấp đầy đủ `treeCodes` và `variants` chi tiết với dữ liệu tồn kho thực tế để FE render tức thì `TreeDetailModal`.
+>   - `POST /api/cart/items`: Nhận trực tiếp `variantId` từ modal và xử lý tồn kho nguyên tử.
+>   - `PATCH /api/admin/tree-variants/bulk`: Xử lý áp dụng hàng loạt giá/kho cho tất cả biến thể khi bấm nút màu cam Shopee.
 
-> Chi tiết đặc tả kỹ thuật và hướng dẫn triển khai cho BE xem tại: [`docs/BE_RECOMMENDATIONS.md`](file:///f:/FPTU/FALL%202026/EXE201/christmas_UI/docs/BE_RECOMMENDATIONS.md).
+> **FE-BE Synchronization Pass**:
+> - **FE Shift**: Frontend chuyển đổi Catalog sang thuần **TreeProducts (3-tier)** & **Accessories (Phụ kiện)**. Bỏ 3 kích thước tĩnh tách rời, bỏ điều hướng Presets; bổ sung `TreeDetailModal` (chọn mã cây, chọn size, gallery ảnh, thêm giỏ / mua ngay).
+> - **BE Compatibility**: Backend đáp ứng hoàn hảo:
+>   - `GET /api/catalog/tree-products`: Cung cấp danh sách cây dạng nhóm (Product → Codes → Variants) kèm giá, SKU và tồn kho nguyên tử.
+>   - `POST /api/cart/items`: Cho phép thêm trực tiếp 1 variant cây (`config.variantId`) hoặc thêm phụ kiện lẻ (`config.accessories`) mà không bắt buộc phải qua Canvas Editor.
+>   - `POST /api/orders`: Tự động nhận diện `DIY_KIT` và `SEPARATE` cho phép giao toàn quốc (chỉ hạn chế HCM đối với `READY_TO_DISPLAY`).
 
-- **UI/UX Refactored**: Sửa lỗi tính tiền giỏ hàng/thanh toán theo `quantity`, hoàn thiện Editor hydration/clone flow, bổ sung quản lý đơn hàng & người dùng Admin.
-- **Backend Proposals**:
-  - `GET /api/auth/me` & `PATCH /api/auth/me` (Profile sync & update).
-  - `POST /api/cart/merge` (Hỗ trợ giỏ hàng khách vãng lai `guestSessionId`).
-  - Atomic stock decrement (`$inc` với `$gte`) & Auto-restock khi hủy đơn.
-  - Mở rộng giao hàng liên tỉnh cho combo `DIY_KIT` / `SEPARATE` (chỉ hạn chế HCM đối với `READY_TO_DISPLAY`).
-  - `POST /api/coupons/apply` (Mã giảm giá mùa Noel).
-  - `POST /api/uploads` (Upload ảnh preview cây lên Cloudinary/S3).
-  - `POST /api/payments/webhook` (Tự động cập nhật trạng thái đơn thanh toán online).
-  - `PATCH /api/notifications/read-all`.
+---
+## 2026-10-09 — 🚀 FE PROPOSALS ALIGNMENT & SYSTEM UPGRADE
+
+> **Đồng bộ toàn diện đề xuất FE**: Triển khai các module theo `BE_RECOMMENDATIONS.md` và thống nhất triết lý: **Cây thông là Product (sản phẩm cốt lõi)**, còn **Phụ kiện & Mẫu trang trí là Category / Danh mục sản phẩm vệ tinh**, gom về 1 luồng cấu hình thống nhất, tránh phân mảnh cấu trúc.
+
+### Added endpoints
+
+**Auth & Profile**
+- `GET /api/auth/me` → lấy profile người dùng hiện tại (addresses, roles, phone, avatar)
+- `PATCH /api/auth/me` → cập nhật thông tin cá nhân (`name`, `phone`, `avatarUrl`)
+
+**Cart & Guest Session**
+- `POST /api/cart/merge` → gộp giỏ hàng khách vãng lai (`guestSessionId`) vào tài khoản sau khi đăng nhập
+- Header `X-Session-Id` hỗ trợ khách vãng lai thao tác giỏ hàng trước khi đăng nhập
+
+**Coupons**
+- `POST /api/coupons/apply` → áp dụng mã giảm giá và tính toán số tiền chiết khấu
+
+**Uploads**
+- `POST /api/uploads` → upload file ảnh hoặc base64 data URL lưu trữ static (/uploads), phục vụ preview cây thông Canvas Editor
+
+**Payments Webhook**
+- `POST /api/payments/webhook` → nhận webhook tự động cập nhật đơn sang `PAID` và `CONFIRMED`
+
+**Notifications & Analytics**
+- `PATCH /api/notifications/read-all` → đánh dấu đọc tất cả thông báo trong 1 request
+- `GET /api/admin/analytics` → thống kê doanh thu theo ngày, tỷ lệ concept/style, top phụ kiện
+
+### Changed
+
+- **Vận chuyển liên tỉnh**: `POST /api/orders` chỉ giới hạn khu vực TP.HCM (`provinceId: "79"`) đối với đơn chứa cây trang trí sẵn `READY_TO_DISPLAY`. Đơn hàng `DIY_KIT` và `SEPARATE` hỗ trợ giao hàng toàn quốc!
+- **Model `Order`**: bổ sung `discountCode`, `discountAmount`, `paymentTransactionId`, `internalNotes`.
+- **Model `User`**: bổ sung trường `phone`.
+- **Model `Cart`**: hỗ trợ cả `userId` và guest `sessionId`.
+- **Model `Coupon`**: tạo mới (`code`, `discountType`, `value`, `minOrderValue`, `maxDiscount`, `startDate`, `endDate`, `usageLimit`, `usedCount`, `isActive`).
 
 ---
 ## 2026-10-09 — 🌲 3-TIER TREE CATALOG REFACTOR (Breaking)

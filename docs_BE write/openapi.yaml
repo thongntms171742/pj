@@ -2062,10 +2062,10 @@ components:
 
     DesignConfig:
       type: object
-      required: [variantId, styleId, accessories, deliveryOption]
+      required: [variantId, accessories, deliveryOption]
       properties:
         variantId: { type: string, description: 'Mongo ObjectId of Tree variant (size × code SKU)' }
-        styleId: { type: string, description: 'Mongo ObjectId of Style' }
+        styleId: { type: string, description: 'Mongo ObjectId of Style (optional, chỉ dùng khi custom qua 3D/Canvas Editor)' }
         accessories:
           type: array
           items:
@@ -2089,6 +2089,7 @@ components:
             unitPrice: { type: integer, description: 'VND' }
         style:
           type: object
+          nullable: true
           properties:
             id: { type: string }
             code: { type: string, enum: [CLASSIC, MINIMAL, GINGERBREAD, WINTER, CUTE, LUXURY] }

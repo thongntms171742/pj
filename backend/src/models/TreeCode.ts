@@ -1,7 +1,12 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 
-// ── Tree code / Mã cây (Shopee-style Phân loại 1) ──────────────────────────
+// ── Tree code / Mã cây (Shopee-style Phân loại 1) — TẦNG 2 ─────────────────
 // Một "Mã cây" đại diện cho 1 mẫu cây / variant lớn của cùng 1 sản phẩm cha.
+//
+// ⚠️ Cấu trúc 3 tầng, đọc theo thứ tự: TreeProduct → TreeCode → Tree.
+//   Tier 1: TreeProduct — tên, ảnh, mô tả chung
+//   Tier 2: TreeCode (file này) — mã cây / phân loại 1
+//   Tier 3: Tree        — SKU = code × size, CÓ giá + tồn kho
 //
 // Ví dụ: Sản phẩm "Cây thông Noel trang trí"
 //   - Mã 1: Xanh truyền thống (image, material, sortOrder riêng)
@@ -12,9 +17,9 @@ import mongoose, { Schema, Document, Types } from "mongoose";
 // cùng size với mã khác. Mã có ảnh riêng, thứ tự hiển thị riêng.
 //
 // Quan hệ:
-//   TreeProduct 1 ──< TreeCode N ──< TreeVariant N (size)
+//   TreeProduct 1 ──< TreeCode N ──< Tree N (size)
 //
-// TreeCode KHÔNG chứa giá / tồn kho — đó là việc của TreeVariant.
+// TreeCode KHÔNG chứa giá / tồn kho — đó là việc của Tree.
 
 export interface ITreeCode extends Document {
   productId: Types.ObjectId;

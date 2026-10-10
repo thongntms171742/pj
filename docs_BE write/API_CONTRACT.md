@@ -139,6 +139,60 @@
 
 ---
 
+### GET `/api/auth/me`
+
+**Mục đích**: Lấy thông tin tài khoản người dùng hiện tại (profile, địa chỉ, quyền hạn).
+
+**Auth**: Buyer / Admin.
+
+**Success (200)**:
+```json
+{
+  "user": {
+    "_id": "6704f123456789abcdef0123",
+    "name": "Nguyễn Văn A",
+    "email": "nguyenvana@example.com",
+    "phone": "0901234567",
+    "avatarUrl": "https://cdn.example.com/avatars/user.jpg",
+    "roles": ["buyer"],
+    "accountStatus": "active",
+    "accountStatusReason": "",
+    "addresses": [...],
+    "createdAt": "2026-10-01T10:00:00.000Z"
+  }
+}
+```
+
+**Errors**:
+- `401 UNAUTHORIZED`
+- `404 USER_NOT_FOUND`
+
+---
+
+### PATCH `/api/auth/me`
+
+**Mục đích**: Cập nhật thông tin cá nhân.
+
+**Auth**: Buyer / Admin.
+
+**Request**:
+```json
+{
+  "name": "string (optional)",
+  "phone": "string (optional)",
+  "avatarUrl": "string (optional)"
+}
+```
+
+**Success (200)**: `{ "user": { ... } }`
+
+**Errors**:
+- `400 INVALID_INPUT`
+- `401 UNAUTHORIZED`
+- `404 USER_NOT_FOUND`
+
+---
+
 ### PUT `/api/auth/me/avatar`
 
 **Auth**: Required.
@@ -326,7 +380,9 @@ Trả về danh sách active tree products, mỗi product kèm codes (Phân lo�
         "category": "Cây thông Noel",
         "description": "...",
         "coverImage": "/images/trees/cover.jpg",
-        "images": ["..."],
+        "images": ["/images/trees/img1.jpg", "/images/trees/img2.jpg"],
+        "aspectRatio": "1:1",
+        "videoUrl": "/uploads/vid_1728500000_tree_intro.mp4",
         "density": "Dày (380-820 cành)",
         "isActive": true,
         "sortOrder": 1
@@ -551,8 +607,8 @@ Trả về danh sách variants phẳng (flat). Giữ lại cho back-compat, KHÔ
 ```json
 {
   "config": {
-    "treeId": "ObjectId (required — Tree._id)",
-    "styleId": "ObjectId (required — Style._id)",
+    "variantId": "ObjectId (required — Tree._id)",
+    "styleId": "ObjectId (optional — Style._id, chỉ dùng khi custom qua Editor)",
     "accessories": [
       { "accessoryId": "ObjectId", "quantity": 1, "personalizationText": "string (optional, required if accessory.isPersonalizable)" }
     ],
@@ -849,6 +905,33 @@ hoặc
 ```json
 { "success": true }
 ```
+
+---
+
+### POST `/api/cart/merge`
+
+**Mục đích**: Gộp giỏ hàng khách vãng lai (guest session) vào tài khoản người dùng sau khi đăng nhập.
+
+**Auth**: Buyer.
+
+**Request**:
+```json
+{
+  "guestSessionId": "guest_123456789"
+}
+```
+
+**Success (200)**:
+```json
+{
+  "cart": { "_id": "string" },
+  "items": [ /* Danh sách items sau khi đã gộp */ ]
+}
+```
+
+**Errors**:
+- `401 UNAUTHORIZED`
+- `500 INTERNAL_ERROR`
 
 ---
 
@@ -1152,6 +1235,38 @@ hoặc
 
 ---
 
+### POST `/api/payments/webhook`
+
+**Mục đích**: Nhận thông báo tự động từ cổng thanh toán (PayOS / Sepay / VNPay / MoMo) để cập nhật đơn hàng thành `PAID` và `CONFIRMED`.
+
+**Auth**: Public (xác thực qua chữ ký HMAC `X-Signature` nếu cấu hình `PAYMENT_WEBHOOK_SECRET`).
+
+**Request**:
+```json
+{
+  "orderCode": "BYC-12345678",
+  "transactionId": "TXN-998877",
+  "gateway": "PayOS",
+  "amount": 1250000
+}
+```
+
+**Success (200)**:
+```json
+{
+  "success": true,
+  "message": "Cập nhật thanh toán thành công",
+  "order": { /* ApiOrder đã cập nhật */ }
+}
+```
+
+**Errors**:
+- `400 MISSING_FIELD`
+- `401 WEBHOOK_INVALID_SIGNATURE`
+- `404 ORDER_NOT_FOUND`
+
+---
+
 ## Notifications
 
 ### GET `/api/notifications`
@@ -1193,6 +1308,24 @@ hoặc
 **Errors**:
 - `404 NOT_FOUND` — notification không tồn tại hoặc không thuộc user
 - `401 UNAUTHORIZED`
+
+---
+
+### PATCH `/api/notifications/read-all`
+
+**Mục đích**: Đánh dấu đã đọc tất cả thông báo của người dùng hiện tại trong 1 request duy nhất.
+
+**Auth**: Required.
+
+**Success (200)**:
+```json
+{
+  "success": true,
+  "message": "Đã đánh dấu đọc tất cả thông báo"
+}
+```
+
+**Errors**: `401 UNAUTHORIZED`
 
 ---
 
@@ -1438,6 +1571,120 @@ hoặc
 ```
 
 **Errors**: `404 ACCOUNT_NOT_FOUND`
+
+---
+
+### Analytics (xu hướng & biểu đồ)
+
+#### GET `/api/admin/analytics`
+
+**Query**: `?from=2026-10-01&to=2026-12-31` (optional)
+
+**Success (200)**:
+```json
+{
+  "analytics": {
+    "from": "ISO",
+    "to": "ISO",
+    "revenueByDay": [
+      { "date": "2026-10-01", "revenue": 2500000, "orderCount": 5 }
+    ],
+    "stylesBreakdown": [
+      { "styleCode": "CLASSIC", "name": "Cổ điển", "count": 25 }
+    ],
+    "deliveryOptions": [
+      { "deliveryOption": "READY_TO_DISPLAY", "count": 15 },
+      { "deliveryOption": "DIY_KIT", "count": 30 }
+    ],
+    "topAccessories": [
+      { "name": "Quả châu đỏ", "type": "BAUBLE", "totalCount": 120 }
+    ]
+  }
+}
+```
+
+---
+
+## Coupons
+
+### POST `/api/coupons/apply`
+
+**Mục đích**: Kiểm tra và tính chiết khấu mã giảm giá mùa Noel.
+
+**Auth**: Required (Buyer / Admin).
+
+**Request**:
+```json
+{
+  "code": "NOEL2026",
+  "orderTotal": 1250000
+}
+```
+
+**Success (200)**:
+```json
+{
+  "valid": true,
+  "code": "NOEL2026",
+  "discountType": "PERCENT",
+  "value": 10,
+  "discountAmount": 125000,
+  "finalTotal": 1125000,
+  "message": "Áp dụng mã giảm giá NOEL2026 thành công! Giảm 125.000đ"
+}
+```
+
+**Errors**:
+- `400 MISSING_FIELD`
+- `400 COUPON_EXPIRED`
+- `400 COUPON_LIMIT_REACHED`
+- `400 COUPON_MIN_ORDER_NOT_MET`
+- `404 COUPON_NOT_FOUND`
+
+---
+
+## Uploads
+
+### POST `/api/uploads`
+
+**Mục đích**: Tải ảnh preview cây từ Canvas Editor, hình ảnh phụ kiện, ảnh gallery sản phẩm và video giới thiệu sản phẩm MP4 chuẩn Shopee.
+
+**Auth**: Optional (hoặc Buyer / Admin).
+
+**Request**:
+- `Content-Type: application/json` với `{ file: "data:image/png;base64,..." }` hoặc `{ file: "data:video/mp4;base64,..." }`.
+- HOẶC `Content-Type: multipart/form-data` với trường `file`.
+
+**Quy định giới hạn dung lượng & định dạng**:
+- **Hình ảnh**: `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg` — Dung lượng tối đa: **5MB**.
+- **Video sản phẩm**: `.mp4` — Dung lượng tối đa: **30MB** (Khuyến nghị độ dài 10s–60s).
+
+**Success (201) — Hình ảnh**:
+```json
+{
+  "url": "http://localhost:4000/uploads/img_1728500000_abc123.webp",
+  "path": "/uploads/img_1728500000_abc123.webp",
+  "publicId": "uploads/img_1728500000_abc123",
+  "format": "webp",
+  "size": 245100
+}
+```
+
+**Success (201) — Video**:
+```json
+{
+  "url": "http://localhost:4000/uploads/vid_1728500000_def456.mp4",
+  "path": "/uploads/vid_1728500000_def456.mp4",
+  "publicId": "uploads/vid_1728500000_def456",
+  "format": "mp4",
+  "size": 15420000
+}
+```
+
+**Errors**:
+- `400 MISSING_FIELD` (Thiếu file trong request)
+- `400 FILE_TOO_LARGE` (Ảnh > 5MB hoặc Video > 30MB)
+- `415 UNSUPPORTED_MEDIA_TYPE` (Chỉ chấp nhận PNG, JPG, WebP, SVG hoặc MP4)
 
 ---
 

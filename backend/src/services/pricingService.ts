@@ -53,7 +53,7 @@ export interface AccessoryLean {
 
 export interface CatalogSnapshot {
   tree: TreeLean;
-  style: StyleLean;
+  style: StyleLean | null;
   accessories: Map<string, AccessoryLean>;
 }
 
@@ -64,7 +64,7 @@ export interface PriceLine extends ResolvedAccessoryRef {
 
 export interface PriceBreakdown {
   tree: { id: string; name: string; size: TreeSize; unitPrice: number };
-  style: { id: string; code: StyleCode; name: string };
+  style: { id: string; code: StyleCode; name: string } | null;
   lines: PriceLine[];
   decorationFee: number;
   shippingFee: number;
@@ -121,19 +121,15 @@ export function priceDesign(
     );
   }
 
-  // 2) Style
+  // 2) Style (optional)
   const style = catalog.style;
-  if (!style) {
-    throw new DesignValidationError(
-      ErrorCode.STYLE_NOT_FOUND,
-      "Không tìm thấy style trong catalog"
-    );
-  }
-  if (!style.isActive) {
-    throw new DesignValidationError(
-      ErrorCode.CATALOG_ITEM_UNAVAILABLE,
-      `Style "${style.name}" hiện không được bán`
-    );
+  if (style) {
+    if (!style.isActive) {
+      throw new DesignValidationError(
+        ErrorCode.CATALOG_ITEM_UNAVAILABLE,
+        `Style "${style.name}" hiện không được bán`
+      );
+    }
   }
 
   // 3) deliveryOption
@@ -188,7 +184,7 @@ export function priceDesign(
     }
 
     // style compatibility (empty list = useable in any style)
-    if (acc.styleCodes.length > 0 && !acc.styleCodes.includes(style.code)) {
+    if (style && acc.styleCodes.length > 0 && !acc.styleCodes.includes(style.code)) {
       throw new DesignValidationError(
         ErrorCode.ACCESSORY_STYLE_MISMATCH,
         `Phụ kiện "${acc.name}" không phù hợp với style "${style.name}"`
@@ -269,7 +265,7 @@ export function priceDesign(
 
   return {
     tree: { id: tree._id, name: tree.name, size: tree.size, unitPrice: tree.price },
-    style: { id: style._id, code: style.code, name: style.name },
+    style: style ? { id: style._id, code: style.code, name: style.name } : null,
     lines,
     decorationFee,
     shippingFee: 30_000,

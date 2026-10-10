@@ -117,13 +117,15 @@ export async function buildOrderItems(
       sku: "",
       bareImage: "",
     };
-    const styleSnapshot: ResolvedStyleRef = {
-      _id: String(catalog.style._id),
-      code: catalog.style.code,
-      name: catalog.style.name,
-      coverImage: "",
-      palette: [],
-    };
+    const styleSnapshot: ResolvedStyleRef | null = catalog.style
+      ? {
+          _id: String(catalog.style._id),
+          code: catalog.style.code,
+          name: catalog.style.name,
+          coverImage: "",
+          palette: [],
+        }
+      : null;
     const lines: any[] = pricing.lines.map((l) => ({
       kind: "ACCESSORY",
       refId: new Types.ObjectId(l.accessoryId),

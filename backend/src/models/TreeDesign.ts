@@ -22,7 +22,7 @@ export interface DesignAccessoryEntry {
 
 export interface DesignConfig {
   variantId: Types.ObjectId;  // (was treeId) — points to Tree (size × code SKU)
-  styleId: Types.ObjectId;
+  styleId?: Types.ObjectId;
   accessories: DesignAccessoryEntry[];
   deliveryOption: DeliveryOption;
 }

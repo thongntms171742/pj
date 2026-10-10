@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { TreeCode, TreeProduct } from "../../models";
+import { TreeCode, TreeProduct, Tree } from "../../models";
 import { sendError, ErrorCode } from "../../utils/errors";
 import { ah } from "../../utils/asyncRoute";
 import { ok, created } from "../../utils/respond";
@@ -84,8 +84,7 @@ export const deleteTreeCode = ah(async (req, res) => {
   treeCode.isActive = false;
   treeCode.code = `${treeCode.code}-deleted-${Date.now()}`;
   await treeCode.save();
-  // Cascade-deactivate child variants.
-  const { Tree } = await import("../../models");
+  // Cascade-deactivate child variants (soft delete — keep refs for orders).
   await Tree.updateMany({ codeId }, { isActive: false });
   ok(res, { success: true, codeId: String(treeCode._id) });
 });

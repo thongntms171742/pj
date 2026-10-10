@@ -1,12 +1,16 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 
 // ── Tree variant (Shopee-style SKU) ──────────────────────────────────────────
-// Variant = 1 SKU có thể bán. Là tổ hợp (code × size).
+// ⚠️ Despite the name, this model is NOT the product — it is the tầng 3
+// (variant/SKU) of the 3-tier catalog. See TreeProduct.ts and TreeCode.ts.
 //
-// Cấu trúc 3 cấp: TreeProduct → TreeCode → TreeVariant (đây).
+// Tier 1: TreeProduct  — sản phẩm CHA (ảnh, mô tả) — KHÔNG có giá
+// Tier 2: TreeCode     — mã cây / phân loại 1 (màu, chất liệu) — KHÔNG có giá
+// Tier 3: Tree (here)  — SKU = (code × size) — CÓ giá + tồn kho
 //
 // Mỗi variant có:
-//   - size (S/M/L/XL — string tự do)
+//   - size (S/M/L/XL — string tự do; controller fallback "STANDARD" nếu FE
+//     không gửi. `size` KHÔNG bị ràng buộc vào enum.)
 //   - price (VND)
 //   - stockQuantity (tồn kho)
 //   - sku (mã nội bộ duy nhất toàn hệ thống)
@@ -14,12 +18,15 @@ import mongoose, { Schema, Document, Types } from "mongoose";
 //   - bareImage (ảnh riêng cho size này — nếu khác nhau giữa các size)
 //   - isActive: false = ngừng bán (giữ lại để OrderItem tham chiếu)
 //
-// SKU unique toàn hệ thống. Mỗi (codeId, size) chỉ có 1 variant.
-//
 // Quan hệ:
 //   TreeCode 1 ──< TreeVariant N
 
-export type TreeSize = "S" | "M" | "L" | "XL" | string;
+/**
+ * Kích thước cây. Đây KHÔNG phải enum đóng — mọi chuỗi đều hợp lệ vì mỗi mã
+ * cây (TreeCode) có thể có bộ size riêng. Giá trị mặc định khi FE không gửi
+ * size là "STANDARD" (xem createTreeVariant).
+ */
+export type TreeSize = "S" | "M" | "L" | "XL" | (string & {});
 
 export interface ITree extends Document {
   productId: Types.ObjectId;

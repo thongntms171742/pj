@@ -20,13 +20,48 @@ export const createTreeVariant = ah(async (req, res) => {
     return;
   }
   const body = req.body as Record<string, unknown>;
-  const size = (typeof body.size === "string" && body.size.trim()) || "STANDARD";
-  let sku =
-    (typeof body.sku === "string" && body.sku.trim().toUpperCase()) ||
-    `${treeCode.code}-${size}`.toUpperCase();
-  if (await Tree.exists({ sku })) {
-    sku = `${sku}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  const size =
+    typeof body.size === "string" && body.size.trim()
+      ? body.size.trim().toUpperCase()
+      : "STANDARD";
+  const sku =
+    typeof body.sku === "string" && body.sku.trim()
+      ? body.sku.trim().toUpperCase()
+      : `${treeCode.code}-${size}`.toUpperCase();
+
+  // 1. Kiểm tra SKU trùng
+  const existingSku = await Tree.findOne({ sku }).lean();
+  if (existingSku) {
+    sendError(
+      res,
+      ErrorCode.INVALID_INPUT,
+      `SKU "${sku}" đã tồn tại. Vui lòng sử dụng SKU khác.`
+    );
+    return;
   }
+
+  // 2. Kiểm tra mã cây + size trùng
+  const existingVariant = await Tree.findOne({
+    codeId: treeCode._id,
+    size,
+  }).lean();
+  if (existingVariant) {
+    if (!existingVariant.isActive) {
+      sendError(
+        res,
+        ErrorCode.INVALID_INPUT,
+        `Mã cây "${treeCode.code}" đã có biến thể size "${size}" (đang ngừng bán). Vui lòng kích hoạt lại thay vì tạo mới.`
+      );
+      return;
+    }
+    sendError(
+      res,
+      ErrorCode.INVALID_INPUT,
+      `Mã cây "${treeCode.code}" đã có biến thể size "${size}".`
+    );
+    return;
+  }
+
   if (typeof body.price !== "number" || body.price < 0) {
     sendError(res, ErrorCode.INVALID_INPUT, "Giá phải là số >= 0");
     return;
@@ -56,10 +91,19 @@ export const createTreeVariant = ah(async (req, res) => {
     created(res, { variant });
   } catch (err) {
     if ((err as { code?: number }).code === 11000) {
+      const mongoError = err as {
+        keyPattern?: Record<string, number>;
+        keyValue?: Record<string, unknown>;
+      };
+      console.error("MongoDB duplicate key in createTreeVariant:", {
+        keyPattern: mongoError.keyPattern,
+        keyValue: mongoError.keyValue,
+      });
+      const duplicateFields = Object.keys(mongoError.keyPattern ?? {}).join(", ");
       sendError(
         res,
-        ErrorCode.ACCESSORY_DUPLICATED,
-        "SKU đã tồn tại hoặc (mã, size) đã tồn tại"
+        ErrorCode.INVALID_INPUT,
+        `Dữ liệu bị trùng tại trường: ${duplicateFields || "không xác định"}`
       );
       return;
     }
@@ -75,10 +119,47 @@ export const updateTreeVariant = ah(async (req, res) => {
     return;
   }
   const body = req.body as Record<string, unknown>;
+
+  if (typeof body.sku === "string") {
+    const newSku = body.sku.trim().toUpperCase();
+    if (newSku !== variant.sku) {
+      const existingSku = await Tree.findOne({
+        _id: { $ne: variant._id },
+        sku: newSku,
+      }).lean();
+      if (existingSku) {
+        sendError(
+          res,
+          ErrorCode.INVALID_INPUT,
+          `SKU "${newSku}" đã tồn tại. Vui lòng sử dụng SKU khác.`
+        );
+        return;
+      }
+      variant.sku = newSku;
+    }
+  }
+
+  if (typeof body.size === "string") {
+    const newSize = body.size.trim().toUpperCase();
+    if (newSize !== variant.size) {
+      const existingVariant = await Tree.findOne({
+        _id: { $ne: variant._id },
+        codeId: variant.codeId,
+        size: newSize,
+      }).lean();
+      if (existingVariant) {
+        sendError(
+          res,
+          ErrorCode.INVALID_INPUT,
+          `Mã cây này đã có biến thể size "${newSize}".`
+        );
+        return;
+      }
+      variant.size = newSize;
+    }
+  }
+
   try {
-    if (typeof body.size === "string") variant.size = body.size.trim();
-    if (typeof body.sku === "string")
-      variant.sku = body.sku.trim().toUpperCase();
     if (typeof body.heightCmMin === "number")
       variant.heightCmMin = body.heightCmMin;
     if (typeof body.heightCmMax === "number")
@@ -100,10 +181,19 @@ export const updateTreeVariant = ah(async (req, res) => {
     ok(res, { variant });
   } catch (err) {
     if ((err as { code?: number }).code === 11000) {
+      const mongoError = err as {
+        keyPattern?: Record<string, number>;
+        keyValue?: Record<string, unknown>;
+      };
+      console.error("MongoDB duplicate key in updateTreeVariant:", {
+        keyPattern: mongoError.keyPattern,
+        keyValue: mongoError.keyValue,
+      });
+      const duplicateFields = Object.keys(mongoError.keyPattern ?? {}).join(", ");
       sendError(
         res,
-        ErrorCode.ACCESSORY_DUPLICATED,
-        "SKU đã tồn tại hoặc (mã, size) đã tồn tại"
+        ErrorCode.INVALID_INPUT,
+        `Dữ liệu bị trùng tại trường: ${duplicateFields || "không xác định"}`
       );
       return;
     }
@@ -119,8 +209,6 @@ export const deleteTreeVariant = ah(async (req, res) => {
     return;
   }
   variant.isActive = false;
-  variant.sku = `${variant.sku}-deleted-${Date.now()}`;
-  variant.size = `${variant.size}-deleted-${Date.now()}`;
   await variant.save();
   ok(res, { success: true, variantId: String(variant._id) });
 });

@@ -20,9 +20,6 @@ import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { ok } from "../utils/respond";
 import type { TreeSize } from "../models/Tree";
 
-// Re-export the marker so TS doesn't drop it
-export type _ReservedTreeSize = TreeSize;
-
 // ── GET /api/catalog/tree-products ──────────────────────────────────────────
 // Customer browse: returns active tree products with their codes + variants.
 // FE renders: 1 product card → click → show codes → pick code → show sizes
@@ -96,8 +93,10 @@ export const getVariantsForCode = async (
   }
 };
 
-// Legacy tree catalog kept for backward compat — returns flat list of
-// active variants. Read-only. Used by older FE pages.
+// ── GET /api/catalog/trees (LEGACY — flat list, read-only) ──────────────────
+// Deprecation: superseded by GET /api/catalog/tree-products (3-tier grouped).
+// Kept mounted because older FE catalog pages still call it.
+// REMOVAL: 2026-12-01 — after confirming no FE build calls this endpoint.
 export const getTrees = async (_req: Request, res: Response): Promise<void> => {
   try {
     const trees = await Tree.find({ isActive: true })

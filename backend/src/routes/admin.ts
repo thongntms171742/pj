@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { requireAuth, requireAdmin } from "../middleware/auth";
 import {
-  // legacy trees (still available for back-compat reading)
+  // ── Legacy (READ-ONLY, deprecated) ────────────────────────────────────────
+  // Flat variant list kept for older admin FE builds. Writes are blocked in
+  // the controller — use the 3-tier tree-products flow below instead.
   listTrees,
-  createTree,
-  updateTree,
   // 3-tier tree products
   listTreeProducts,
   createTreeProduct,
@@ -42,10 +42,8 @@ const router = Router();
 
 router.use(requireAuth, requireAdmin);
 
-// ── Legacy trees (kept for back-compat) ─────────────────────────────────────
+// ── Legacy (READ-ONLY, deprecated — removal 2026-12-01) ───────────────────
 router.get("/trees", listTrees);
-router.post("/trees", createTree);
-router.patch("/trees/:id", updateTree);
 
 // ── 3-tier Tree Products (Product → Code → Variant) ─────────────────────────
 router.get("/tree-products", listTreeProducts);

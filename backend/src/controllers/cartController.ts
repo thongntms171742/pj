@@ -249,11 +249,10 @@ export const mergeCart = async (req: Request, res: Response): Promise<void> => {
       if (guestCart && String(guestCart._id) !== String(userCart._id)) {
         const guestItems = await CartItem.find({ cartId: guestCart._id });
         for (const gItem of guestItems) {
-          // Check matching variant and style
+          // Check matching variant and deliveryOption
           const existing = await CartItem.findOne({
             cartId: userCart._id,
             "config.variantId": gItem.config.variantId,
-            "config.styleId": gItem.config.styleId,
             "config.deliveryOption": gItem.config.deliveryOption,
           });
           if (existing) {
