@@ -993,3 +993,48 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
       http://localhost:4000/api/cart/items | jq
   ```
 
+  ---
+
+  ## 8. Media / File Uploads (`POST /api/uploads`)
+
+  Hỗ trợ tải ảnh và video lên hệ sinh thái BuildYourChristmas. Mặc định trên Production lưu vĩnh viễn trên **Cloudinary**, môi trường dev cục bộ có cơ chế fallback lưu ổ đĩa `/uploads/`.
+
+  - **Endpoint**: `POST /api/uploads`
+  - **Auth**: Tùy chọn (`Bearer <token>` hoặc Public)
+  - **Giới hạn dung lượng**:
+    - Ảnh (`.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`): Tối đa **5MB**
+    - Video (`.mp4`): Tối đa **30MB**
+
+  ### 8.1 Gửi dạng `application/json` (Base64 Data URL)
+  **Request Header**: `Content-Type: application/json`  
+  **Request Body**:
+  ```json
+  {
+    "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+  }
+  ```
+  *(Các trường `file` hoặc `image` cũng được chấp nhận tương đương `dataUrl`)*
+
+  ### 8.2 Gửi dạng `multipart/form-data` (Binary File Upload)
+  **Request Header**: `Content-Type: multipart/form-data`  
+  **Form Field**: `file` (hoặc tên bất kỳ chứa file đính kèm)
+
+  ### 8.3 Response Thành Công (`201 Created`)
+  ```json
+  {
+    "url": "https://res.cloudinary.com/cloud_name/image/upload/v1234567890/buildyourchristmas/uuid.png",
+    "path": "https://res.cloudinary.com/cloud_name/image/upload/v1234567890/buildyourchristmas/uuid.png",
+    "publicId": "buildyourchristmas/uuid",
+    "format": "png",
+    "size": 102400
+  }
+  ```
+  *(Khi fallback local, `path` trả về `/uploads/img_xxx.png` và `url` trỏ về host backend)*
+
+  ### 8.4 Mã Lỗi Trả Về (Error Contract)
+  - `400 MISSING_FIELD`: Không có file hoặc chuỗi dataUrl rỗng.
+  - `400 FILE_TOO_LARGE`: Dung lượng vượt quá 5MB (ảnh) hoặc 30MB (video).
+  - `415 UNSUPPORTED_MEDIA_TYPE`: Đuôi file hoặc MIME type không nằm trong danh sách cho phép.
+  - `500 INTERNAL_ERROR`: Lỗi máy chủ hoặc Cloudinary chưa cấu hình khi chạy ở chế độ `REQUIRE_CLOUDINARY=true`.
+
+

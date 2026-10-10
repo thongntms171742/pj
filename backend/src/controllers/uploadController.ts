@@ -4,6 +4,11 @@ import path from "path";
 import crypto from "crypto";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { ok, created } from "../utils/respond";
+import {
+  isCloudinaryEnabled,
+  uploadFromBuffer,
+  uploadFromDataUrl,
+} from "../services/cloudinaryService";
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB for images
 const MAX_VIDEO_SIZE = 30 * 1024 * 1024; // 30MB for MP4 videos
@@ -17,7 +22,7 @@ const ALLOWED_MIME_TYPES = [
   "video/mp4",
 ];
 
-// Ensure uploads directory exists
+// Ensure uploads directory exists for local development fallback
 const UPLOADS_DIR = path.resolve(__dirname, "../../uploads");
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -60,6 +65,30 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
           return;
         }
 
+        // Ưu tiên 1: Upload lên Cloudinary nếu đã cấu hình
+        if (isCloudinaryEnabled()) {
+          const uploaded = await uploadFromDataUrl(raw, {
+            folder: process.env.CLOUDINARY_FOLDER || "buildyourchristmas",
+            resourceType: isVideo ? "video" : "image",
+          });
+
+          created(res, {
+            url: uploaded.url,
+            path: uploaded.path,
+            publicId: uploaded.publicId,
+            format: uploaded.format,
+            size: uploaded.size,
+          });
+          return;
+        }
+
+        // Nếu môi trường production yêu cầu bắt buộc Cloudinary mà chưa cấu hình
+        if (process.env.REQUIRE_CLOUDINARY === "true") {
+          sendError(res, ErrorCode.INTERNAL_ERROR, "Dịch vụ lưu trữ Cloudinary chưa được cấu hình trên máy chủ.");
+          return;
+        }
+
+        // Ưu tiên 2: Fallback lưu local disk khi chạy môi trường dev chưa có key Cloudinary
         const ext = isVideo ? ".mp4" : mime === "image/jpeg" ? ".jpg" : `.${mime.split("/")[1]}`;
         const prefix = isVideo ? "vid_" : "img_";
         const filename = `${prefix}${Date.now()}_${crypto.randomBytes(6).toString("hex")}${ext}`;
@@ -148,6 +177,30 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
             return;
           }
 
+          // Ưu tiên 1: Upload lên Cloudinary nếu đã cấu hình
+          if (isCloudinaryEnabled()) {
+            const uploaded = await uploadFromBuffer(cleanContent, {
+              folder: process.env.CLOUDINARY_FOLDER || "buildyourchristmas",
+              resourceType: isVideo ? "video" : "image",
+            });
+
+            savedFile = {
+              url: uploaded.url,
+              path: uploaded.path,
+              publicId: uploaded.publicId,
+              format: uploaded.format,
+              size: uploaded.size,
+            };
+            break;
+          }
+
+          // Nếu môi trường production yêu cầu bắt buộc Cloudinary mà chưa cấu hình
+          if (process.env.REQUIRE_CLOUDINARY === "true") {
+            sendError(res, ErrorCode.INTERNAL_ERROR, "Dịch vụ lưu trữ Cloudinary chưa được cấu hình trên máy chủ.");
+            return;
+          }
+
+          // Ưu tiên 2: Fallback lưu local disk khi chạy môi trường dev chưa có key Cloudinary
           const prefix = isVideo ? "vid_" : "upload_";
           const filename = `${prefix}${Date.now()}_${crypto.randomBytes(6).toString("hex")}${ext}`;
           const filePath = path.join(UPLOADS_DIR, filename);

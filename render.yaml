@@ -25,6 +25,13 @@ services:
         sync: false
       - key: SEED_BUYER_PASSWORD
         sync: false
+      # ── Cloudinary Media Storage ───────────────────────────
+      - key: CLOUDINARY_URL
+        sync: false
+      - key: CLOUDINARY_FOLDER
+        value: buildyourchristmas
+      - key: REQUIRE_CLOUDINARY
+        value: "true"
 
   # ── Frontend Static Site ───────────────────────────────────
   # NOTE: FE sẽ build ở repo/folder khác. Khi có FE, uncomment block này
