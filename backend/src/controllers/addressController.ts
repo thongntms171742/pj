@@ -7,6 +7,7 @@ import {
   AddressServiceError,
 } from "../services/addressService";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
+import { ok } from "../utils/respond";
 
 function parseEffectiveDate(req: Request, res: Response): string | null {
   const effectiveDate = (req.query.effectiveDate as string) || "latest";
@@ -29,7 +30,7 @@ export const getProvinces = async (req: Request, res: Response): Promise<void> =
     if (!effectiveDate) return;
 
     const result = await fetchProvinces(effectiveDate);
-    res.json(result);
+    ok(res, result);
   } catch (err: any) {
     if (err instanceof AddressServiceError) {
       sendError(res, err.code as any, err.message, err.statusCode);
@@ -52,7 +53,7 @@ export const getCommunesByProvince = async (req: Request, res: Response): Promis
     if (!effectiveDate) return;
 
     const result = await fetchCommunesByProvince(provinceId.trim(), effectiveDate);
-    res.json(result);
+    ok(res, result);
   } catch (err: any) {
     if (err instanceof AddressServiceError) {
       sendError(res, err.code as any, err.message, err.statusCode);
@@ -69,7 +70,7 @@ export const getAllCommunes = async (req: Request, res: Response): Promise<void>
     if (!effectiveDate) return;
 
     const result = await fetchAllCommunes(effectiveDate);
-    res.json(result);
+    ok(res, result);
   } catch (err: any) {
     if (err instanceof AddressServiceError) {
       sendError(res, err.code as any, err.message, err.statusCode);

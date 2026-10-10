@@ -4,6 +4,8 @@ import { User } from "../models/User";
 import { Cart } from "../models/Cart";
 import { signToken } from "../middleware/auth";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
+import { ok, created } from "../utils/respond";
+import { userToDto } from "../dto/user";
 
 // ── Input validation helpers ──────────────────────────────────────────────────
 // Guard against FE sending non-string types (numbers, null, undefined) or
@@ -88,18 +90,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       roles: user.roles,
     });
 
-    res.status(201).json({
+    created(res, {
       token,
-      user: {
-        _id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        roles: user.roles,
-        avatarUrl: user.avatarUrl ?? "",
-        accountStatus: user.accountStatus,
-        accountStatusReason: user.accountStatusReason ?? "",
-        addresses: user.addresses ?? [],
-      },
+      user: userToDto(user),
     });
   } catch (err) {
     handleInternalError(res, err, "[auth] register error");
@@ -150,18 +143,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       roles: user.roles,
     });
 
-    res.json({
+    ok(res, {
       token,
-      user: {
-        _id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        roles: user.roles,
-        avatarUrl: user.avatarUrl || "",
-        accountStatus: user.accountStatus,
-        accountStatusReason: user.accountStatusReason ?? "",
-        addresses: user.addresses ?? [],
-      },
+      user: userToDto(user),
     });
   } catch (err) {
     handleInternalError(res, err, "[auth] login error");
@@ -188,19 +172,7 @@ export const updateAvatar = async (req: Request, res: Response): Promise<void> =
     user.avatarUrl = avatarUrl;
     await user.save();
 
-    res.json({
-      user: {
-        _id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        phone: user.phone || "",
-        roles: user.roles,
-        avatarUrl: user.avatarUrl,
-        accountStatus: user.accountStatus,
-        accountStatusReason: user.accountStatusReason ?? "",
-        addresses: user.addresses ?? [],
-      },
-    });
+    ok(res, { user: userToDto(user) });
   } catch (err) {
     handleInternalError(res, err, "[auth] updateAvatar error");
   }
@@ -216,20 +188,7 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    res.json({
-      user: {
-        _id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        phone: user.phone || "",
-        roles: user.roles,
-        avatarUrl: user.avatarUrl || "",
-        accountStatus: user.accountStatus,
-        accountStatusReason: user.accountStatusReason ?? "",
-        addresses: user.addresses ?? [],
-        createdAt: (user as any).createdAt,
-      },
-    });
+    ok(res, { user: userToDto(user) });
   } catch (err) {
     handleInternalError(res, err, "[auth] getMe error");
   }
@@ -270,20 +229,7 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
 
     await user.save();
 
-    res.json({
-      user: {
-        _id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        phone: user.phone || "",
-        roles: user.roles,
-        avatarUrl: user.avatarUrl || "",
-        accountStatus: user.accountStatus,
-        accountStatusReason: user.accountStatusReason ?? "",
-        addresses: user.addresses ?? [],
-        createdAt: (user as any).createdAt,
-      },
-    });
+    ok(res, { user: userToDto(user) });
   } catch (err) {
     handleInternalError(res, err, "[auth] updateProfile error");
   }

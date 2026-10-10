@@ -36,7 +36,7 @@ import {
   getAllUsers,
   updateUserStatus,
   getUserDetails,
-} from "../controllers/adminController";
+} from "../controllers/admin";
 
 const router = Router();
 

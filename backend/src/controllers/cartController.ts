@@ -4,10 +4,9 @@ import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import {
   safelyBuildPricedDesign,
-  loadConfigByDesignId,
   buildPricedDesign,
+  loadConfigByDesignId,
 } from "../services/catalogService";
-import { buildDesignResponse } from "../services/designService";
 import { TreeDesign } from "../models/TreeDesign";
 import type { DesignConfig } from "../models/TreeDesign";
 import type { PriceBreakdown } from "../services/pricingService";
@@ -16,6 +15,8 @@ import {
   ErrorCode,
   handleInternalError,
 } from "../utils/errors";
+import { ok, created, noContent } from "../utils/respond";
+import { cartItemToDto, cartToDto } from "../dto/cart";
 
 // Helper to determine whether request is authenticated or guest
 export function extractCartIdentifier(req: Request): {
@@ -51,25 +52,6 @@ async function getOrCreateCart(req: Request) {
   return cart;
 }
 
-// ── Helper: shape a cart item response ──────────────────────────────────────
-function shapeItem(item: any, pricing: PriceBreakdown | null, design: any = null) {
-  return {
-    _id: String(item._id),
-    cartId: String(item.cartId),
-    designId: item.designId ? String(item.designId) : null,
-    quantity: item.quantity,
-    priceSnapshot: item.priceSnapshot,
-    currentUnitTotal: pricing ? pricing.unitTotal : null,
-    priceChanged: pricing ? item.priceSnapshot !== pricing.unitTotal : true,
-    checked: item.checked,
-    config: item.config,
-    design: design ? buildDesignResponse(design, pricing!) : null,
-    warning: pricing
-      ? undefined
-      : "Cấu hình không còn hợp lệ với catalog hiện tại",
-  };
-}
-
 // ── GET /api/cart ─────────────────────────────────────────────────────────────
 export const getCart = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -88,17 +70,14 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
         if (item.designId) {
           designDoc = await TreeDesign.findById(item.designId).lean();
         }
-        responseItems.push(shapeItem(item, pricing, designDoc));
+        responseItems.push(cartItemToDto(item, pricing, designDoc));
       } catch {
-        responseItems.push(shapeItem(item, null));
+        responseItems.push(cartItemToDto(item, null));
       }
     }
 
-    res.json({
-      cart: {
-        _id: String(cart._id),
-        sessionId: cart.sessionId || undefined,
-      },
+    ok(res, {
+      cart: cartToDto(cart),
       items: responseItems,
     });
   } catch (err) {
@@ -163,12 +142,9 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
       checked: false,
     });
 
-    res.status(201).json({
-      item: shapeItem(item, pricing),
-      cart: {
-        _id: String(cart._id),
-        sessionId: cart.sessionId || undefined,
-      },
+    created(res, {
+      item: cartItemToDto(item, pricing),
+      cart: cartToDto(cart),
     });
   } catch (err) {
     handleInternalError(res, err, "[cart] addCartItem error");
@@ -216,7 +192,7 @@ export const updateCartItem = async (
     if (checked !== undefined) item.checked = Boolean(checked);
 
     await item.save();
-    res.json({ item: shapeItem(item, pricing) });
+    ok(res, { item: cartItemToDto(item, pricing) });
   } catch (err) {
     handleInternalError(res, err, "[cart] updateCartItem error");
   }
@@ -235,7 +211,7 @@ export const deleteCartItem = async (
       sendError(res, ErrorCode.CART_ITEM_NOT_FOUND, "Không tìm thấy sản phẩm trong giỏ");
       return;
     }
-    res.status(204).send();
+    noContent(res);
   } catch (err) {
     handleInternalError(res, err, "[cart] deleteCartItem error");
   }
@@ -248,7 +224,7 @@ export const clearCart = async (req: Request, res: Response): Promise<void> => {
     if (cart) {
       await CartItem.deleteMany({ cartId: cart._id });
     }
-    res.json({ success: true });
+    ok(res, { success: true });
   } catch (err) {
     handleInternalError(res, err, "[cart] clearCart error");
   }
@@ -301,14 +277,14 @@ export const mergeCart = async (req: Request, res: Response): Promise<void> => {
         if (item.designId) {
           designDoc = await TreeDesign.findById(item.designId).lean();
         }
-        responseItems.push(shapeItem(item, pricing, designDoc));
+        responseItems.push(cartItemToDto(item, pricing, designDoc));
       } catch {
-        responseItems.push(shapeItem(item, null));
+        responseItems.push(cartItemToDto(item, null));
       }
     }
 
-    res.json({
-      cart: { _id: String(userCart._id) },
+    ok(res, {
+      cart: cartToDto(userCart),
       items: responseItems,
     });
   } catch (err) {

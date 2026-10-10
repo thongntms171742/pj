@@ -202,8 +202,14 @@ export function handleInternalError(
   err: unknown,
   context: string
 ): Response {
+  // res.req is typed as the base Express Request; the requestId middleware
+  // augments Request with `.id` via module declaration. We cast to `any`
+  // for the lookup to keep utils/errors.ts decoupled from the middleware
+  // type. If the middleware isn't loaded, we simply log "—".
+  const req = res.req as { id?: string } | undefined;
+  const reqId = req?.id ?? "—";
   const errorMessage = err instanceof Error ? err.message : String(err);
-  console.error(`${context}:`, err);
+  console.error(`[req=${reqId}] ${context}:`, err);
   return sendError(res, ErrorCode.INTERNAL_ERROR, "Lỗi hệ thống", 500);
 }
 

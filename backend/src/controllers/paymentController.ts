@@ -1,7 +1,10 @@
 import { Request, Response } from "express";
 import { Order } from "../models/Order";
 import { Notification } from "../models/Notification";
-import { mapOrder } from "./orderController";
+import { orderToDto } from "../dto/order";
+import { findOrderByIdOrCode } from "../utils/ids";
+import { ok, created } from "../utils/respond";
+import { markOrderAsPaid } from "../services/orderService";
 import {
   sendError,
   ErrorCode,
@@ -9,8 +12,8 @@ import {
 } from "../utils/errors";
 
 // ── POST /api/payments/checkout ───────────────────────────────────────────────
-// Mock payment: advances order from PENDING_PAYMENT → PAID → CONFIRMED.
-// Stock was deducted at createOrder time, so this just flips statuses.
+// Mock payment: advances order from PENDING_PAYMENT → PAID → CONFIRMED via
+// the shared `markOrderAsPaid` service (same code path as the webhook).
 export const checkout = async (
   req: Request,
   res: Response
@@ -28,18 +31,17 @@ export const checkout = async (
       return;
     }
 
-    const isObjectId = /^[0-9a-fA-F]{24}$/.test(orderId);
-    const orFilter: any[] = [{ orderCode: orderId }];
-    if (isObjectId) orFilter.push({ _id: orderId });
-
-    const order = await Order.findOne({ $or: orFilter, buyerId: userId });
+    const order = await Order.findOne({
+      ...findOrderByIdOrCode(orderId),
+      buyerId: userId,
+    });
     if (!order) {
       sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
       return;
     }
 
     if (order.status === "PAID" || order.status === "CONFIRMED") {
-      res.json({ order: mapOrder(order) });
+      ok(res, { order: orderToDto(order) });
       return;
     }
     if (order.status !== "PENDING_PAYMENT") {
@@ -52,24 +54,11 @@ export const checkout = async (
     }
 
     order.paymentMethod = method || "card";
-    order.paymentId = `PAY-${Date.now()}`;
-    order.paidAt = new Date();
-    order.status = "PAID";
-    order.statusHistory.push({
-      status: "PAID",
+    await markOrderAsPaid(order, {
       by: "payment_gateway",
-      at: new Date(),
       reason: `Thanh toán thành công qua ${method} (thẻ *${cardLast4})`,
+      paymentId: `PAY-${Date.now()}`,
     });
-    order.status = "CONFIRMED";
-    order.statusHistory.push({
-      status: "CONFIRMED",
-      by: "system",
-      at: new Date(),
-      reason: "Hệ thống tự động xác nhận sau khi thanh toán",
-    });
-
-    await order.save();
 
     await Notification.create({
       userId,
@@ -78,7 +67,7 @@ export const checkout = async (
       message: `Đơn hàng ${order.orderCode} đã thanh toán. Build Your Christmas sẽ chuẩn bị hàng.`,
     });
 
-    res.json({ order: mapOrder(order) });
+    ok(res, { order: orderToDto(order) });
   } catch (err) {
     handleInternalError(res, err, "[payments] checkout error");
   }
@@ -134,18 +123,14 @@ export const handlePaymentWebhook = async (
       return;
     }
 
-    const isObjectId = /^[0-9a-fA-F]{24}$/.test(targetCode);
-    const orFilter: any[] = [{ orderCode: targetCode }];
-    if (isObjectId) orFilter.push({ _id: targetCode });
-
-    const order = await Order.findOne({ $or: orFilter });
+    const order = await Order.findOne(findOrderByIdOrCode(targetCode));
     if (!order) {
       sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng", 404);
       return;
     }
 
     if (order.status === "PAID" || order.status === "CONFIRMED") {
-      res.json({
+      ok(res, {
         success: true,
         message: "Đơn hàng đã thanh toán trước đó",
         orderCode: order.orderCode,
@@ -153,30 +138,13 @@ export const handlePaymentWebhook = async (
       return;
     }
 
-    const now = new Date();
     const txnId = transactionId || `TXN-${Date.now()}`;
-    order.status = "PAID";
-    order.paidAt = now;
-    order.paymentTransactionId = txnId;
-    order.paymentId = txnId;
-    order.statusHistory.push({
-      status: "PAID",
+    await markOrderAsPaid(order, {
       by: gateway,
-      at: now,
       reason: `Thanh toán thành công qua ${gateway} (Mã GD: ${txnId})`,
-      note: `Giao dịch ${txnId}`,
+      paymentId: txnId,
+      transactionId: txnId,
     });
-
-    order.status = "CONFIRMED";
-    order.statusHistory.push({
-      status: "CONFIRMED",
-      by: "system",
-      at: now,
-      reason: "Hệ thống tự động xác nhận sau khi nhận webhook thanh toán",
-      note: "Auto-confirmed",
-    });
-
-    await order.save();
 
     await Notification.create({
       userId: order.buyerId,
@@ -185,10 +153,10 @@ export const handlePaymentWebhook = async (
       message: `Đơn hàng ${order.orderCode} đã thanh toán thành công (Mã GD: ${txnId}).`,
     });
 
-    res.json({
+    ok(res, {
       success: true,
       message: "Cập nhật thanh toán thành công",
-      order: mapOrder(order),
+      order: orderToDto(order),
     });
   } catch (err) {
     handleInternalError(res, err, "[payments] webhook error");

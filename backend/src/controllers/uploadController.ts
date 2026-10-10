@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
+import { ok, created } from "../utils/respond";
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB for images
 const MAX_VIDEO_SIZE = 30 * 1024 * 1024; // 30MB for MP4 videos
@@ -70,7 +71,7 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
         const protocol = req.protocol || "http";
         const fileUrl = `${protocol}://${host}/uploads/${filename}`;
 
-        res.status(201).json({
+        created(res, {
           url: fileUrl,
           path: `/uploads/${filename}`,
           publicId: `uploads/${filename.replace(/\.[^/.]+$/, "")}`,
@@ -81,7 +82,7 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
       } else {
         // Plain URL passed
         if (raw.startsWith("http://") || raw.startsWith("https://")) {
-          res.status(200).json({
+          ok(res, {
             url: raw,
             publicId: raw,
             format: "external",
@@ -169,7 +170,7 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
       }
 
       if (savedFile) {
-        res.status(201).json(savedFile);
+        created(res, savedFile);
         return;
       }
 

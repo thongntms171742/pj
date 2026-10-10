@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { Coupon } from "../models/Coupon";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
+import { ok } from "../utils/respond";
 
 export function computeCouponDiscount(
   coupon: { discountType: string; value: number; maxDiscount?: number | null },
@@ -67,7 +68,7 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
 
     const { discountAmount, finalTotal } = computeCouponDiscount(coupon, cleanTotal);
 
-    res.json({
+    ok(res, {
       valid: true,
       code: coupon.code,
       discountType: coupon.discountType,

@@ -3,6 +3,7 @@ import cors from "cors";
 import path from "path";
 
 import "./models"; // Ensure all Mongoose models are registered
+import { requestId } from "./middleware/requestId";
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/users";
 import addressRoutes from "./routes/addresses";
@@ -20,6 +21,9 @@ import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 const app = express();
 
 // ── Middleware ──────────────────────────────────────────────────────────────────
+// requestId must be registered FIRST so every other middleware and route
+// handler has `req.id` available for logging / error tracing.
+app.use(requestId);
 app.use(cors({ origin: true, credentials: true }));
 
 // Serve static uploads

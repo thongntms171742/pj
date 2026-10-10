@@ -13,6 +13,7 @@ import {
   handleInternalError,
 } from "../utils/errors";
 import { loadConfigByDesignId } from "../services/catalogService";
+import { ok, created } from "../utils/respond";
 
 // ── POST /api/designs/quote ──────────────────────────────────────────────────
 // Public — preview price before saving.
@@ -28,7 +29,7 @@ export const quoteDesign = async (req: Request, res: Response): Promise<void> =>
       config as Parameters<typeof safelyBuildPricedDesign>[1]
     );
     if (!result) return;
-    res.json({ pricing: result.pricing });
+    ok(res, { pricing: result.pricing });
   } catch (err) {
     handleInternalError(res, err, "[designs] quoteDesign error");
   }
@@ -82,7 +83,7 @@ export const createDesign = async (req: Request, res: Response): Promise<void> =
       return;
     }
     const response = buildDesignResponse(populated, result.pricing);
-    res.status(201).json({ design: response, shareUrl: response.shareUrl });
+    created(res, { design: response, shareUrl: response.shareUrl });
   } catch (err) {
     handleInternalError(res, err, "[designs] createDesign error");
   }
@@ -102,7 +103,7 @@ export const getMyDesigns = async (req: Request, res: Response): Promise<void> =
         return buildDesignResponse(design, pricing);
       })
     );
-    res.json({ designs: out, total: out.length });
+    ok(res, { designs: out, total: out.length });
   } catch (err) {
     handleInternalError(res, err, "[designs] getMyDesigns error");
   }
@@ -134,7 +135,7 @@ export const getSharedDesignBySlug = async (
     }
 
     const { pricing } = await loadCatalogForDesign(design);
-    res.json({ design: buildDesignResponse(design, pricing) });
+    ok(res, { design: buildDesignResponse(design, pricing) });
   } catch (err) {
     handleInternalError(res, err, "[designs] getSharedDesignBySlug error");
   }
@@ -162,7 +163,7 @@ export const getDesignById = async (
       return;
     }
     const { pricing } = await loadCatalogForDesign(design);
-    res.json({ design: buildDesignResponse(design, pricing) });
+    ok(res, { design: buildDesignResponse(design, pricing) });
   } catch (err) {
     handleInternalError(res, err, "[designs] getDesignById error");
   }
@@ -224,7 +225,7 @@ export const updateDesign = async (
       return;
     }
     const { pricing } = await loadCatalogForDesign(populated);
-    res.json({ design: buildDesignResponse(populated, pricing) });
+    ok(res, { design: buildDesignResponse(populated, pricing) });
   } catch (err) {
     handleInternalError(res, err, "[designs] updateDesign error");
   }
@@ -251,7 +252,7 @@ export const deleteDesign = async (
       return;
     }
     await TreeDesign.findByIdAndDelete(id);
-    res.json({ success: true });
+    ok(res, { success: true });
   } catch (err) {
     handleInternalError(res, err, "[designs] deleteDesign error");
   }
@@ -291,7 +292,7 @@ export const duplicateDesign = async (
       : `${src.name} (copy)`;
 
     const slug = await findUniqueSlug(newName);
-    const created = await TreeDesign.create({
+    const duplicated = await TreeDesign.create({
       ownerId: new Types.ObjectId(req.user!.id),
       name: newName,
       slug,
@@ -303,13 +304,13 @@ export const duplicateDesign = async (
       previewImage: src.previewImage || "",
     });
 
-    const populated = await TreeDesign.findById(created._id).lean();
+    const populated = await TreeDesign.findById(duplicated._id).lean();
     if (!populated) {
       sendError(res, ErrorCode.INTERNAL_ERROR, "Không tìm thấy thiết kế vừa nhân bản");
       return;
     }
     const { pricing } = await loadCatalogForDesign(populated);
-    res.status(201).json({
+    created(res, {
       design: buildDesignResponse(populated, pricing),
       shareUrl: `/tree/${populated.slug}`,
     });

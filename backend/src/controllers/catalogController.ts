@@ -17,6 +17,7 @@ import {
   buildDesignResponse,
 } from "../services/designService";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
+import { ok } from "../utils/respond";
 import type { TreeSize } from "../models/Tree";
 
 // Re-export the marker so TS doesn't drop it
@@ -42,7 +43,7 @@ export const getTreeProducts = async (
         (c) => c.isActive && c.variants.some((v) => v.isActive)
       )
     );
-    res.json({ treeProducts: filtered });
+    ok(res, { treeProducts: filtered });
   } catch (err) {
     handleInternalError(res, err, "[catalog] getTreeProducts error");
   }
@@ -69,7 +70,7 @@ export const getVariantsForCode = async (
     const variants = await Tree.find({ codeId, isActive: true })
       .sort({ sortOrder: 1, size: 1 })
       .lean();
-    res.json({
+    ok(res, {
       code: {
         _id: String(code._id),
         code: code.code,
@@ -102,7 +103,7 @@ export const getTrees = async (_req: Request, res: Response): Promise<void> => {
     const trees = await Tree.find({ isActive: true })
       .sort({ sortOrder: 1, size: 1 })
       .lean();
-    res.json({
+    ok(res, {
       trees: trees.map((t) => ({
         _id: String(t._id),
         size: t.size as TreeSize,
@@ -133,7 +134,7 @@ export const getStyles = async (_req: Request, res: Response): Promise<void> => 
     const styles = await Style.find({ isActive: true })
       .sort({ sortOrder: 1, code: 1 })
       .lean();
-    res.json({
+    ok(res, {
       styles: styles.map((s) => ({
         _id: String(s._id),
         code: s.code,
@@ -167,7 +168,7 @@ export const getAccessories = async (req: Request, res: Response): Promise<void>
       return codes.length === 0 || codes.includes(style);
     });
 
-    res.json({
+    ok(res, {
       accessories: filtered.map((a) => ({
         _id: String(a._id),
         group: a.group,
@@ -220,7 +221,7 @@ export const getPresets = async (_req: Request, res: Response): Promise<void> =>
       }
     });
 
-    res.json({ presets: out });
+    ok(res, { presets: out });
   } catch (err) {
     handleInternalError(res, err, "[catalog] getPresets error");
   }
@@ -231,7 +232,7 @@ export const getDeliveryOptions = async (
   _req: Request,
   res: Response
 ): Promise<void> => {
-  res.json({
+  ok(res, {
     options: DELIVERY_OPTIONS.map((code) => ({
       code,
       shippingFee: SHIPPING_FEE,
@@ -253,7 +254,7 @@ export const quoteDesign = async (req: Request, res: Response): Promise<void> =>
   try {
     const result = await safelyBuildPricedDesign(res, config);
     if (!result) return; // safelyBuildPricedDesign already sent the response
-    res.json({ pricing: result.pricing });
+    ok(res, { pricing: result.pricing });
   } catch (err) {
     handleInternalError(res, err, "[catalog] quoteDesign error");
   }

@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { Notification } from "../models/Notification";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
+import { ok } from "../utils/respond";
 
 // ── GET /api/notifications ────────────────────────────────────────────────────
 export const getNotifications = async (req: Request, res: Response): Promise<void> => {
@@ -22,7 +23,7 @@ export const getNotifications = async (req: Request, res: Response): Promise<voi
       createdAt: (n as any).createdAt?.toISOString() ?? new Date().toISOString(),
     }));
 
-    res.json({ notifications: mapped });
+    ok(res, { notifications: mapped });
   } catch (err) {
     handleInternalError(res, err, "[notifications] getNotifications error");
   }
@@ -45,7 +46,7 @@ export const markAsRead = async (req: Request, res: Response): Promise<void> => 
     notif.isRead = true;
     await notif.save();
 
-    res.json({ success: true });
+    ok(res, { success: true });
   } catch (err) {
     handleInternalError(res, err, "[notifications] markAsRead error");
   }
@@ -56,7 +57,7 @@ export const markAllAsRead = async (req: Request, res: Response): Promise<void> 
   try {
     const userId = req.user!.id;
     await Notification.updateMany({ userId, isRead: false }, { isRead: true });
-    res.json({ success: true, message: "Đã đánh dấu đọc tất cả thông báo" });
+    ok(res, { success: true, message: "Đã đánh dấu đọc tất cả thông báo" });
   } catch (err) {
     handleInternalError(res, err, "[notifications] markAllAsRead error");
   }

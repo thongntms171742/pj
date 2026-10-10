@@ -4,139 +4,31 @@ import { Order, VALID_TRANSITIONS, OrderStatus } from "../models/Order";
 import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { Notification } from "../models/Notification";
-import {
-  safelyBuildPricedDesign,
-  buildPricedDesign,
-} from "../services/catalogService";
-import { reserveStock, restoreStock, restoreTreeStock } from "../services/inventoryService";
-import { SHIPPING_FEE, SERVICE_PROVINCE_ID } from "../config/business";
+import { TreeDesign } from "../models/TreeDesign";
+import { restoreStock, restoreTreeStock } from "../services/inventoryService";
+import { SHIPPING_FEE } from "../config/business";
 import {
   sendError,
   ErrorCode,
   handleInternalError,
 } from "../utils/errors";
-import type { DesignConfig, DeliveryOption, ResolvedAccessoryRef, ResolvedVariantRef, ResolvedStyleRef } from "../models/TreeDesign";
-import type { PriceBreakdown } from "../services/pricingService";
+import {
+  findOrderByIdOrCode,
+} from "../utils/ids";
+import { ok, created } from "../utils/respond";
+import { orderToDto } from "../dto/order";
+import {
+  buildOrderItems,
+  assertDeliveryArea,
+  applyCoupon,
+  cleanupCartAfterOrder,
+  resolveOrderItems,
+} from "../services/orderService";
+import type { DesignConfig } from "../models/TreeDesign";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function genOrderCode(): string {
   return `BYC-${Date.now().toString().slice(-8)}`;
-}
-
-async function buildOrderItems(opts: {
-  buyerId: string;
-  paymentMethod: string;
-  items: Array<{ config?: DesignConfig; designId?: string; quantity?: number }>;
-}) {
-  const built: any[] = [];
-  const stockToReserve: Array<{ refId: Types.ObjectId; kind: "TREE" | "ACCESSORY"; quantity: number }> = [];
-  let subtotal = 0;
-  let decorationFeeTotal = 0;
-  let productionDaysMax = 0;
-  let hasPersonalization = false;
-
-  for (const entry of opts.items) {
-    let cfg = entry.config;
-    if (!cfg && entry.designId) {
-      const { TreeDesign } = await import("../models/TreeDesign");
-      const doc = await TreeDesign.findById(entry.designId).lean();
-      if (!doc) continue;
-      cfg = doc.config;
-    }
-    if (!cfg) continue;
-
-    const { pricing, catalog } = await buildPricedDesign(cfg);
-    const quantity = Math.max(1, parseInt(String(entry.quantity ?? 1), 10) || 1);
-
-    // Resolve a stock line per (tree + each non-loop accessory).
-    stockToReserve.push({
-      refId: new Types.ObjectId(String(catalog.tree._id)),
-      kind: "TREE",
-      quantity,
-    });
-    for (const line of pricing.lines) {
-      stockToReserve.push({
-        refId: new Types.ObjectId(line.accessoryId),
-        kind: "ACCESSORY",
-        quantity: line.quantity * quantity,
-      });
-    }
-
-    // Build the snapshot for OrderItem
-    const variantSnapshot: ResolvedVariantRef = {
-      _id: String(catalog.tree._id),
-      productId: catalog.tree.productId,
-      codeId: catalog.tree.codeId,
-      size: catalog.tree.size,
-      name: catalog.tree.name,
-      price: catalog.tree.price,
-      unitPrice: catalog.tree.price,
-      sku: "",
-      bareImage: "", // FE hydrates from catalog; we keep empty here
-    };
-    const styleSnapshot: ResolvedStyleRef = {
-      _id: String(catalog.style._id),
-      code: catalog.style.code,
-      name: catalog.style.name,
-      coverImage: "",
-      palette: [],
-    };
-    const lines = pricing.lines.map<any>((l: any) => ({
-      kind: "ACCESSORY",
-      refId: new Types.ObjectId(l.accessoryId),
-      type: l.type,
-      name: l.name,
-      unitPrice: l.unitPrice,
-      quantity: l.quantity,
-      lineTotal: l.lineTotal,
-      personalizationText: l.personalizationText || "",
-    }));
-    if (pricing.decorationFee > 0) {
-      lines.push({
-        kind: "SERVICE",
-        refId: null,
-        type: "DECORATION_SERVICE",
-        name: `Phí trang trí (${catalog.tree.size})`,
-        unitPrice: pricing.decorationFee,
-        quantity: 1,
-        lineTotal: pricing.decorationFee,
-        personalizationText: "",
-      });
-    }
-
-    const itemUnitTotal = pricing.unitTotal;
-    const itemLineTotal = itemUnitTotal * quantity;
-
-    built.push({
-      designId: entry.designId ? new Types.ObjectId(entry.designId) : null,
-      designName: entry.designId ? (await getDesignName(entry.designId)) : "My Christmas",
-      previewImage: "",
-      variant: variantSnapshot,
-      style: styleSnapshot,
-      lines,
-      deliveryOption: cfg.deliveryOption as DeliveryOption,
-      unitTotal: itemUnitTotal,
-      quantity,
-      lineTotal: itemLineTotal,
-      hasPersonalization: pricing.hasPersonalization,
-      productionDays: pricing.productionDays,
-    });
-
-    subtotal += itemLineTotal;
-    decorationFeeTotal += pricing.decorationFee * quantity;
-    if (pricing.productionDays > productionDaysMax) {
-      productionDaysMax = pricing.productionDays;
-    }
-    if (pricing.hasPersonalization) hasPersonalization = true;
-  }
-
-  return { built, stockToReserve, subtotal, decorationFeeTotal, productionDaysMax, hasPersonalization };
-}
-
-async function getDesignName(id: string): Promise<string> {
-  const { TreeDesign } = await import("../models/TreeDesign");
-  const doc = await TreeDesign.findById(id).select("name").lean();
-  return doc?.name || "My Christmas";
 }
 
 // ── POST /api/orders ──────────────────────────────────────────────────────────
@@ -150,6 +42,24 @@ export const createOrder = async (
 ): Promise<void> => {
   try {
     const userId = req.user!.id;
+    const body = req.body as {
+      shippingName?: string;
+      shippingPhone?: string;
+      shippingAddress?: string;
+      shippingProvinceId?: string;
+      shippingProvinceName?: string;
+      shippingCommuneId?: string;
+      shippingCommuneName?: string;
+      addressEffectiveDate?: string;
+      paymentMethod?: string;
+      idempotencyKey?: string;
+      designConfirmed?: boolean;
+      cartItemIds?: string[];
+      items?: Array<{ config?: DesignConfig; designId?: string; quantity?: number }>;
+      couponCode?: string;
+      discountCode?: string;
+      internalNotes?: string;
+    };
     const {
       shippingName,
       shippingPhone,
@@ -164,32 +74,18 @@ export const createOrder = async (
       designConfirmed,
       cartItemIds,
       items: directItems,
-    } = req.body as {
-      shippingName?: string;
-      shippingPhone?: string;
-      shippingAddress?: string;
-      shippingProvinceId?: string;
-      shippingProvinceName?: string;
-      shippingCommuneId?: string;
-      shippingCommuneName?: string;
-      addressEffectiveDate?: string;
-      paymentMethod?: string;
-      idempotencyKey?: string;
-      designConfirmed?: boolean;
-      cartItemIds?: string[];
-      items?: Array<{ config?: DesignConfig; designId?: string; quantity?: number }>;
-    };
+    } = body;
 
-    // Idempotency
+    // 1) Idempotency
     if (idempotencyKey) {
       const existing = await Order.findOne({ idempotencyKey });
       if (existing) {
-        res.json({ order: mapOrder(existing) });
+        ok(res, { order: orderToDto(existing) });
         return;
       }
     }
 
-    // designConfirmed required
+    // 2) designConfirmed required
     if (!designConfirmed) {
       sendError(
         res,
@@ -199,60 +95,31 @@ export const createOrder = async (
       return;
     }
 
-    // Note: Delivery area check is performed after resolving items & deliveryOptions
-    // so that DIY_KIT and SEPARATE can be shipped nationwide, while READY_TO_DISPLAY remains HCM-only.
-
-    // Resolve items source
-    let rawItems: Array<{ config?: DesignConfig; designId?: string; quantity?: number }> = [];
-    if (Array.isArray(directItems) && directItems.length > 0) {
-      rawItems = directItems;
-    } else {
-      // Pull from user's cart (checked items, or specific ids)
-      const cart = await Cart.findOne({ userId });
-      if (!cart) {
+    // 3) Resolve items source (direct body or cart)
+    let rawItems = Array.isArray(directItems) && directItems.length > 0
+      ? directItems
+      : await resolveOrderItems(userId, cartItemIds);
+    if (rawItems.length === 0) {
+      const hasCart = await Cart.findOne({ userId });
+      if (!hasCart) {
         sendError(res, ErrorCode.CART_EMPTY, "Giỏ hàng trống");
         return;
       }
-      const query: any = { cartId: cart._id };
-      if (Array.isArray(cartItemIds) && cartItemIds.length > 0) {
-        query._id = { $in: cartItemIds };
-      } else {
-        query.checked = true;
-      }
-      const cartItems = await CartItem.find(query);
-      if (cartItems.length === 0) {
-        sendError(res, ErrorCode.NO_ITEMS_CHECKED, "Không có sản phẩm nào được chọn để đặt hàng");
-        return;
-      }
-      rawItems = cartItems.map((ci) => ({
-        config: ci.config as DesignConfig,
-        designId: ci.designId ? String(ci.designId) : undefined,
-        quantity: ci.quantity,
-      }));
-    }
-
-    if (rawItems.length === 0) {
-      sendError(res, ErrorCode.ITEMS_REQUIRED, "Không có sản phẩm để đặt hàng");
+      sendError(
+        res,
+        ErrorCode.NO_ITEMS_CHECKED,
+        "Không có sản phẩm nào được chọn để đặt hàng"
+      );
       return;
     }
 
-    // Build, validate via pricing, and snapshot
-    let built, stockToReserve, subtotal, decorationFeeTotal, productionDaysMax, hasPersonalization;
+    // 4) Build snapshots + totals (rethrows validation errors as 4xx)
+    let builtResult;
     try {
-      const result = await buildOrderItems({
-        buyerId: userId,
-        paymentMethod,
-        items: rawItems,
-      });
-      built = result.built;
-      stockToReserve = result.stockToReserve;
-      subtotal = result.subtotal;
-      decorationFeeTotal = result.decorationFeeTotal;
-      productionDaysMax = result.productionDaysMax;
-      hasPersonalization = result.hasPersonalization;
+      builtResult = await buildOrderItems(rawItems);
     } catch (err) {
       if (err && typeof err === "object" && "code" in err) {
-        const code = (err as { code: ErrorCodeValue }).code;
+        const code = (err as { code: string }).code as Parameters<typeof sendError>[1];
         const http = (err as { httpCode?: number }).httpCode ?? 400;
         const message = (err as unknown as Error).message || "Lỗi không xác định";
         sendError(res, code, message, http);
@@ -260,75 +127,65 @@ export const createOrder = async (
       }
       throw err;
     }
-
+    const { items: built, stockToReserve, subtotal, decorationFee: decorationFeeTotal, productionDaysMax, hasPersonalization } = builtResult;
     if (built.length === 0) {
       sendError(res, ErrorCode.ITEMS_REQUIRED, "Không có thiết kế hợp lệ để đặt hàng");
       return;
     }
 
-    // Delivery area verification:
-    // READY_TO_DISPLAY is restricted to HCM (province 79).
-    // DIY_KIT and SEPARATE can be delivered nationwide!
-    const hasReadyToDisplay = built.some((it) => it.deliveryOption === "READY_TO_DISPLAY");
-    if (hasReadyToDisplay && shippingProvinceId && shippingProvinceId !== SERVICE_PROVINCE_ID) {
-      sendError(
-        res,
-        ErrorCode.READY_TO_DISPLAY_HCM_ONLY,
-        "Hình thức giao cây trang trí sẵn (Ready-to-display) chỉ áp dụng tại khu vực TP.HCM. Quý khách ở tỉnh khác vui lòng chọn Bộ tự trang trí (DIY Kit)."
-      );
-      return;
+    // 5) Delivery area check
+    try {
+      assertDeliveryArea(built, shippingProvinceId);
+    } catch (err) {
+      const e = err as { code?: string; message?: string };
+      if (e && typeof e === "object" && e.code) {
+        sendError(
+          res,
+          e.code as Parameters<typeof sendError>[1],
+          e.message || "Lỗi không xác định",
+          400
+        );
+        return;
+      }
+      throw err;
     }
 
-    // Reserve stock atomically. If anything fails, throw to caller.
+    // 6) Reserve stock atomically
     try {
+      const { reserveStock } = await import("../services/inventoryService");
       await reserveStock(stockToReserve);
     } catch (stockErr) {
       const msg = (stockErr as Error).message || "";
       if (msg.startsWith("OUT_OF_STOCK")) {
-        sendError(res, ErrorCode.OUT_OF_STOCK, "Một hoặc nhiều món đã hết hàng trong lúc đặt");
+        sendError(
+          res,
+          ErrorCode.OUT_OF_STOCK,
+          "Một hoặc nhiều món đã hết hàng trong lúc đặt"
+        );
         return;
       }
       throw stockErr;
     }
 
-    // Apply Coupon if provided
-    let appliedDiscount = 0;
-    let appliedCouponCode = "";
-    const couponInput = (req.body.couponCode || req.body.discountCode || "").toString().trim().toUpperCase();
-    if (couponInput) {
-      try {
-        const { Coupon } = await import("../models/Coupon");
-        const { computeCouponDiscount } = await import("./couponController");
-        const couponDoc = await Coupon.findOne({ code: couponInput, isActive: true });
-        const nowTime = new Date();
-        if (
-          couponDoc &&
-          nowTime >= couponDoc.startDate &&
-          nowTime <= couponDoc.endDate &&
-          couponDoc.usedCount < couponDoc.usageLimit &&
-          subtotal >= couponDoc.minOrderValue
-        ) {
-          const { discountAmount } = computeCouponDiscount(couponDoc, subtotal);
-          appliedDiscount = discountAmount;
-          appliedCouponCode = couponDoc.code;
-          await Coupon.updateOne({ _id: couponDoc._id }, { $inc: { usedCount: 1 } });
-        }
-      } catch (couponErr) {
-        console.warn("[orders] Error applying coupon:", couponErr);
-      }
-    }
+    // 7) Apply coupon (never blocks order placement on coupon error)
+    const couponInput = (body.couponCode || body.discountCode || "").toString();
+    const { discount: appliedDiscount, code: appliedCouponCode } =
+      await applyCoupon(couponInput, subtotal);
 
+    // 8) Persist order
     const shippingFee = SHIPPING_FEE;
-    const totalAmount = Math.max(0, subtotal + shippingFee + decorationFeeTotal - appliedDiscount);
-
+    const totalAmount = Math.max(
+      0,
+      subtotal + shippingFee + decorationFeeTotal - appliedDiscount
+    );
     const orderCode = genOrderCode();
     const isCod = String(paymentMethod).toUpperCase() === "COD";
     const initialStatus: OrderStatus = isCod ? "CONFIRMED" : "PENDING_PAYMENT";
     const statusReason = isCod
       ? "Đặt hàng thanh toán khi nhận hàng (COD)"
       : "Chờ thanh toán đơn hàng";
-
     const now = new Date();
+
     const order = await Order.create({
       orderCode,
       buyerId: new Types.ObjectId(userId),
@@ -340,7 +197,7 @@ export const createOrder = async (
       discountCode: appliedCouponCode,
       discountAmount: appliedDiscount,
       totalAmount,
-      internalNotes: (req.body.internalNotes || "").toString().trim(),
+      internalNotes: (body.internalNotes || "").toString().trim(),
       status: initialStatus,
       statusHistory: [
         {
@@ -364,21 +221,13 @@ export const createOrder = async (
       idempotencyKey: idempotencyKey || `auto-${now.getTime()}`,
     });
 
-    // Clean up cart items that were used
-    const usedDesignIds = new Set(
-      rawItems.map((i) => i.designId).filter((x): x is string => !!x)
-    );
-    if (Array.isArray(cartItemIds) && cartItemIds.length > 0) {
-      await CartItem.deleteMany({ _id: { $in: cartItemIds } });
-    } else if (rawItems.length > 0) {
-      // Generic: drop all checked items
-      const cart = await Cart.findOne({ userId });
-      if (cart) {
-        await CartItem.deleteMany({ cartId: cart._id, checked: true });
-      }
-    }
+    // 9) Cleanup cart items that were used
+    await cleanupCartAfterOrder(userId, {
+      cartItemIds,
+      usedItemsCount: rawItems.length,
+    });
 
-    // Notifications
+    // 10) Notify
     await Notification.create({
       userId,
       type: "order",
@@ -388,7 +237,7 @@ export const createOrder = async (
         : `Đơn hàng ${orderCode} đã được tạo thành công. Vui lòng thanh toán để xác nhận.`,
     });
 
-    res.status(201).json({ order: mapOrder(order) });
+    created(res, { order: orderToDto(order) });
   } catch (err) {
     handleInternalError(res, err, "[orders] createOrder error");
   }
@@ -406,7 +255,7 @@ export const getMyOrders = async (
     const filter: any = { buyerId: userId };
     if (typeof status === "string") filter.status = status.toUpperCase();
     const orders = await Order.find(filter).sort({ createdAt: -1 }).lean();
-    res.json({ orders: orders.map(mapOrder) });
+    ok(res, { orders: orders.map(orderToDto) });
   } catch (err) {
     handleInternalError(res, err, "[orders] getMyOrders error");
   }
@@ -420,11 +269,7 @@ export const getOrderById = async (
   try {
     const id = String(req.params.id);
     const userId = req.user!.id;
-    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
-    const filter = isObjectId
-      ? { $or: [{ _id: id }, { orderCode: id }] }
-      : { orderCode: id };
-    const order = await Order.findOne(filter).lean();
+    const order = await Order.findOne(findOrderByIdOrCode(id)).lean();
     if (!order) {
       sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
       return;
@@ -435,7 +280,7 @@ export const getOrderById = async (
       sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền xem đơn hàng này");
       return;
     }
-    res.json({ order: mapOrder(order) });
+    ok(res, { order: orderToDto(order) });
   } catch (err) {
     handleInternalError(res, err, "[orders] getOrderById error");
   }
@@ -463,11 +308,7 @@ export const updateOrderStatus = async (
       return;
     }
 
-    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
-    const filter = isObjectId
-      ? { $or: [{ _id: id }, { orderCode: id }] }
-      : { orderCode: id };
-    const order = await Order.findOne(filter);
+    const order = await Order.findOne(findOrderByIdOrCode(id));
     if (!order) {
       sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
       return;
@@ -559,7 +400,7 @@ export const updateOrderStatus = async (
     });
 
     await order.save();
-    res.json({ order: mapOrder(order) });
+    ok(res, { order: orderToDto(order) });
   } catch (err) {
     handleInternalError(res, err, "[orders] updateOrderStatus error");
   }
@@ -579,11 +420,7 @@ export const createOrderShipment = async (
       return;
     }
 
-    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
-    const filter = isObjectId
-      ? { $or: [{ _id: id }, { orderCode: id }] }
-      : { orderCode: id };
-    const order = await Order.findOne(filter);
+    const order = await Order.findOne(findOrderByIdOrCode(id));
     if (!order) {
       sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
       return;
@@ -648,7 +485,7 @@ export const createOrderShipment = async (
 
     await order.save();
 
-    res.status(201).json({
+    created(res, {
       shipment: {
         id: String(order._id),
         orderId: order.orderCode,
@@ -679,11 +516,7 @@ export const getOrderShipment = async (
   try {
     const id = String(req.params.id);
     const userId = req.user!.id;
-    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
-    const filter = isObjectId
-      ? { $or: [{ _id: id }, { orderCode: id }] }
-      : { orderCode: id };
-    const order = await Order.findOne(filter).lean();
+    const order = await Order.findOne(findOrderByIdOrCode(id)).lean();
     if (!order) {
       sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
       return;
@@ -726,7 +559,7 @@ export const getOrderShipment = async (
       location: e.location || "",
     }));
 
-    res.json({
+    ok(res, {
       shipment: {
         id: String(order._id),
         orderId: order.orderCode,
@@ -750,86 +583,3 @@ export const getOrderShipment = async (
     handleInternalError(res, err, "[orders] getOrderShipment error");
   }
 };
-
-// ── mapOrder — FE-facing shape ───────────────────────────────────────────────
-type ErrorCodeValue =
-  (typeof import("../utils/errors").ErrorCode)[keyof typeof import("../utils/errors").ErrorCode];
-
-export const mapOrder = (o: any) => ({
-  _id: String(o._id),
-  orderCode: o.orderCode,
-  buyerId: o.buyerId ? String(o.buyerId) : "",
-  items: (o.items || []).map((it: any) => ({
-    designId: it.designId ? String(it.designId) : null,
-    designName: it.designName,
-    previewImage: it.previewImage || "",
-    variant: it.variant ?? it.tree, // tolerate legacy docs
-    style: it.style,
-    lines: (it.lines || []).map((l: any) => ({
-      kind: l.kind,
-      refId: l.refId ? String(l.refId) : null,
-      type: l.type,
-      name: l.name,
-      unitPrice: l.unitPrice,
-      quantity: l.quantity,
-      lineTotal: l.lineTotal,
-      personalizationText: l.personalizationText || "",
-    })),
-    deliveryOption: it.deliveryOption,
-    unitTotal: it.unitTotal,
-    quantity: it.quantity,
-    lineTotal: it.lineTotal,
-    hasPersonalization: it.hasPersonalization,
-    productionDays: it.productionDays,
-  })),
-  subtotal: o.subtotal,
-  shippingFee: o.shippingFee,
-  decorationFee: o.decorationFee || 0,
-  discount: o.discount || 0,
-  discountCode: o.discountCode || "",
-  discountAmount: o.discountAmount || o.discount || 0,
-  totalAmount: o.totalAmount,
-  internalNotes: o.internalNotes || "",
-  paymentTransactionId: o.paymentTransactionId || "",
-  status: o.status,
-  statusHistory: (o.statusHistory || []).map((h: any) => ({
-    status: h.status,
-    by: h.by,
-    at: h.at ? new Date(h.at).toISOString() : new Date().toISOString(),
-    reason: h.reason,
-  })),
-  paymentMethod: o.paymentMethod || "",
-  paymentId: o.paymentId || "",
-  paidAt: o.paidAt ? new Date(o.paidAt).toISOString() : null,
-  designConfirmedAt: o.designConfirmedAt
-    ? new Date(o.designConfirmedAt).toISOString()
-    : null,
-  designLockedAt: o.designLockedAt
-    ? new Date(o.designLockedAt).toISOString()
-    : null,
-  shippingName: o.shippingName || "",
-  shippingPhone: o.shippingPhone || "",
-  shippingAddress: o.shippingAddress || "",
-  shippingProvinceId: o.shippingProvinceId || "",
-  shippingProvinceName: o.shippingProvinceName || "",
-  shippingCommuneId: o.shippingCommuneId || "",
-  shippingCommuneName: o.shippingCommuneName || "",
-  addressEffectiveDate: o.addressEffectiveDate || "",
-  trackingNumber: o.trackingNumber || "",
-  shippingProvider: o.shippingProvider || "",
-  trackingUrl: o.trackingUrl || "",
-  pickupInfo: o.pickupInfo || null,
-  shippedAt: o.shippedAt ? new Date(o.shippedAt).toISOString() : null,
-  estimatedDeliveryAt: o.estimatedDeliveryAt
-    ? new Date(o.estimatedDeliveryAt).toISOString()
-    : null,
-  deliveredAt: o.deliveredAt ? new Date(o.deliveredAt).toISOString() : null,
-  cancelReason: o.cancelReason || "",
-  cancelRequestedAt: o.cancelRequestedAt
-    ? new Date(o.cancelRequestedAt).toISOString()
-    : null,
-  idempotencyKey: o.idempotencyKey,
-  createdAt: o.createdAt
-    ? new Date(o.createdAt).toISOString()
-    : new Date().toISOString(),
-});
