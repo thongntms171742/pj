@@ -82,7 +82,12 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       roles: ["buyer"],
     });
 
-    await Cart.create({ userId: user._id });
+    // Khởi tạo giỏ hàng ban đầu (bọc try/catch để đảm bảo không chặn tiến trình đăng ký nếu cart đã tồn tại hoặc gặp lỗi)
+    try {
+      await Cart.create({ userId: user._id });
+    } catch (cartErr) {
+      console.warn("[auth] Warning: Không thể tạo cart ban đầu cho user (sẽ được tạo tự động khi truy cập /api/cart):", cartErr);
+    }
 
     const token = signToken({
       id: user._id.toString(),

@@ -7,8 +7,8 @@ export interface ICart extends Document {
 
 const CartSchema = new Schema<ICart>(
   {
-    userId: { type: Schema.Types.ObjectId, ref: "User", default: null },
-    sessionId: { type: String, default: null },
+    userId: { type: Schema.Types.ObjectId, ref: "User" },
+    sessionId: { type: String },
   },
   { timestamps: true }
 );
