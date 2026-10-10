@@ -136,7 +136,7 @@ export interface IOrder extends Document {
   subtotal: number;
   shippingFee: number;
   decorationFee: number;
-  discount: number;
+  discountAmount: number;
   discountCode?: string;
   discountAmount?: number;
   totalAmount: number;
@@ -273,14 +273,6 @@ const OrderSchema = new Schema<IOrder>(
 OrderSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
 OrderSchema.index({ buyerId: 1, createdAt: -1 });
 OrderSchema.index({ status: 1, createdAt: -1 });
-
-// Back-compat virtual: old FE code reads `order.discount`. We persist
-// everything as `discountAmount` and expose `discount` as a virtual alias
-// so a single source of truth is kept in the DB while legacy clients keep
-// working.
-OrderSchema.virtual("discount").get(function () {
-  return (this as unknown as { discountAmount?: number }).discountAmount ?? 0;
-});
 
 // Make sure virtuals show up when controllers do `.toJSON()` / `.toObject()`.
 OrderSchema.set("toJSON", { virtuals: true });
