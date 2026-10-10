@@ -20,47 +20,15 @@ export const createTreeVariant = ah(async (req, res) => {
     return;
   }
   const body = req.body as Record<string, unknown>;
-  const size =
-    typeof body.size === "string" && body.size.trim()
-      ? body.size.trim().toUpperCase()
-      : "STANDARD";
-  const sku =
-    typeof body.sku === "string" && body.sku.trim()
-      ? body.sku.trim().toUpperCase()
-      : `${treeCode.code}-${size}`.toUpperCase();
+  const normalizedSize = String(body.size || "STANDARD")
+    .trim()
+    .toUpperCase();
 
-  // 1. Kiểm tra SKU trùng
-  const existingSku = await Tree.findOne({ sku }).lean();
-  if (existingSku) {
-    sendError(
-      res,
-      ErrorCode.INVALID_INPUT,
-      `SKU "${sku}" đã tồn tại. Vui lòng sử dụng SKU khác.`
-    );
-    return;
-  }
-
-  // 2. Kiểm tra mã cây + size trùng
-  const existingVariant = await Tree.findOne({
-    codeId: treeCode._id,
-    size,
-  }).lean();
-  if (existingVariant) {
-    if (!existingVariant.isActive) {
-      sendError(
-        res,
-        ErrorCode.INVALID_INPUT,
-        `Mã cây "${treeCode.code}" đã có biến thể size "${size}" (đang ngừng bán). Vui lòng kích hoạt lại thay vì tạo mới.`
-      );
-      return;
-    }
-    sendError(
-      res,
-      ErrorCode.INVALID_INPUT,
-      `Mã cây "${treeCode.code}" đã có biến thể size "${size}".`
-    );
-    return;
-  }
+  const normalizedSku = String(
+    body.sku || `${treeCode.code}-${normalizedSize}`
+  )
+    .trim()
+    .toUpperCase();
 
   if (typeof body.price !== "number" || body.price < 0) {
     sendError(res, ErrorCode.INVALID_INPUT, "Giá phải là số >= 0");
@@ -70,13 +38,60 @@ export const createTreeVariant = ah(async (req, res) => {
     sendError(res, ErrorCode.INVALID_INPUT, "Tồn kho phải là số >= 0");
     return;
   }
+
+  // 1. Kiểm tra cặp mã cây + size trùng trước
+  const existingVariant = await Tree.findOne({
+    codeId: treeCode._id,
+    size: normalizedSize,
+  });
+
+  if (existingVariant) {
+    if (!existingVariant.isActive) {
+      // Phương án A: Tự động kích hoạt lại variant cũ, cập nhật giá và tồn kho mới
+      existingVariant.isActive = true;
+      existingVariant.price = body.price as number;
+      existingVariant.stockQuantity = body.stockQuantity as number;
+      if (typeof body.sku === "string" && body.sku.trim()) {
+        existingVariant.sku = normalizedSku;
+      }
+      if (typeof body.heightCmMin === "number") existingVariant.heightCmMin = body.heightCmMin;
+      if (typeof body.heightCmMax === "number") existingVariant.heightCmMax = body.heightCmMax;
+      if (typeof body.diameterCm === "number") existingVariant.diameterCm = body.diameterCm;
+      if (typeof body.description === "string") existingVariant.description = body.description;
+      if (typeof body.bareImage === "string") existingVariant.bareImage = body.bareImage;
+      if (Array.isArray(body.images)) existingVariant.images = body.images as string[];
+      await existingVariant.save();
+      created(res, { variant: existingVariant, reactivated: true });
+      return;
+    }
+    sendError(
+      res,
+      ErrorCode.CONFLICT,
+      `Mã cây này đã có size ${normalizedSize}`
+    );
+    return;
+  }
+
+  // 2. Kiểm tra SKU trùng toàn hệ thống
+  const duplicateSku = await Tree.exists({
+    sku: normalizedSku,
+  });
+
+  if (duplicateSku) {
+    sendError(
+      res,
+      ErrorCode.CONFLICT,
+      `SKU "${normalizedSku}" đã tồn tại`
+    );
+    return;
+  }
   try {
     const variant = await Tree.create({
       productId: product._id,
       codeId: treeCode._id,
-      size,
-      sku,
-      name: `${product.name} — ${treeCode.name} — ${size}`,
+      size: normalizedSize,
+      sku: normalizedSku,
+      name: `${product.name} — ${treeCode.name} — ${normalizedSize}`,
       heightCmMin: (body.heightCmMin as number) ?? 0,
       heightCmMax: (body.heightCmMax as number) ?? 0,
       diameterCm: (body.diameterCm as number) ?? 0,
@@ -89,20 +104,28 @@ export const createTreeVariant = ah(async (req, res) => {
       sortOrder: (body.sortOrder as number) ?? 0,
     });
     created(res, { variant });
-  } catch (err) {
-    if ((err as { code?: number }).code === 11000) {
-      const mongoError = err as {
-        keyPattern?: Record<string, number>;
-        keyValue?: Record<string, unknown>;
-      };
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      const keyPattern = err.keyPattern || {};
       console.error("MongoDB duplicate key in createTreeVariant:", {
-        keyPattern: mongoError.keyPattern,
-        keyValue: mongoError.keyValue,
+        keyPattern,
+        keyValue: err.keyValue,
       });
-      const duplicateFields = Object.keys(mongoError.keyPattern ?? {}).join(", ");
+
+      if (keyPattern.sku) {
+        sendError(res, ErrorCode.CONFLICT, "SKU đã tồn tại");
+        return;
+      }
+
+      if (keyPattern.codeId && keyPattern.size) {
+        sendError(res, ErrorCode.CONFLICT, "Mã cây này đã có kích thước tương ứng");
+        return;
+      }
+
+      const duplicateFields = Object.keys(keyPattern).join(", ");
       sendError(
         res,
-        ErrorCode.INVALID_INPUT,
+        ErrorCode.CONFLICT,
         `Dữ liệu bị trùng tại trường: ${duplicateFields || "không xác định"}`
       );
       return;
@@ -120,42 +143,42 @@ export const updateTreeVariant = ah(async (req, res) => {
   }
   const body = req.body as Record<string, unknown>;
 
-  if (typeof body.sku === "string") {
-    const newSku = body.sku.trim().toUpperCase();
-    if (newSku !== variant.sku) {
-      const existingSku = await Tree.findOne({
+  if (body.sku) {
+    const normalizedSku = String(body.sku).trim().toUpperCase();
+    if (normalizedSku !== variant.sku) {
+      const duplicateSku = await Tree.exists({
         _id: { $ne: variant._id },
-        sku: newSku,
-      }).lean();
-      if (existingSku) {
+        sku: normalizedSku,
+      });
+      if (duplicateSku) {
         sendError(
           res,
-          ErrorCode.INVALID_INPUT,
-          `SKU "${newSku}" đã tồn tại. Vui lòng sử dụng SKU khác.`
+          ErrorCode.CONFLICT,
+          `SKU "${normalizedSku}" đã tồn tại`
         );
         return;
       }
-      variant.sku = newSku;
+      variant.sku = normalizedSku;
     }
   }
 
-  if (typeof body.size === "string") {
-    const newSize = body.size.trim().toUpperCase();
-    if (newSize !== variant.size) {
-      const existingVariant = await Tree.findOne({
+  if (body.size) {
+    const normalizedSize = String(body.size).trim().toUpperCase();
+    if (normalizedSize !== variant.size) {
+      const duplicateVariant = await Tree.exists({
         _id: { $ne: variant._id },
         codeId: variant.codeId,
-        size: newSize,
-      }).lean();
-      if (existingVariant) {
+        size: normalizedSize,
+      });
+      if (duplicateVariant) {
         sendError(
           res,
-          ErrorCode.INVALID_INPUT,
-          `Mã cây này đã có biến thể size "${newSize}".`
+          ErrorCode.CONFLICT,
+          `Mã cây này đã có size ${normalizedSize}`
         );
         return;
       }
-      variant.size = newSize;
+      variant.size = normalizedSize;
     }
   }
 
@@ -179,20 +202,28 @@ export const updateTreeVariant = ah(async (req, res) => {
       variant.sortOrder = body.sortOrder;
     await variant.save();
     ok(res, { variant });
-  } catch (err) {
-    if ((err as { code?: number }).code === 11000) {
-      const mongoError = err as {
-        keyPattern?: Record<string, number>;
-        keyValue?: Record<string, unknown>;
-      };
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      const keyPattern = err.keyPattern || {};
       console.error("MongoDB duplicate key in updateTreeVariant:", {
-        keyPattern: mongoError.keyPattern,
-        keyValue: mongoError.keyValue,
+        keyPattern,
+        keyValue: err.keyValue,
       });
-      const duplicateFields = Object.keys(mongoError.keyPattern ?? {}).join(", ");
+
+      if (keyPattern.sku) {
+        sendError(res, ErrorCode.CONFLICT, "SKU đã tồn tại");
+        return;
+      }
+
+      if (keyPattern.codeId && keyPattern.size) {
+        sendError(res, ErrorCode.CONFLICT, "Mã cây này đã có kích thước tương ứng");
+        return;
+      }
+
+      const duplicateFields = Object.keys(keyPattern).join(", ");
       sendError(
         res,
-        ErrorCode.INVALID_INPUT,
+        ErrorCode.CONFLICT,
         `Dữ liệu bị trùng tại trường: ${duplicateFields || "không xác định"}`
       );
       return;
