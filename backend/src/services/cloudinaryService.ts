@@ -23,8 +23,18 @@ export interface CloudinaryUploadOptions {
 const DEFAULT_FOLDER =
   process.env.CLOUDINARY_FOLDER || "buildyourchristmas";
 
+function getCleanCloudinaryUrl(): string | undefined {
+  let url = process.env.CLOUDINARY_URL;
+  if (!url || typeof url !== "string") return undefined;
+  url = url.trim();
+  if (url.startsWith("CLOUDINARY_URL=")) {
+    url = url.replace(/^CLOUDINARY_URL=\s*/, "").trim();
+  }
+  return url || undefined;
+}
+
 function hasCredentials(): boolean {
-  const url = process.env.CLOUDINARY_URL;
+  const url = getCleanCloudinaryUrl();
 
   if (url) {
     try {
@@ -56,7 +66,9 @@ function configureCloudinary(): void {
     throw new Error("Cloudinary credentials are not configured.");
   }
 
-  if (process.env.CLOUDINARY_URL) {
+  const cleanUrl = getCleanCloudinaryUrl();
+  if (cleanUrl) {
+    process.env.CLOUDINARY_URL = cleanUrl;
     cloudinary.config({ secure: true });
     return;
   }
