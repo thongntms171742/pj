@@ -1,4 +1,5 @@
 import { ErrorCode } from "../utils/errors";
+import { SERVICE_PROVINCE_ID } from "../config/business";
 
 const CAS_BASE_URL = process.env.CAS_ADDRESS_KIT_URL || "https://production.cas.so/address-kit";
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -203,4 +204,78 @@ export async function getAllCommunes(effectiveDate = "latest"): Promise<AddressR
 
   setInCache(cacheKey, result);
   return result;
+}
+
+// ── Commune validator (used by pickup address / shipping address) ────────────
+// We only ship inside TP.HCM (SERVICE_PROVINCE_ID, default "79"), so this
+// checks the commune belongs to that province. Returns the official commune
+// name so callers can store it alongside the id.
+export interface CommuneLookup {
+  id: string;
+  name: string;
+  provinceId: string;
+  provinceName: string;
+}
+
+export class InvalidCommuneError extends Error {
+  code = "INVALID_COMMUNE";
+  httpCode = 400;
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidCommuneError";
+  }
+}
+
+export class WrongProvinceError extends Error {
+  code = "WRONG_PROVINCE";
+  httpCode = 400;
+  constructor(message: string) {
+    super(message);
+    this.name = "WrongProvinceError";
+  }
+}
+
+export async function lookupHcmCommune(
+  communeId: string,
+  effectiveDate = "latest"
+): Promise<CommuneLookup> {
+  if (!communeId || typeof communeId !== "string") {
+    throw new InvalidCommuneError("Thiếu mã phường/xã");
+  }
+  // Always look up against the configured service province (HCM by default)
+  const { data, effectiveDate: ed } = await getCommunesByProvince(
+    SERVICE_PROVINCE_ID,
+    effectiveDate
+  );
+  const target = communeId.trim();
+  const found = data.find((c) => c.id === target);
+  if (!found) {
+    throw new InvalidCommuneError(
+      `Phường/xã "${communeId}" không tồn tại hoặc không thuộc TP.HCM (effectiveDate=${ed})`
+    );
+  }
+  return {
+    id: found.id,
+    name: found.name,
+    provinceId: SERVICE_PROVINCE_ID,
+    provinceName: "TP. Hồ Chí Minh",
+  };
+}
+
+/**
+ * Convenience guard for pickup address: caller already knows the intended
+ * provinceId, we just double-check it matches the service region and the
+ * commune is valid. Throws on mismatch.
+ */
+export async function assertValidHcmCommune(
+  provinceId: string,
+  communeId: string,
+  effectiveDate = "latest"
+): Promise<CommuneLookup> {
+  if (provinceId && provinceId !== SERVICE_PROVINCE_ID) {
+    throw new WrongProvinceError(
+      `Hệ thống chỉ hỗ trợ giao/nhận tại TP.HCM (provinceId=${SERVICE_PROVINCE_ID})`
+    );
+  }
+  return lookupHcmCommune(communeId, effectiveDate);
 }

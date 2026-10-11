@@ -24,6 +24,12 @@ import {
   cleanupCartAfterOrder,
   resolveOrderItems,
 } from "../services/orderService";
+import {
+  assertValidHcmCommune,
+  InvalidCommuneError,
+  WrongProvinceError,
+} from "../services/addressService";
+import { SERVICE_PROVINCE_ID } from "../config/business";
 import type { DesignConfig } from "../models/TreeDesign";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -407,6 +413,9 @@ export const updateOrderStatus = async (
 };
 
 // ── POST /api/orders/:id/shipment (admin) ──────────────────────────────────────
+// Admin books the shipment manually (Grab / Ahamove / etc.) and pastes the
+// tracking number + URL into the system. We DO NOT auto-generate a fake
+// tracking number anymore — the admin types it.
 export const createOrderShipment = async (
   req: Request,
   res: Response
@@ -435,27 +444,87 @@ export const createOrderShipment = async (
       return;
     }
 
-    const { pickup = {}, trackingUrl: externalTracking } = req.body as {
-      pickup?: any;
+    const { trackingNumber, trackingUrl, provider, pickup = {} } = req.body as {
+      trackingNumber?: string;
       trackingUrl?: string;
+      provider?: string;
+      pickup?: {
+        name?: string;
+        phone?: string;
+        address?: string;
+        provinceId?: string;
+        communeId?: string;
+        district?: string;
+        email?: string;
+        note?: string;
+        addressEffectiveDate?: string;
+      };
     };
 
-    const random = Math.floor(1e8 + Math.random() * 9e8);
-    const trackingNumber = `BYC${random}`;
-    const provider = "Build Your Christmas - HCM Delivery";
+    // Validate: trackingNumber is now required (admin types it after booking)
+    const cleanTracking = (trackingNumber || "").trim();
+    if (!cleanTracking) {
+      sendError(
+        res,
+        ErrorCode.MISSING_FIELD,
+        "Thiếu mã vận đơn (trackingNumber) — admin cần nhập sau khi book Grab/Ahamove"
+      );
+      return;
+    }
+
+    // Validate pickup address: must be inside TP.HCM, commune must exist
+    // in AddressKit. provinceId defaults to HCM if FE doesn't send it.
+    const pickupProvinceId =
+      (pickup.provinceId || SERVICE_PROVINCE_ID).trim() || SERVICE_PROVINCE_ID;
+    const pickupCommuneId = (pickup.communeId || "").trim();
+    if (!pickupCommuneId) {
+      sendError(
+        res,
+        ErrorCode.MISSING_FIELD,
+        "Thiếu mã phường/xã (pickup.communeId) — admin cần chọn từ dropdown AddressKit"
+      );
+      return;
+    }
+
+    let communeName = "";
+    let provinceName = "";
+    try {
+      const lookup = await assertValidHcmCommune(
+        pickupProvinceId,
+        pickupCommuneId,
+        pickup.addressEffectiveDate || "latest"
+      );
+      communeName = lookup.name;
+      provinceName = lookup.provinceName;
+    } catch (err) {
+      if (err instanceof InvalidCommuneError || err instanceof WrongProvinceError) {
+        sendError(
+          res,
+          ErrorCode.INVALID_INPUT,
+          err.message,
+          err.httpCode
+        );
+        return;
+      }
+      throw err;
+    }
 
     order.status = "SHIPPING";
-    order.shippingProvider = provider;
-    order.trackingNumber = trackingNumber;
+    order.shippingProvider =
+      (provider || "").trim() || "Grab / Ahamove (admin-booked)";
+    order.trackingNumber = cleanTracking;
     order.trackingUrl =
-      externalTracking || `https://buildyourchristmas.vn/track/${trackingNumber}`;
+      (trackingUrl || "").trim() ||
+      `https://buildyourchristmas.vn/track/${cleanTracking}`;
     order.pickupInfo = {
       name: pickup.name || "",
       phone: pickup.phone || "",
       address: pickup.address || "",
-      province: pickup.province || "",
+      provinceId: pickupProvinceId,
+      provinceName,
+      communeId: pickupCommuneId,
+      communeName,
       district: pickup.district || "",
-      ward: pickup.ward || "",
       email: pickup.email || "",
       note: pickup.note || "",
     };
@@ -464,15 +533,11 @@ export const createOrderShipment = async (
     order.shippingEvents = [
       {
         status: "CREATED",
-        description: "Đã tạo vận đơn",
+        description: "Admin đã tạo vận đơn",
         timestamp: new Date(),
-        location: order.pickupInfo.address || "Kho Build Your Christmas",
-      },
-      {
-        status: "IN_TRANSIT",
-        description: "Đang giao hàng tới khách",
-        timestamp: new Date(Date.now() + 3_600_000),
-        location: "HCM Delivery Hub",
+        location:
+          [order.pickupInfo.address, communeName].filter(Boolean).join(", ") ||
+          "Kho Build Your Christmas",
       },
     ];
 
@@ -480,7 +545,7 @@ export const createOrderShipment = async (
       status: "SHIPPING",
       by: req.user?.email ?? "admin",
       at: new Date(),
-      reason: `Tạo vận đơn ${trackingNumber}`,
+      reason: `Tạo vận đơn ${cleanTracking}`,
     });
 
     await order.save();
@@ -492,9 +557,10 @@ export const createOrderShipment = async (
         provider: order.shippingProvider,
         trackingNumber: order.trackingNumber,
         trackingUrl: order.trackingUrl,
-        status: "IN_TRANSIT" as const,
+        status: "CREATED" as const,
         shippedAt: order.shippedAt!.toISOString(),
         estimatedDeliveryAt: order.estimatedDeliveryAt!.toISOString(),
+        pickupAddress: order.pickupInfo,
         events: order.shippingEvents.map((e) => ({
           status: e.status,
           description: e.description,
@@ -505,6 +571,187 @@ export const createOrderShipment = async (
     });
   } catch (err) {
     handleInternalError(res, err, "[orders] createOrderShipment error");
+  }
+};
+
+// ── PATCH /api/orders/:id/shipment (admin) ────────────────────────────────────
+// Admin updates tracking number / URL / pickup info AFTER booking
+// (e.g. they pasted the wrong tracking, or want to switch from Grab to Ahamove).
+// Does NOT change order status — use PATCH /:id/status for that.
+export const updateOrderShipment = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const id = String(req.params.id);
+    const isAdmin = req.user?.roles?.includes("admin") ?? false;
+    if (!isAdmin) {
+      sendError(res, ErrorCode.FORBIDDEN, "Chỉ admin mới có thể cập nhật vận đơn");
+      return;
+    }
+
+    const order = await Order.findOne(findOrderByIdOrCode(id));
+    if (!order) {
+      sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
+      return;
+    }
+
+    if (order.status === "CANCELLED") {
+      sendError(res, ErrorCode.ORDER_ALREADY_CANCELLED, "Đơn đã hủy — không thể cập nhật vận đơn");
+      return;
+    }
+    if (!order.trackingNumber) {
+      sendError(
+        res,
+        ErrorCode.ORDER_NOT_FOUND,
+        "Đơn chưa có vận đơn — hãy tạo vận đơn trước"
+      );
+      return;
+    }
+
+    const { trackingNumber, trackingUrl, provider, pickup, addressEffectiveDate } = req.body as {
+      trackingNumber?: string;
+      trackingUrl?: string;
+      provider?: string;
+      addressEffectiveDate?: string;
+      pickup?: Partial<{
+        name: string;
+        phone: string;
+        address: string;
+        provinceId: string;
+        communeId: string;
+        district: string;
+        email: string;
+        note: string;
+      }>;
+    };
+
+    const previousTracking = order.trackingNumber;
+
+    if (typeof trackingNumber === "string" && trackingNumber.trim()) {
+      order.trackingNumber = trackingNumber.trim();
+    }
+    if (typeof trackingUrl === "string" && trackingUrl.trim()) {
+      order.trackingUrl = trackingUrl.trim();
+    } else if (
+      typeof trackingNumber === "string" &&
+      trackingNumber.trim() &&
+      trackingNumber.trim() !== previousTracking
+    ) {
+      // If admin changed tracking number but didn't supply a new URL, refresh
+      // the default URL so it points at the new code.
+      order.trackingUrl = `https://buildyourchristmas.vn/track/${order.trackingNumber}`;
+    }
+    if (typeof provider === "string" && provider.trim()) {
+      order.shippingProvider = provider.trim();
+    }
+    if (pickup && typeof pickup === "object") {
+      const current = order.pickupInfo || {
+        name: "",
+        phone: "",
+        address: "",
+        provinceId: "",
+        provinceName: "",
+        communeId: "",
+        communeName: "",
+        district: "",
+        email: "",
+        note: "",
+      };
+      // If the admin changed the commune (or province), re-validate it against
+      // AddressKit. Text fields (name/phone/address/email/note/district) are
+      // taken as-is.
+      const nextProvinceId =
+        (pickup.provinceId ?? current.provinceId) || SERVICE_PROVINCE_ID;
+      const nextCommuneId = (pickup.communeId ?? current.communeId) || "";
+
+      let communeName = current.communeName || "";
+      let provinceName = current.provinceName || "";
+
+      const communeChanged =
+        nextCommuneId &&
+        (nextCommuneId !== current.communeId ||
+          nextProvinceId !== current.provinceId);
+      if (communeChanged) {
+        try {
+          const lookup = await assertValidHcmCommune(
+            nextProvinceId,
+            nextCommuneId,
+            addressEffectiveDate || "latest"
+          );
+          communeName = lookup.name;
+          provinceName = lookup.provinceName;
+        } catch (err) {
+          if (
+            err instanceof InvalidCommuneError ||
+            err instanceof WrongProvinceError
+          ) {
+            sendError(
+              res,
+              ErrorCode.INVALID_INPUT,
+              err.message,
+              err.httpCode
+            );
+            return;
+          }
+          throw err;
+        }
+      }
+
+      order.pickupInfo = {
+        name: pickup.name ?? current.name,
+        phone: pickup.phone ?? current.phone,
+        address: pickup.address ?? current.address,
+        provinceId: nextProvinceId,
+        provinceName,
+        communeId: nextCommuneId,
+        communeName,
+        district: pickup.district ?? current.district,
+        email: pickup.email ?? current.email,
+        note: pickup.note ?? current.note,
+      };
+    }
+
+    order.shippingEvents.push({
+      status: "UPDATED",
+      description:
+        trackingNumber && trackingNumber.trim() !== previousTracking
+          ? `Admin cập nhật mã vận đơn: ${previousTracking} → ${order.trackingNumber}`
+          : "Admin cập nhật thông tin vận đơn",
+      timestamp: new Date(),
+      location: order.pickupInfo?.address || "",
+    });
+
+    order.statusHistory.push({
+      status: order.status,
+      by: req.user?.email ?? "admin",
+      at: new Date(),
+      reason:
+        trackingNumber && trackingNumber.trim() !== previousTracking
+          ? `Cập nhật vận đơn: ${previousTracking} → ${order.trackingNumber}`
+          : "Cập nhật thông tin vận đơn",
+    });
+
+    await order.save();
+
+    ok(res, {
+      shipment: {
+        id: String(order._id),
+        orderId: order.orderCode,
+        provider: order.shippingProvider,
+        trackingNumber: order.trackingNumber,
+        trackingUrl: order.trackingUrl,
+        status: "UPDATED" as const,
+        events: order.shippingEvents.map((e) => ({
+          status: e.status,
+          description: e.description,
+          timestamp: e.timestamp.toISOString(),
+          location: e.location,
+        })),
+      },
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[orders] updateOrderShipment error");
   }
 };
 
@@ -576,6 +823,16 @@ export const getOrderShipment = async (
         deliveredAt: order.deliveredAt
           ? new Date(order.deliveredAt).toISOString()
           : undefined,
+        pickupAddress: order.pickupInfo
+          ? {
+              address: order.pickupInfo.address || "",
+              provinceId: order.pickupInfo.provinceId || "",
+              provinceName: order.pickupInfo.provinceName || "",
+              communeId: order.pickupInfo.communeId || "",
+              communeName: order.pickupInfo.communeName || "",
+              district: order.pickupInfo.district || "",
+            }
+          : null,
         events,
       },
     });

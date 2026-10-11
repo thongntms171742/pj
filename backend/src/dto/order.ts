@@ -46,6 +46,19 @@ export interface StatusEventDto {
   reason?: string;
 }
 
+export interface PickupInfoDto {
+  name: string;
+  phone: string;
+  address: string;
+  provinceId: string;
+  provinceName: string;
+  communeId: string;
+  communeName: string;
+  district: string;
+  email: string;
+  note: string;
+}
+
 export interface OrderDto {
   _id: string;
   orderCode: string;
@@ -78,7 +91,7 @@ export interface OrderDto {
   trackingNumber: string;
   shippingProvider: string;
   trackingUrl: string;
-  pickupInfo: any | null;
+  pickupInfo: PickupInfoDto | null;
   shippedAt: string | null;
   estimatedDeliveryAt: string | null;
   deliveredAt: string | null;
@@ -168,7 +181,20 @@ export function orderToDto(o: any): OrderDto {
     trackingNumber: o.trackingNumber || "",
     shippingProvider: o.shippingProvider || "",
     trackingUrl: o.trackingUrl || "",
-    pickupInfo: o.pickupInfo || null,
+    pickupInfo: o.pickupInfo
+      ? {
+          name: o.pickupInfo.name || "",
+          phone: o.pickupInfo.phone || "",
+          address: o.pickupInfo.address || "",
+          provinceId: o.pickupInfo.provinceId || "",
+          provinceName: o.pickupInfo.provinceName || "",
+          communeId: o.pickupInfo.communeId || "",
+          communeName: o.pickupInfo.communeName || "",
+          district: o.pickupInfo.district || "",
+          email: o.pickupInfo.email || "",
+          note: o.pickupInfo.note || "",
+        }
+      : null,
     shippedAt: toIsoOrNull(o.shippedAt),
     estimatedDeliveryAt: toIsoOrNull(o.estimatedDeliveryAt),
     deliveredAt: toIsoOrNull(o.deliveredAt),

@@ -6,6 +6,7 @@ import {
   getOrderById,
   updateOrderStatus,
   createOrderShipment,
+  updateOrderShipment,
   getOrderShipment,
 } from "../controllers/orderController";
 
@@ -16,6 +17,7 @@ router.post("/", requireAuth, createOrder);
 router.get("/:id", requireAuth, getOrderById);
 router.get("/:id/shipment", requireAuth, getOrderShipment);
 router.post("/:id/shipment", requireAuth, createOrderShipment);
+router.patch("/:id/shipment", requireAuth, updateOrderShipment);
 router.patch("/:id/status", requireAuth, updateOrderStatus);
 
 export default router;

@@ -97,14 +97,19 @@ const ShippingEventSchema = new Schema(
 );
 
 // ── Pickup address information ───────────────────────────────────────────────
+// `address` = số nhà + tên đường (text tự do).
+// `provinceId` + `communeId` = mã hành chính từ AddressKit, bắt buộc khi tạo
+// vận đơn. Tỉnh luôn cứng "79" (TP.HCM) — chỉ cần dropdown phường/xã.
 const PickupInfoSchema = new Schema(
   {
     name: { type: String, default: "" },
     phone: { type: String, default: "" },
     address: { type: String, default: "" },
-    province: { type: String, default: "" },
+    provinceId: { type: String, default: "" },
+    provinceName: { type: String, default: "" },
+    communeId: { type: String, default: "" },
+    communeName: { type: String, default: "" },
     district: { type: String, default: "" },
-    ward: { type: String, default: "" },
     email: { type: String, default: "" },
     note: { type: String, default: "" },
   },
@@ -115,9 +120,11 @@ export interface IPickupInfo {
   name?: string;
   phone?: string;
   address?: string;
-  province?: string;
+  provinceId?: string;
+  provinceName?: string;
+  communeId?: string;
+  communeName?: string;
   district?: string;
-  ward?: string;
   email?: string;
   note?: string;
 }
