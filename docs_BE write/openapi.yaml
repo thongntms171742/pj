@@ -416,7 +416,9 @@ paths:
   /api/catalog/trees:
     get:
       tags: [Catalog]
-      summary: List 3 tree SKUs (S/M/L) — legacy flat list
+      deprecated: true
+      summary: List tree SKUs (S/M/L) — [DEPRECATED] Dùng GET /api/catalog/tree-products thay thế
+      description: Endpoint danh sách phẳng cũ (legacy flat list), giữ lại tạm thời để tương thích ngược. Khuyến nghị FE chuyển sang sử dụng mô hình 3 tầng qua GET /api/catalog/tree-products.
       operationId: getTrees
       responses:
         '200':
@@ -535,6 +537,40 @@ paths:
                 properties:
                   pricing: { $ref: '#/components/schemas/PriceBreakdown' }
         '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ============================================================
+  # BANNERS
+  # ============================================================
+  /api/banners:
+    get:
+      tags: [Banners]
+      summary: Lấy danh sách banner đang hoạt động (Public)
+      operationId: getBanners
+      parameters:
+        - name: position
+          in: query
+          schema: { type: string }
+          description: Vị trí hiển thị (vd home_hero, popup)
+      responses:
+        '200':
+          description: Danh sách banner
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  banners:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        _id: { type: string }
+                        title: { type: string }
+                        imageUrl: { type: string }
+                        linkUrl: { type: string }
+                        position: { type: string }
+                        isActive: { type: boolean }
+                        sortOrder: { type: integer }
 
   # ============================================================
   # DESIGNS

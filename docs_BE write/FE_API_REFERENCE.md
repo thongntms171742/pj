@@ -1037,4 +1037,63 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
   - `415 UNSUPPORTED_MEDIA_TYPE`: Đuôi file hoặc MIME type không nằm trong danh sách cho phép.
   - `500 INTERNAL_ERROR`: Lỗi máy chủ hoặc Cloudinary chưa cấu hình khi chạy ở chế độ `REQUIRE_CLOUDINARY=true`.
 
+  ---
+
+  ## 9. Banners (`/api/banners` & `/api/admin/banners`)
+
+  Hỗ trợ quản lý và hiển thị banner chiến dịch, carousel hero trang chủ.
+
+  ### 9.1 Lấy danh sách banner hiển thị (Public)
+  - **Endpoint**: `GET /api/banners`
+  - **Query param (tùy chọn)**: `?position=home_hero` (ví dụ: `home_hero`, `popup`...)
+  - **Auth**: Public
+  - **Response (200 OK)**:
+  ```json
+  {
+    "banners": [
+      {
+        "_id": "6708a1b2c3d4e5f6a7b80010",
+        "title": "Mừng Giáng Sinh Rộn Ràng 2026",
+        "imageUrl": "https://res.cloudinary.com/.../banner1.jpg",
+        "linkUrl": "/products",
+        "position": "home_hero",
+        "isActive": true,
+        "sortOrder": 1,
+        "createdAt": "2026-10-11T10:00:00.000Z",
+        "updatedAt": "2026-10-11T10:00:00.000Z"
+      }
+    ]
+  }
+  ```
+
+  ### 9.2 Quản lý banner (Admin)
+  - **Auth**: `Bearer <admin_token>`
+
+  #### 1. Lấy tất cả banner
+  - `GET /api/admin/banners` → `{ "banners": [...] }`
+
+  #### 2. Thêm banner mới
+  - `POST /api/admin/banners`
+  - **Body**:
+  ```json
+  {
+    "title": "Sale Đêm Giáng Sinh",
+    "imageUrl": "https://res.cloudinary.com/.../banner.jpg",
+    "linkUrl": "/products",
+    "position": "home_hero",
+    "isActive": true,
+    "sortOrder": 1
+  }
+  ```
+  - **Response (201 Created)**: `{ "banner": { ... } }`
+
+  #### 3. Chỉnh sửa banner
+  - `PATCH /api/admin/banners/:id`
+  - **Body** (các trường tùy chọn): `{ "title": "...", "imageUrl": "...", "isActive": false, "sortOrder": 2 }`
+  - **Response (200 OK)**: `{ "banner": { ... } }`
+
+  #### 4. Xóa banner
+  - `DELETE /api/admin/banners/:id`
+  - **Response (200 OK)**: `{ "success": true, "bannerId": ":id" }`
+
 

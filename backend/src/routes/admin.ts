@@ -36,6 +36,10 @@ import {
   getAllUsers,
   updateUserStatus,
   getUserDetails,
+  listBanners,
+  createBanner,
+  updateBanner,
+  deleteBanner,
 } from "../controllers/admin";
 
 const router = Router();
@@ -91,5 +95,11 @@ router.get("/analytics", getAdminAnalytics);
 router.get("/users", getAllUsers);
 router.patch("/users/:id/status", updateUserStatus);
 router.get("/users/:id/details", getUserDetails);
+
+// ── Banners ──────────────────────────────────────────────────────────────────
+router.get("/banners", listBanners);
+router.post("/banners", createBanner);
+router.patch("/banners/:id", updateBanner);
+router.delete("/banners/:id", deleteBanner);
 
 export default router;

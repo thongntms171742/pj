@@ -15,3 +15,4 @@ export * from "./presets";
 export * from "./orders";
 export * from "./users";
 export * from "./stats";
+export * from "./banners";

@@ -16,6 +16,7 @@ import notificationRoutes from "./routes/notifications";
 import adminRoutes from "./routes/admin";
 import couponRoutes from "./routes/coupons";
 import uploadRoutes from "./routes/uploads";
+import bannerRoutes from "./routes/banners";
 import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 
 const app = express();
@@ -65,6 +66,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/coupons", couponRoutes);
 app.use("/api/uploads", uploadRoutes);
+app.use("/api/banners", bannerRoutes);
 
 // ── 404 catch-all ──────────────────────────────────────────────────────────────
 app.use("/api/*", (_req, res) => {

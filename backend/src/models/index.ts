@@ -17,3 +17,4 @@ export * from "./Order";
 export * from "./Category";
 export * from "./Notification";
 export * from "./Coupon";
+export * from "./Banner";
