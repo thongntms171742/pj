@@ -1,18 +1,18 @@
-import type { IMessage, MessageRole } from "../models/Message";
+import type { IMessage, MessageRole, MessageSenderType } from "../models/Message";
 
 // ── DTO shapes ────────────────────────────────────────────────────────────────
 
 export interface MessageDto {
   _id: string;
   conversationId: string;
-  role: MessageRole;
+  role: MessageRole; // "buyer" | "admin" | "system" — for FE display
   senderId: string;
   senderName: string;
   content: string;
   isRead: boolean;
   readAt: string | null;
   sentAt: string;
-  isOwn: boolean; // computed: does this message belong to the requester
+  isOwn: boolean;
 }
 
 export interface ChatHistoryDto {
@@ -25,35 +25,64 @@ export interface UnreadCountDto {
   unread: number;
 }
 
+/**
+ * Convert internal sender type ("user") to FE-friendly DTO role ("buyer").
+ */
+function toDtoRole(role: unknown): MessageRole {
+  if (role === "admin") return "admin";
+  if (role === "system") return "system";
+  return "buyer"; // "user" → "buyer", and default fallback
+}
+
 // ── Mapper ───────────────────────────────────────────────────────────────────
 /**
  * Map IMessage to MessageDto.
  * `currentUserId` is used to compute `isOwn` so the FE knows which messages
  * belong to the requesting user without re-fetching the senderId.
+ *
+ * Accepts any object — Mongoose document, lean document, or plain object.
  */
 export function messageToDto(
-  msg: IMessage | Record<string, unknown>,
+  msg: unknown,
   currentUserId: string
 ): MessageDto {
-  const senderId = String(msg.senderId ?? "");
+  const m = msg as Record<string, unknown> | null | undefined;
+  if (!m) {
+    return {
+      _id: "",
+      conversationId: "global",
+      role: "buyer",
+      senderId: "",
+      senderName: "",
+      content: "",
+      isRead: false,
+      readAt: null,
+      sentAt: new Date().toISOString(),
+      isOwn: false,
+    };
+  }
+
+  const senderId = String(m.senderId ?? "");
+  const createdAtRaw = m.createdAt;
   const sentAt = (() => {
-    const t = msg.createdAt as unknown;
-    if (!t) return new Date().toISOString();
-    return t instanceof Date ? t.toISOString() : new Date(t as string).toISOString();
+    if (!createdAtRaw) return new Date().toISOString();
+    return createdAtRaw instanceof Date
+      ? createdAtRaw.toISOString()
+      : new Date(createdAtRaw as string | number).toISOString();
   })();
-  const readAtRaw = msg.readAt as unknown;
+  const readAtRaw = m.readAt;
   return {
-    _id: String(msg._id ?? ""),
-    conversationId: String(msg.conversationId ?? "global"),
-    role: (msg.role as MessageRole) ?? "user",
+    _id: String(m._id ?? ""),
+    conversationId: String(m.conversationId ?? "global"),
+    role: toDtoRole(m.role),
     senderId,
-    senderName: String(msg.senderName ?? ""),
-    content: String(msg.content ?? ""),
-    isRead: Boolean(msg.isRead),
+    senderName: String(m.senderName ?? ""),
+    content: String(m.content ?? ""),
+    isRead: Boolean(m.isRead),
     readAt: readAtRaw
       ? readAtRaw instanceof Date
         ? readAtRaw.toISOString()
-        : new Date(readAtRaw as string).toISOString()
+        : new Date(readAtRaw as string | number).toISOString()
       : null,
     sentAt,
     isOwn: senderId === currentUserId,

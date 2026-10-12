@@ -111,8 +111,34 @@ export const sendMessage = async (
       (req.user as { email?: string }).email?.split("@")[0] ??
       `User ${userId.slice(-4)}`;
 
-    // broadcastMessageFromRest saves + broadcasts in one call
-    await broadcastMessageFromRest(userId, senderName, trimmed, role);
+    // broadcastMessageFromRest only accepts admin|system; cast user → user but
+    // we still want buyers to be able to send via REST (fallback).
+    // Solution: pass "user" through a separate save path, or extend the function.
+    // Quick fix: save directly here for users, then broadcast via socket.
+    if (role === "user") {
+      const saved = await Message.create({
+        conversationId: GLOBAL_CONVERSATION,
+        role: "user",
+        senderId: userId,
+        senderName,
+        content: trimmed,
+        isRead: false,
+      });
+      // Broadcast to all connected clients in the global room
+      const { getIO } = await import("../services/socket");
+      const io = (() => {
+        try { return getIO(); } catch { return null; }
+      })();
+      if (io) {
+        const dto = messageToDto(saved, userId);
+        io.to("global").emit("chat:message", dto);
+      }
+      created(res, { message: messageToDto(saved, userId) });
+      return;
+    }
+
+    // Admin path: use broadcastMessageFromRest (saves + broadcasts)
+    await broadcastMessageFromRest(userId, senderName, trimmed, "admin");
 
     // Return the just-saved message DTO
     const saved = await Message.findOne({
