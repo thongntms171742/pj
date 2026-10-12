@@ -54,6 +54,5 @@ const CartItemSchema = new Schema<ICartItem>(
 
 // No unique index — FE may legitimately add the same design multiple times
 // with different configurations / personalizations.
-CartItemSchema.index({ cartId: 1 });
 
 export const CartItem = mongoose.model<ICartItem>("CartItem", CartItemSchema);

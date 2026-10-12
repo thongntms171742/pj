@@ -1,292 +1,220 @@
-import { GoogleGenAI } from "@google/genai";
-import { ErrorCode } from "../../utils/errors";
+import { uploadFromBuffer } from "../cloudinaryService";
+import { Tree } from "../../models/Tree";
+import { Accessory } from "../../models/Accessory";
+import { Style } from "../../models/Style";
+import { AIDesign } from "../../models/AIDesign";
 
-export interface TreeImagePromptInput {
-  tree: {
-    name: string;
-    size: string;
-    heightCmMin?: number;
-    heightCmMax?: number;
-    bareImage?: string;
-  };
-  style?: {
-    name: string;
-    code?: string;
-    palette?: string[];
-  } | null;
-  accessories: Array<{
-    name: string;
-    type: string;
-    group: string;
-    quantity: number;
-    personalizationText?: string;
-  }>;
-  customerPrompt?: string;
+const KIE_BASE_URL = "https://api.kie.ai/api/v1";
+const KIE_MODEL = "nano-banana-2";
+const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const TASK_TIMEOUT_MS = 8 * 60 * 1000;
+const POLL_INTERVAL_MS = 2500;
+
+type KieResponse = {
+  code?: number;
+  msg?: string;
+  message?: string;
+  data?: any;
+};
+
+function serviceError(message: string, code: string, status: number): Error & { code: string; status: number } {
+  return Object.assign(new Error(message), { code, status });
 }
 
-export class GoogleImageServiceError extends Error {
-  public code: string;
-  public status: number;
-  constructor(code: string, message: string, status = 500) {
-    super(message);
-    this.code = code;
-    this.status = status;
-  }
-}
-
-/**
- * Builds a prompt for Google Gemini Image Generation.
- * Reads real tree specifications, style theme, and accessory list from MongoDB.
- */
-export function buildTreeImagePrompt(input: TreeImagePromptInput): string {
-  const { tree, style, accessories, customerPrompt } = input;
-
-  const accessoryLines = accessories
-    .map((a) => {
-      let desc = `- ${a.quantity}x ${a.name} (${a.type.toLowerCase()})`;
-      if (a.personalizationText) {
-        desc += ` engraved with custom text: "${a.personalizationText}"`;
-      }
-      return desc;
-    })
-    .join("\n");
-
-  const styleDescription = style
-    ? `Design Theme: "${style.name}" (${style.code || "Holiday Elegance"}).`
-    : "Design Theme: Cozy Festive Christmas.";
-
-  const customerNotes = customerPrompt?.trim()
-    ? `Customer aesthetic requirement: "${customerPrompt}".`
-    : "";
-
-  return `
-Professional commercial studio product photography of a decorated Christmas tree.
-
-[Tree Specifications]
-- Tree Type: ${tree.name} (Size: ${tree.size})
-- Physical Profile: Full, vibrant evergreen pine branches with rich natural green needles.
-${styleDescription}
-
-[Decorations & Ornaments Applied]
-${accessoryLines || "- Elegantly hung warm fairy lights, glass baubles, and festive ribbon bows."}
-
-${customerNotes}
-
-[Photography & Style Directives]
-- Angle: Eye-level central view, showcasing the full tree from base to tree topper star.
-- Lighting: Warm ambient glow from decorative Christmas fairy lights, soft diffuse studio fill light.
-- Setting: Minimalist, elegant festive room with gentle blurred holiday background (bokeh).
-- Render Quality: 8k resolution, crisp detail on needles and ornament reflections, photorealistic, no distortion, no cartoon elements.
-`.trim();
-}
-
-/**
- * Calls Google GenAI to generate an image buffer based on the given prompt.
- * Uses GEMINI_API_KEY and GEMINI_IMAGE_MODEL environment variables.
- */
-export async function generateTreeImage(prompt: string): Promise<Buffer> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+async function kieRequest<T = KieResponse>(url: string, init: RequestInit): Promise<T> {
+  const apiKey = process.env.KIE_API_KEY?.trim();
   if (!apiKey) {
-    throw new GoogleImageServiceError(
-      ErrorCode.AI_DESIGNER_NOT_CONFIGURED,
-      "Chưa cấu hình GEMINI_API_KEY trong biến môi trường",
+    throw serviceError(
+      "KIE API chưa được cấu hình. Hãy thêm KIE_API_KEY vào biến môi trường backend.",
+      "AI_DESIGNER_NOT_CONFIGURED",
       503
     );
   }
 
-  const modelName =
-    process.env.GEMINI_IMAGE_MODEL?.trim() || "gemini-2.5-flash-image";
-
-  const ai = new GoogleGenAI({ apiKey });
-
+  let response: Response;
   try {
-    // Attempt 1: Using client.models.generateImages (Standard for Imagen / Image Generation models)
-    if (typeof (ai.models as any)?.generateImages === "function") {
-      try {
-        const response = await ai.models.generateImages({
-          model: modelName,
-          prompt,
-          config: {
-            numberOfImages: 1,
-            outputMimeType: "image/jpeg",
-          },
-        });
-
-        const imageBytes =
-          response?.generatedImages?.[0]?.image?.imageBytes;
-
-        if (imageBytes) {
-          return Buffer.from(imageBytes, "base64");
-        }
-      } catch (err: any) {
-        // If generateImages failed because model requires generateContent, fall through
-        console.warn(
-          `[googleImageService] generateImages with model "${modelName}" failed, attempting generateContent fallback...`,
-          err?.message
-        );
-      }
-    }
-
-    // Attempt 2: Using client.models.generateContent (For multimodal image generation models)
-    const contentResponse = await ai.models.generateContent({
-      model: modelName,
-      contents: prompt,
-      config: {
-        responseModalities: ["IMAGE", "TEXT"] as any,
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(init.headers || {}),
       },
+      signal: init.signal || AbortSignal.timeout(45_000),
     });
-
-    // Extract inline image bytes from candidates
-    const candidates = contentResponse?.candidates || [];
-    for (const candidate of candidates) {
-      const parts = candidate.content?.parts || [];
-      for (const part of parts) {
-        if ((part as any).inlineData?.data) {
-          return Buffer.from((part as any).inlineData.data, "base64");
-        }
-      }
-    }
-
-    throw new GoogleImageServiceError(
-      ErrorCode.AI_GENERATION_FAILED,
-      "Google Gemini không trả về dữ liệu hình ảnh hợp lệ",
-      500
-    );
-  } catch (err: any) {
-    if (err instanceof GoogleImageServiceError) {
-      throw err;
-    }
-    console.error("[googleImageService] Gemini API call error:", err);
-    throw new GoogleImageServiceError(
-      ErrorCode.AI_GENERATION_FAILED,
-      `Lỗi khi gọi Google Image API: ${err?.message || "Lỗi không xác định"}`,
-      500
+  } catch (cause: any) {
+    throw serviceError(
+      `Không kết nối được KIE API: ${String(cause?.message || "network error").slice(0, 180)}`,
+      "AI_PROVIDER_UNAVAILABLE",
+      502
     );
   }
+
+  let body: any;
+  try {
+    body = await response.json();
+  } catch {
+    throw serviceError("KIE API trả về dữ liệu không hợp lệ.", "AI_PROVIDER_INVALID_RESPONSE", 502);
+  }
+
+  // KIE may report application errors in JSON while HTTP status remains 200.
+  if (!response.ok || (typeof body?.code === "number" && body.code !== 200)) {
+    const providerCode = Number(body?.code || response.status);
+    const message = String(body?.msg || body?.message || `KIE API error (${providerCode})`).slice(0, 240);
+    if (providerCode === 401 || providerCode === 403) {
+      throw serviceError("KIE API key không hợp lệ hoặc chưa có quyền sử dụng model.", "AI_PROVIDER_AUTH_FAILED", 502);
+    }
+    if (providerCode === 429) {
+      throw serviceError("KIE API đang giới hạn yêu cầu hoặc đã hết credit. Kiểm tra số dư và hạn mức KIE.", "AI_QUOTA_EXCEEDED", 429);
+    }
+    throw serviceError(message, "AI_PROVIDER_REQUEST_FAILED", 502);
+  }
+  return body as T;
 }
 
-/**
- * Orchestrates generating and saving an AI design visualization:
- * 1. Verifies ownership or admin permissions.
- * 2. Sets status to GENERATING.
- * 3. Reads tree, style, accessories from MongoDB and builds prompt.
- * 4. Calls Gemini to generate image buffer.
- * 5. Uploads to Cloudinary.
- * 6. Sets status to COMPLETED and stores imageUrl / imagePublicId.
- * If failed: sets status to FAILED, records lastError, but preserves design & catalog selection.
- */
-export async function generateAIDesignImage(
-  designId: string,
-  userId: string,
-  isAdmin: boolean
-): Promise<{
-  aiDesign: {
-    _id: any;
-    ownerId: any;
-    status: string;
-    imageUrl: string;
-    imagePublicId: string;
-    prompt: string;
-    preferences: any;
-    pricingSnapshot: any;
-    createdAt: Date;
-    updatedAt: Date;
-  };
-}> {
-  const { Types } = await import("mongoose");
-  const { AIDesign } = await import("../../models/AIDesign");
-  const { hydrateAIDesign } = await import("./aiDesignerService");
-  const { uploadFromBuffer } = await import("../cloudinaryService");
-
-  const aiDoc = await AIDesign.findById(designId);
-  if (!aiDoc) {
-    throw new GoogleImageServiceError(
-      ErrorCode.AI_DESIGN_NOT_FOUND,
-      "Không tìm thấy thiết kế AI",
-      404
-    );
+function parseResultUrls(value: any): string[] {
+  if (!value) return [];
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { return []; }
   }
-
-  // Check ownership
-  if (aiDoc.ownerId) {
-    if (String(aiDoc.ownerId) !== userId && !isAdmin) {
-      throw new GoogleImageServiceError(
-        ErrorCode.FORBIDDEN,
-        "Bạn không có quyền thao tác trên thiết kế này",
-        403
-      );
+  const candidates = [
+    parsed?.resultUrls,
+    parsed?.result_urls,
+    parsed?.resultImageUrl ? [parsed.resultImageUrl] : undefined,
+    parsed?.resultImageUrls,
+    parsed?.images?.map((item: any) => typeof item === "string" ? item : item?.url),
+  ];
+  for (const list of candidates) {
+    if (Array.isArray(list)) {
+      const urls = list.filter((url: any) => typeof url === "string" && /^https:\/\//i.test(url));
+      if (urls.length) return urls;
     }
-  } else if (userId) {
-    // If design was created anonymously, claim ownership
-    aiDoc.ownerId = new Types.ObjectId(userId);
+  }
+  return [];
+}
+
+async function waitForImage(taskId: string): Promise<string> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < TASK_TIMEOUT_MS) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    const query = await kieRequest<KieResponse>(
+      `${KIE_BASE_URL}/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`,
+      { method: "GET", headers: { "Content-Type": "application/json" } }
+    );
+    const task = query?.data || {};
+    const state = String(task.state || task.status || "").toLowerCase();
+
+    if (state === "success" || state === "succeeded" || state === "completed") {
+      const urls = parseResultUrls(task.resultJson || task.result_json || task.result || task);
+      if (urls[0]) return urls[0];
+      throw serviceError("KIE đã hoàn tất tác vụ nhưng không trả về URL ảnh.", "AI_PROVIDER_INVALID_RESPONSE", 502);
+    }
+    if (state === "fail" || state === "failed" || state === "error") {
+      const failMessage = String(task.failMsg || task.errorMessage || query.msg || "KIE không tạo được ảnh.").slice(0, 240);
+      throw serviceError(`KIE tạo ảnh thất bại: ${failMessage}`, "AI_GENERATION_FAILED", 502);
+    }
+  }
+  throw serviceError("KIE đang xử lý ảnh lâu hơn dự kiến. Vui lòng thử lại sau; thiết kế của bạn vẫn được giữ.", "AI_GENERATION_TIMEOUT", 504);
+}
+
+async function downloadGeneratedImage(imageUrl: string): Promise<Buffer> {
+  let response: Response;
+  try {
+    response = await fetch(imageUrl, { signal: AbortSignal.timeout(45_000) });
+  } catch (cause: any) {
+    throw serviceError(`Không tải được ảnh từ KIE: ${String(cause?.message || "network error").slice(0, 160)}`, "AI_IMAGE_DOWNLOAD_FAILED", 502);
+  }
+  if (!response.ok) throw serviceError("Không tải được ảnh kết quả từ KIE.", "AI_IMAGE_DOWNLOAD_FAILED", 502);
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType && !contentType.toLowerCase().startsWith("image/")) {
+    throw serviceError("KIE trả về URL không phải tệp ảnh.", "AI_PROVIDER_INVALID_RESPONSE", 502);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  if (!arrayBuffer.byteLength || arrayBuffer.byteLength > MAX_IMAGE_BYTES) {
+    throw serviceError("Ảnh từ KIE rỗng hoặc vượt quá giới hạn 12 MB.", "AI_IMAGE_TOO_LARGE", 502);
+  }
+  return Buffer.from(arrayBuffer);
+}
+
+export async function generateAIDesignImage(designId: string, ownerId: string, isAdmin: boolean) {
+  if (!process.env.KIE_API_KEY?.trim()) {
+    throw serviceError("KIE API chưa được cấu hình. Hãy thêm KIE_API_KEY vào biến môi trường backend.", "AI_DESIGNER_NOT_CONFIGURED", 503);
   }
 
-  // Update status to GENERATING
-  aiDoc.status = "GENERATING";
-  await aiDoc.save();
+  const design = await AIDesign.findById(designId);
+  if (!design) throw serviceError("Không tìm thấy thiết kế AI", "AI_DESIGN_NOT_FOUND", 404);
+  if (!isAdmin && String(design.ownerId || "") !== ownerId) {
+    throw serviceError("Bạn không có quyền tạo ảnh cho thiết kế này", "FORBIDDEN", 403);
+  }
+  if (design.status === "GENERATING") {
+    throw serviceError("Thiết kế đang được tạo ảnh, vui lòng thử lại sau", "AI_GENERATION_FAILED", 409);
+  }
 
+  const tree = await Tree.findById(design.variantId).select("name size bareImage description").lean();
+  if (!tree) throw serviceError("Không tìm thấy mẫu cây trong catalog", "TREE_NOT_FOUND", 404);
+  const accessoryIds = design.accessories.map((a) => a.accessoryId);
+  const accessories = accessoryIds.length
+    ? await Accessory.find({ _id: { $in: accessoryIds } }).select("name type description image").lean()
+    : [];
+  const style = design.styleId
+    ? await Style.findById(design.styleId).select("name code description palette").lean()
+    : null;
+  const accessoryLines = design.accessories.map((item) => {
+    const accessory: any = accessories.find((x: any) => String(x._id) === String(item.accessoryId));
+    return accessory
+      ? `${accessory.name} (${accessory.type}), quantity ${item.quantity}${item.personalizationText ? `, text: ${item.personalizationText}` : ""}`
+      : "";
+  }).filter(Boolean);
+  const palette = style?.palette ? JSON.stringify(style.palette) : (design.preferences?.theme || "festive Christmas colors");
+  const prompt = [
+    "Create a photorealistic e-commerce product image of one decorated Christmas tree, standing alone in a clean studio or tasteful living-room scene.",
+    `Base tree: ${tree.name}; size ${tree.size}.`,
+    `Style: ${style ? `${style.name} (${style.code})` : (design.preferences?.styleCode || "cohesive Christmas style")}. Palette: ${palette}.`,
+    `Decorations to visually include: ${accessoryLines.join("; ") || "tasteful decorations consistent with the requested theme"}.`,
+    `Customer design request: ${design.prompt || design.preferences?.notes || "elegant Christmas tree decoration"}.`,
+    "Keep the tree shape realistic, decorations physically plausible, and the full tree visible. No watermark, logos, price text, or extra trees. This is a visualization, not a guarantee that every tiny detail matches catalog photos.",
+  ].join("\n");
+
+  await AIDesign.updateOne({ _id: design._id }, { $set: { status: "GENERATING", lastError: null } });
   try {
-    const { resolved } = await hydrateAIDesign(designId);
-
-    const prompt = buildTreeImagePrompt({
-      tree: {
-        name: resolved.variant.name,
-        size: resolved.variant.size,
-        heightCmMin: resolved.variant.heightCmMin,
-        heightCmMax: resolved.variant.heightCmMax,
-        bareImage: resolved.variant.bareImage,
-      },
-      style: resolved.style
-        ? {
-            name: resolved.style.name,
-            code: resolved.style.code,
-            palette: (resolved.style as any).palette,
-          }
-        : null,
-      accessories: resolved.accessories.map((a) => ({
-        name: a.accessory.name,
-        type: a.accessory.type,
-        group: a.accessory.group,
-        quantity: a.quantity,
-        personalizationText: a.personalizationText,
-      })),
-      customerPrompt: aiDoc.prompt,
+    const created = await kieRequest<KieResponse>(`${KIE_BASE_URL}/jobs/createTask`, {
+      method: "POST",
+      body: JSON.stringify({
+        model: KIE_MODEL,
+        input: { prompt, image_input: [], aspect_ratio: "3:4", resolution: "1K", output_format: "png" },
+      }),
     });
+    const taskId = created?.data?.taskId;
+    if (!taskId) throw serviceError("KIE không trả về taskId khi tạo ảnh.", "AI_PROVIDER_INVALID_RESPONSE", 502);
 
-    const imageBuffer = await generateTreeImage(prompt);
-
-    const folder =
-      process.env.CLOUDINARY_FOLDER || "buildyourchristmas/ai-designs";
-    const uploadResult = await uploadFromBuffer(imageBuffer, {
-      folder,
-      resourceType: "image",
-    });
-
-    aiDoc.imageUrl = uploadResult.url;
-    aiDoc.imagePublicId = uploadResult.publicId;
-    aiDoc.status = "COMPLETED";
-    aiDoc.lastError = null;
-    await aiDoc.save();
-
+    const imageUrl = await waitForImage(String(taskId));
+    const imageBuffer = await downloadGeneratedImage(imageUrl);
+    const uploaded = await uploadFromBuffer(imageBuffer, { folder: "buildyourchristmas/ai-designs", resourceType: "image" });
+    await AIDesign.updateOne({ _id: design._id }, { $set: { status: "COMPLETED", imageUrl: uploaded.url, imagePublicId: uploaded.publicId, lastError: null } });
     return {
+      designId: String(design._id),
+      status: "COMPLETED",
+      imageUrl: uploaded.url,
+      imagePublicId: uploaded.publicId,
       aiDesign: {
-        _id: aiDoc._id,
-        ownerId: aiDoc.ownerId,
-        status: aiDoc.status,
-        imageUrl: aiDoc.imageUrl,
-        imagePublicId: aiDoc.imagePublicId,
-        prompt: aiDoc.prompt,
-        preferences: aiDoc.preferences,
-        pricingSnapshot: aiDoc.pricingSnapshot,
-        createdAt: aiDoc.createdAt,
-        updatedAt: aiDoc.updatedAt,
+        _id: design._id,
+        ownerId: design.ownerId,
+        status: "COMPLETED",
+        imageUrl: uploaded.url,
+        imagePublicId: uploaded.publicId,
+        prompt: design.prompt,
+        preferences: design.preferences,
+        pricingSnapshot: design.pricingSnapshot,
+        createdAt: design.createdAt,
+        updatedAt: new Date(),
       },
     };
-  } catch (err: any) {
-    // Mark as failed while keeping tree and accessories intact for retry
-    aiDoc.status = "FAILED";
-    aiDoc.lastError = err?.message || "Tạo ảnh thất bại";
-    await aiDoc.save();
-    throw err;
+  } catch (cause: any) {
+    const safeMessage = String(cause?.message || "KIE image generation failed").slice(0, 400);
+    await AIDesign.updateOne({ _id: design._id }, { $set: { status: "FAILED", lastError: safeMessage } });
+    if (cause?.code && cause?.status) throw cause;
+    throw serviceError(safeMessage, "AI_GENERATION_FAILED", 502);
   }
 }

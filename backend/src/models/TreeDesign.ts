@@ -103,7 +103,7 @@ const TreeDesignSchema = new Schema<ITreeDesign>(
     year: { type: Number, required: true, default: () => new Date().getFullYear() },
     config: {
       variantId: { type: Schema.Types.ObjectId, ref: "Tree", required: true },
-      styleId: { type: Schema.Types.ObjectId, ref: "Style", required: true },
+      styleId: { type: Schema.Types.ObjectId, ref: "Style", default: null },
       accessories: [
         {
           _id: false,

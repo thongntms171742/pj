@@ -53,8 +53,6 @@ export async function recommendDesign(
       selection,
     });
 
-    const isAdmin = Boolean(req.user?.roles?.includes("admin"));
-
     created(res, {
       aiDesign: {
         _id: aiDesignDoc._id,
@@ -62,7 +60,7 @@ export async function recommendDesign(
         prompt: aiDesignDoc.prompt,
         preferences: aiDesignDoc.preferences,
         imageUrl: aiDesignDoc.imageUrl,
-        pricing: formatPricingForUser(aiDesignDoc.pricingSnapshot, isAdmin),
+        pricing: aiDesignDoc.pricingSnapshot,
         createdAt: aiDesignDoc.createdAt,
       },
       selection: {
@@ -94,7 +92,7 @@ export async function recommendDesign(
           lineTotal: item.lineTotal,
           personalizationText: item.personalizationText,
         })),
-        pricing: formatPricingForUser(selection.pricing, isAdmin),
+        pricing: selection.pricing,
       },
     });
   } catch (err: any) {
@@ -122,7 +120,6 @@ export async function getAIDesignById(
     }
 
     const { aiDesign, resolved } = await hydrateAIDesign(id);
-    const isAdmin = Boolean(req.user?.roles?.includes("admin"));
 
     ok(res, {
       aiDesign: {
@@ -133,7 +130,7 @@ export async function getAIDesignById(
         preferences: aiDesign.preferences,
         imageUrl: aiDesign.imageUrl,
         imagePublicId: aiDesign.imagePublicId,
-        pricingSnapshot: formatPricingForUser(aiDesign.pricingSnapshot, isAdmin),
+        pricingSnapshot: aiDesign.pricingSnapshot,
         lastError: aiDesign.lastError,
         convertedToTreeDesignId: aiDesign.convertedToTreeDesignId,
         createdAt: aiDesign.createdAt,
@@ -163,7 +160,7 @@ export async function getAIDesignById(
           lineTotal: a.lineTotal,
           personalizationText: a.personalizationText,
         })),
-        pricing: formatPricingForUser(resolved.pricing, isAdmin),
+        pricing: resolved.pricing,
       },
     });
   } catch (err: any) {
@@ -279,26 +276,6 @@ export async function saveConfirmedDesign(
 
 function aiDesignDesignStatus(doc: any): string {
   return doc.status || "DRAFT";
-}
-
-function formatPricingForUser(pricing: any, isAdmin: boolean): any {
-  if (!pricing) return null;
-  const result: any = {
-    treePrice: pricing.treePrice,
-    accessoriesTotal: pricing.accessoriesTotal,
-    decorationFee: pricing.decorationFee,
-    shippingFee: pricing.shippingFee,
-    totalSalePrice: pricing.totalSalePrice,
-  };
-  if (isAdmin) {
-    result.totalCostPrice =
-      pricing.totalCostPrice !== undefined ? pricing.totalCostPrice : null;
-    result.expectedGrossProfit =
-      pricing.expectedGrossProfit !== undefined
-        ? pricing.expectedGrossProfit
-        : null;
-  }
-  return result;
 }
 
 

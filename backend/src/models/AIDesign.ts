@@ -24,8 +24,8 @@ export interface AIDesignPricingSnapshot {
   decorationFee: number;
   shippingFee: number;
   totalSalePrice: number;
-  totalCostPrice?: number | null;
-  expectedGrossProfit?: number | null;
+  totalCostPrice?: number;
+  expectedGrossProfit?: number;
 }
 
 export interface IAIDesign extends Document {
@@ -111,8 +111,8 @@ const AIDesignSchema = new Schema<IAIDesign>(
       decorationFee: { type: Number, default: 0 },
       shippingFee: { type: Number, default: 0 },
       totalSalePrice: { type: Number, default: 0 },
-      totalCostPrice: { type: Number, default: null },
-      expectedGrossProfit: { type: Number, default: null },
+      totalCostPrice: { type: Number, default: 0 },
+      expectedGrossProfit: { type: Number, default: 0 },
     },
     status: {
       type: String,
