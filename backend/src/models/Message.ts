@@ -6,7 +6,8 @@ export type MessageSenderType = "user" | "admin" | "system";
 
 // ── IMessage ──────────────────────────────────────────────────────────────────
 export interface IMessage extends Document {
-  conversationId: string; // single global room: "global"
+  conversationId: string; // 1-1 room id, e.g. "c_<userA>__<userB>" (sorted)
+  participants: string[]; // [userA, userB] sorted — fast "my conversations" queries
   role: MessageSenderType;
   senderId: string;       // user._id or "admin" string
   senderName: string;     // display name
@@ -21,7 +22,12 @@ const MessageSchema = new Schema<IMessage>(
   {
     conversationId: {
       type: String,
-      default: "global",
+      required: true,
+      index: true,
+    },
+    participants: {
+      type: [String],
+      default: [],
       index: true,
     },
     role: {
@@ -67,5 +73,7 @@ const MessageSchema = new Schema<IMessage>(
 MessageSchema.index({ conversationId: 1, createdAt: -1 });
 MessageSchema.index({ senderId: 1, createdAt: -1 });
 MessageSchema.index({ isRead: 1, readBy: 1 });
+// "List my conversations sorted by latest message" — admin inbox query
+MessageSchema.index({ participants: 1, createdAt: -1 });
 
 export const Message = mongoose.model<IMessage>("Message", MessageSchema);

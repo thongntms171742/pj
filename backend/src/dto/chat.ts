@@ -15,6 +15,27 @@ export interface MessageDto {
   isOwn: boolean;
 }
 
+/**
+ * One row in the conversation list (admin inbox / buyer "current chat").
+ *
+ * For BUYER: there is exactly ONE of these — their chat with admin.
+ * For ADMIN: many — one per buyer they've chatted with.
+ */
+export interface ConversationDto {
+  conversationId: string;
+  peerId: string;          // the OTHER participant
+  peerName: string;        // best-effort display name
+  peerAvatar?: string;     // optional, if FE has it
+  lastMessage: {
+    content: string;
+    sentAt: string;
+    senderId: string;
+    role: MessageRole;
+  } | null;
+  unread: number;          // unread messages from peer in this conversation
+  updatedAt: string;       // last activity timestamp
+}
+
 export interface ChatHistoryDto {
   messages: MessageDto[];
   total: number;
@@ -23,6 +44,10 @@ export interface ChatHistoryDto {
 
 export interface UnreadCountDto {
   unread: number;
+}
+
+export interface ConversationListDto {
+  conversations: ConversationDto[];
 }
 
 /**
@@ -50,7 +75,7 @@ export function messageToDto(
   if (!m) {
     return {
       _id: "",
-      conversationId: "global",
+      conversationId: "c_unknown",
       role: "buyer",
       senderId: "",
       senderName: "",
@@ -64,7 +89,7 @@ export function messageToDto(
 
   const senderId = String(m.senderId ?? "");
   const createdAtRaw = m.createdAt;
-  const sentAt = (() => {
+  const sentAt = ((): string => {
     if (!createdAtRaw) return new Date().toISOString();
     return createdAtRaw instanceof Date
       ? createdAtRaw.toISOString()
@@ -73,7 +98,7 @@ export function messageToDto(
   const readAtRaw = m.readAt;
   return {
     _id: String(m._id ?? ""),
-    conversationId: String(m.conversationId ?? "global"),
+    conversationId: String(m.conversationId ?? "c_unknown"),
     role: toDtoRole(m.role),
     senderId,
     senderName: String(m.senderName ?? ""),

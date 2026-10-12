@@ -1,24 +1,29 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import {
+  listConversations,
   getMessages,
   sendMessage,
-  getUnreadCount,
+  getUnreadForPeer,
   markRead,
+  getUnreadCount,
 } from "../controllers/chatController";
 
 const router = Router();
 
-// GET /api/chat/messages  — paginated history
-router.get("/messages", requireAuth, getMessages);
+// All chat endpoints require auth
+router.use(requireAuth);
 
-// POST /api/chat/messages — send message (REST fallback)
-router.post("/messages", requireAuth, sendMessage);
+// Total unread across all my conversations (badge on the app)
+router.get("/unread", getUnreadCount);
 
-// GET /api/chat/unread — unread count
-router.get("/unread", requireAuth, getUnreadCount);
+// List my conversations (admin: many; buyer: at most 1)
+router.get("/conversations", listConversations);
 
-// POST /api/chat/markRead — mark as read
-router.post("/markRead", requireAuth, markRead);
+// Per-conversation (param = peerId)
+router.get("/conversations/:peerId/messages", getMessages);
+router.post("/conversations/:peerId/messages", sendMessage);
+router.get("/conversations/:peerId/unread", getUnreadForPeer);
+router.post("/conversations/:peerId/markRead", markRead);
 
 export default router;

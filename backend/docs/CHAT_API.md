@@ -1,9 +1,13 @@
-# Chat API — FE Integration Guide
+# Chat API — FE Integration Guide (1-1 Model)
 
-> **Version:** 1.0 · **Last updated:** 2026-10-13 · **Backend status:** ✅ Deployed
+> **Version:** 2.0 · **Last updated:** 2026-10-13 · **Backend status:** ✅ Deployed
+>
+> **Breaking change from v1:** chat is now **1-1 (buyer ↔ admin)**.
+> Each buyer has exactly one conversation with the admin team. Admin
+> sees one conversation per buyer. The old "global room" endpoint
+> `GET /api/chat/messages` is GONE.
 
-This doc is the single source of truth for FE devs integrating the chat
-feature. The BE has been finalized; please follow the contracts below exactly.
+This doc is the single source of truth for FE devs integrating chat.
 
 ---
 
@@ -11,168 +15,224 @@ feature. The BE has been finalized; please follow the contracts below exactly.
 
 | Var | Value (dev) | Value (prod) |
 |-----|-------------|--------------|
-| `VITE_API_URL` | `http://localhost:4000` | `https://christmas-8ca4.onrender.com` |
+| `VITE_API_URL` | `http://localhost:4000` | `https://<render-app>.onrender.com` |
 
 > **One URL is enough.** Socket.io connects to the same host as REST.
-> Do NOT introduce a separate `VITE_SOCKET_URL`.
 
-The JWT is read from `localStorage["token"]` (same key as the rest of the
-app). The `api` instance from `@/lib/api` already attaches it.
-
----
-
-## 2. Auth on socket
-
-The socket REQUIRES a valid JWT. Pass it via `auth.token` on `io()`:
-
-```ts
-import { io } from "socket.io-client";
-
-const token = localStorage.getItem("token");
-const socket = io(import.meta.env.VITE_API_URL, {
-  auth: { token },
-  transports: ["websocket", "polling"],
-  reconnection: true,
-});
-```
-
-If the token is missing or invalid, the server **rejects the connection**
-with `UNAUTHORIZED: token missing` / `UNAUTHORIZED: invalid token`. The
-client will not receive any events.
-
-> **The client no longer needs to emit `chat:join`.** On successful
-> connection the server auto-joins the global room and immediately emits
-> `chat:unread { unread }`. (Emitting `chat:join` again is a no-op and
-> still safe to send for back-compat.)
+The JWT is read from `localStorage["token"]`. The `api` instance from
+`@/lib/api` already attaches it as `Authorization: Bearer <token>`.
 
 ---
 
-## 3. TypeScript types
-
-Re-export or copy these from `types/chat.ts`:
+## 2. TypeScript types
 
 ```ts
 export type ChatRole = "buyer" | "admin" | "system";
 
 export interface Message {
   _id: string;
-  conversationId: string;       // always "global" for now
+  conversationId: string;       // e.g. "c_<userA>__<userB>" (sorted)
   role: ChatRole;               // "buyer" for users, "admin" for staff
   senderId: string;
   senderName: string;
   content: string;              // max 2000 chars
   isRead: boolean;
-  readAt: string | null;        // ISO 8601
-  sentAt: string;               // ISO 8601
-  isOwn: boolean;               // computed by BE: true if current user sent it
+  readAt: string | null;
+  sentAt: string;
+  isOwn: boolean;               // computed by BE
 }
 
-export interface ChatHistoryResponse {
-  messages: Message[];
-  total: number;                // total in conversation
-  hasMore: boolean;             // true if more older messages exist
+export interface Conversation {
+  conversationId: string;
+  peerId: string;               // the OTHER participant
+  peerName: string;
+  peerAvatar?: string;
+  lastMessage: {
+    content: string;
+    sentAt: string;
+    senderId: string;
+    role: ChatRole;
+  } | null;
+  unread: number;               // unread from peer
+  updatedAt: string;
 }
 ```
 
-> **Role mapping:** The DB stores `"user" | "admin" | "system"`. The BE
-> maps `"user" → "buyer"` in the DTO. **FE should never see `"user"`.**
-> If it does, that is a bug in the BE.
+> The DB stores `role: "user" | "admin" | "system"`. The BE DTO maps
+> `"user" → "buyer"`. FE should never see `"user"`.
+
+---
+
+## 3. The "admin" pseudo-id
+
+Buyers don't have an ObjectId for "the admin team". The BE uses the
+literal string **`"admin"`** as the peerId for all buyer ↔ admin chats.
+
+| User type | `peerId` for the other side |
+|-----------|------------------------------|
+| Buyer | always `"admin"` |
+| Admin | the buyer's real `_id` (24-char ObjectId) |
+
+This means:
+
+```ts
+// In your buyer-side chat store
+const ADMIN_PEER_ID = "admin";
+const peerId = user.role === "admin" ? otherUserId : ADMIN_PEER_ID;
+```
 
 ---
 
 ## 4. REST endpoints
 
-Base path: `${VITE_API_URL}/api/chat`. All endpoints require `Authorization: Bearer <token>`.
+Base: `${VITE_API_URL}/api/chat`. All require `Authorization: Bearer <token>`.
 
-### 4.1 `GET /messages` — paginated history
+### 4.1 `GET /conversations` — list my conversations
 
-| Query | Type | Default | Notes |
-|-------|------|---------|-------|
-| `limit` | number | 50 | max 100 |
-| `before` | string | — | ObjectId of the oldest message you have; returns messages STRICTLY OLDER than this |
-| `page` | number | 1 | alternative cursor (use `before` for infinite scroll) |
+| User | Returns |
+|------|---------|
+| Buyer | 0 or 1 conversation (with admin) — empty if they never messaged |
+| Admin | One entry per buyer who has chatted, newest first |
 
 **Response 200:**
 ```json
 {
-  "messages": [Message, Message, ...],  // ordered oldest → newest
-  "total": 123,
-  "hasMore": true
+  "conversations": [Conversation, ...]
 }
 ```
 
-> The BE **also marks unread messages from others as read** when you
-> fetch history. No need to call `/markRead` separately after open.
+### 4.2 `GET /conversations/:peerId/messages` — history with peer
 
-### 4.2 `POST /messages` — send (REST fallback)
+| Query | Type | Default | Notes |
+|-------|------|---------|-------|
+| `limit` | number | 50 | max 100 |
+| `before` | string | — | ObjectId of the oldest you have; returns STRICTLY OLDER messages |
+| `page` | number | 1 | alternative cursor |
+
+> `:peerId` is `"admin"` for buyers, buyer's `_id` for admin.
+
+**Response 200:**
+```json
+{
+  "messages": [Message, ...],     // oldest → newest
+  "total": 123,
+  "hasMore": true,
+  "conversationId": "c_...",
+  "peerId": "admin"
+}
+```
+
+> The BE also marks unread messages from the peer as read when you
+> fetch history.
+
+### 4.3 `POST /conversations/:peerId/messages` — send (REST fallback)
 
 **Body:** `{ "content": "string" }`
 
 **Response 201:**
 ```json
-{ "message": Message }
+{
+  "message": Message,
+  "conversationId": "c_..."
+}
 ```
 
-> **Prefer `socket.emit("chat:send", { content })`** for real-time.
-> This REST endpoint is a fallback for when the socket is disconnected
-> and the user is still trying to send. UI should automatically fall
-> back to REST if `socket.connected === false` and retry with socket
-> when reconnected.
+> Prefer socket. This REST endpoint is a fallback when `socket.connected === false`.
 
-### 4.3 `GET /unread` — current unread count
+### 4.4 `GET /conversations/:peerId/unread` — unread in this conv
 
-**Response 200:** `{ "unread": number }`
+**Response 200:** `{ "unread": number, "conversationId": "c_..." }`
 
-> Mostly redundant with the `chat:unread` socket event, but useful for
-> fetching the initial count on app mount before the socket connects.
-
-### 4.4 `POST /markRead` — mark messages as read
-
-> ⚠️ **Endpoint is `/markRead`, NOT `/read` or `/messages/read`.**
+### 4.5 `POST /conversations/:peerId/markRead` — mark as read
 
 **Body:** `{ "lastMessageId": "string (ObjectId)" }` (optional)
 
-If `lastMessageId` is omitted, marks ALL unread messages from others
-in the global room as read.
+**Response 200:** `{ "success": true, "conversationId": "c_..." }`
 
-**Response 200:** `{ "success": true }`
+### 4.6 `GET /unread` — TOTAL unread across all my convs
+
+**Response 200:** `{ "unread": number }`
+
+> Use this for the global badge on the chat FAB. Per-conversation
+> unread comes from the conversation list.
+
+### 4.7 Security errors (all chat endpoints)
+
+| HTTP | `error.code` | When |
+|------|--------------|------|
+| 400 | `INVALID_INPUT` | bad `peerId` for admin, etc. |
+| 403 | `FORBIDDEN` | buyer tried to chat with another buyer |
+| 404 | `NOT_FOUND` | no such endpoint (e.g. you called the old `/messages`) |
 
 ---
 
 ## 5. Socket events
 
-### 5.1 Client → Server
+### 5.1 Connect
+
+```ts
+import { io } from "socket.io-client";
+
+const socket = io(import.meta.env.VITE_API_URL, {
+  auth: { token: localStorage.getItem("token") ?? "" },
+  transports: ["websocket", "polling"],
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 10_000,
+  timeout: 30_000,
+});
+```
+
+On connect, the server **auto-joins** the socket to all conversations
+the user is a participant in (queried from `Message.participants`).
+No `chat:join` needed.
+
+> If the user is a brand-new buyer with no messages, the auto-join is
+> a no-op. They emit `chat:join` with the admin conversationId
+> after they send their first message.
+
+### 5.2 Client → Server
 
 | Event | Payload | Notes |
 |-------|---------|-------|
-| `chat:send` | `{ content: string }` | Server validates (non-empty, ≤ 2000 chars) |
-| `chat:markRead` | `{ lastMessageId?: string }` | Mirror of REST `/markRead` |
-| `chat:leave` | `{}` | Optional — disconnect also handles cleanup |
+| `chat:join` | `{ conversationId }` | Idempotent; safe to call after first message |
+| `chat:send` | `{ conversationId, content }` | Validates sender is a participant |
+| `chat:markRead` | `{ conversationId, lastMessageId? }` | |
+| `chat:typing` | `{ conversationId }` | Not persisted, just a UI hint |
+| `chat:leave` | `{ conversationId }` | Optional — disconnect also handles |
 
-> ❌ **No need to emit `chat:join`.** Auto-joined on connect.
+> If you send a `conversationId` you're not in, the server replies with
+> `chat:error { code: "FORBIDDEN_NOT_PARTICIPANT" }`.
 
-### 5.2 Server → Client
+### 5.3 Server → Client
 
 | Event | Payload | When |
 |-------|---------|------|
-| `chat:message` | `Message` | New message broadcast (also fired for your own messages — use `isOwn` to filter) |
-| `chat:unread` | `{ unread: number }` | On connect, after every `chat:send`/`chat:markRead` |
-| `chat:error` | `{ message: string }` | Validation error (empty content, too long, etc.) |
+| `chat:message` | `Message` | New message in any joined conversation (also your own — use `isOwn`) |
+| `chat:joined` | `{ conversationId }` | After successful `chat:join` |
+| `chat:unread` | `{ unread }` | On connect, after each `chat:send`/`chat:markRead` (total across all convs) |
+| `chat:typing` | `{ conversationId, userId, userName }` | Peer is typing |
+| `chat:error` | `{ code, message }` | Validation / permission / internal error |
 
-### 5.3 Connection lifecycle
+### 5.4 Lifecycle (1-1)
 
 ```
-client                          server
-  │ ── connect (auth: token) ─→ │
-  │ ←─ connected ─────────────  │   (auto-join global room)
-  │ ←─ chat:unread { n } ─────  │   (initial count)
-  │                              │
-  │ ── chat:send { content } ─→ │
-  │ ←─ chat:message ──────────  │   (your own message, isOwn=true)
-  │ ←─ chat:unread { n+1 } ───  │   (broadcast to OTHER users)
-  │                              │
-  │ ←─ chat:message ──────────  │   (incoming from other user, isOwn=false)
-  │ ←─ chat:unread { n+1 } ───  │
+client (buyer)                      server
+  │ ── connect (auth: token) ─────→ │
+  │ ←─ connected ────────────────── │  (auto-join any existing conv)
+  │ ←─ chat:unread { n } ────────── │  (initial total)
+  │                                  │
+  │ ── chat:send ──────────────────→ │
+  │   { conversationId, content }   │
+  │ ←─ chat:message ─────────────── │  (you, isOwn=true)
+  │ ←─ chat:unread { n } ────────── │  (still 0 for you)
+  │                                  │
+  │ ←─ chat:message ─────────────── │  (from admin/peer, isOwn=false)
+  │ ←─ chat:unread { n+1 } ──────── │
+  │                                  │
+  │ ── chat:markRead ──────────────→ │
+  │ ←─ chat:unread { 0 } ────────── │
 ```
 
 ---
@@ -181,86 +241,74 @@ client                          server
 
 | Behavior | How |
 |----------|-----|
-| Unread badge on FAB | Bind to `chat:unread.unread` |
-| Toast on new message when panel closed | Listen `chat:message`, if `!isOwn && !panelOpen` → `toast.info(...)` |
-| Auto-scroll to bottom on new own message | In `MessageList` useEffect on messages length |
-| Load older messages on scroll-top | Call `GET /messages?before={oldestId}&limit=30` |
-| Reconnect with backoff | socket.io `reconnection: true` (default) — display a small "Mất kết nối" banner if `!connected` |
-| Send via socket, fall back to REST | `if (socket.connected) socket.emit("chat:send", { content }); else POST /messages` |
-| Mark read on open panel | On panel open, emit `chat:markRead` with last `Message._id` |
+| Unread badge on FAB | Bind to `chat:unread.unread` (total) |
+| Inbox list (admin) | Call `GET /conversations`, render with `unread` per row |
+| Open a conversation | `GET /conversations/:peerId/messages?limit=30` |
+| Load older on scroll-top | `GET /conversations/:peerId/messages?before={oldestId}&limit=30` |
+| Send | `socket.emit("chat:send", { conversationId, content })`, fallback to REST |
+| Toast on incoming | `socket.on("chat:message")` → if `!isOwn && !panelOpen` → toast |
+| Mark read on panel open | `socket.emit("chat:markRead", { conversationId, lastMessageId })` |
+| Typing indicator | Throttled `socket.emit("chat:typing", { conversationId })` every 3s while typing |
 
 ---
 
-## 7. Admin vs Buyer
+## 7. Admin-only flows
 
-- The role of the SENDER is in `Message.role` (`"buyer" | "admin" | "system"`).
-- The widget for **buyers** should only render if `user.role !== "ADMIN"`.
-- The **admin page** (`/admin/chat`) should only render if `user.role === "ADMIN"`.
-- The server auto-detects admin from `JWT.roles[]` and tags admin messages
-  with `role: "admin"`. **Buyers cannot impersonate admin** — the JWT is
-  signed and verified on the server.
+- `GET /conversations` returns one entry per **buyer** (not per admin).
+- For each, `peerId` is the buyer's `_id` — pass it to subsequent calls.
+- Admin chat page URL: `/admin/chat?peerId=...` (or whatever your router uses).
+- The server auto-detects admin from `JWT.roles[]` — buyers can't impersonate.
 
 ---
 
-## 8. What changed from the original plan
-
-| Original plan | Actual BE | Why |
-|---------------|-----------|-----|
-| `POST /api/chat/messages/read` | `POST /api/chat/markRead` | Clearer intent — same semantics |
-| `Message.role === "user"` | `Message.role === "buyer"` | UX-friendly name on the wire |
-| Client emits `chat:join` first | Auto-join on connect | One less round-trip, no race conditions |
-| No socket auth | JWT verified on handshake | Without this, anyone could claim to be admin |
-
----
-
-## 9. Render deployment notes (READ THIS if FE devs see WS drops)
+## 8. Render deployment notes
 
 Render free tier sits behind a proxy that:
 
-- **Closes idle WS after ~55s** — the BE mitigates this with
-  `pingInterval: 20s, pingTimeout: 25s, upgradeTimeout: 30s` so the
-  proxy always sees traffic and the client has time to reply.
-- **Sleeps after 15 min of no traffic** — first connection after sleep
-  will take 30-50s to upgrade. The client MUST:
-  - Use `reconnection: true` with `reconnectionAttempts: Infinity`
-  - Show a "Đang kết nối..." banner while disconnected
-  - Not show error toast on transient disconnect
+- **Closes idle WS after ~55s** — mitigated with `pingInterval: 20s,
+  pingTimeout: 25s, upgradeTimeout: 30s`.
+- **Sleeps after 15 min no traffic** — first connection takes 30-50s.
+  Client MUST use `reconnection: true` + `reconnectionAttempts: Infinity`
+  and show a "Đang kết nối..." banner.
 
-### Recommended client socket config (canonical)
+### If you see "WebSocket is closed before the connection is established"
 
-```ts
-import { io } from "socket.io-client";
-
-const socket = io(import.meta.env.VITE_API_URL, {
-  auth: { token: localStorage.getItem("token") ?? "" },
-  transports: ["websocket", "polling"],  // try WS first, fall back to polling
-  reconnection: true,
-  reconnectionAttempts: Infinity,
-  reconnectionDelay: 1000,        // first retry after 1s
-  reconnectionDelayMax: 10_000,   // cap at 10s
-  timeout: 30_000,                // match server upgradeTimeout
-  // Force polling only if WS still fails:
-  // transports: ["polling"],
-});
-
-socket.on("connect", () => {
-  console.log(`[chat] connected via ${socket.io.engine.transport.name}`);
-});
-socket.io.engine.on("upgrade", (transport) => {
-  console.log(`[chat] transport upgraded to ${transport.name}`);
-});
-```
-
-### If you still see "WebSocket is closed before the connection is established"
-
-Force polling-only as a workaround (slower but always works on Render):
+Force polling-only as a workaround:
 
 ```ts
 const socket = io(url, { auth: { token }, transports: ["polling"] });
 ```
 
-Then open in browser:
+Test polling manually in browser:
 `https://<your-app>.onrender.com/socket.io/?EIO=4&transport=polling`
-— you should see `0{"sid":"...","upgrades":["websocket"],"pingInterval":20000,"pingTimeout":25000}`.
-If you see this, polling works server-side and the only issue is the WS
-upgrade path on the proxy.
+→ expect `{"sid":"...","upgrades":["websocket"],"pingInterval":20000,...}`.
+
+---
+
+## 9. What changed from v1 (global room)
+
+| v1 (global) | v2 (1-1) |
+|-------------|----------|
+| `GET /api/chat/messages` | `GET /api/chat/conversations/:peerId/messages` |
+| `POST /api/chat/messages` | `POST /api/chat/conversations/:peerId/messages` |
+| `POST /api/chat/markRead` | `POST /api/chat/conversations/:peerId/markRead` |
+| `conversationId = "global"` | `conversationId = "c_<userA>__<userB>"` (sorted) |
+| One room, everyone hears everything | Per-conversation room, only 2 participants |
+| `chat:join` required | Auto-joined on connect |
+| No conversation list | `GET /api/chat/conversations` |
+
+---
+
+## 10. Quick smoke test
+
+1. Login as buyer A in tab 1, admin in tab 2.
+2. Buyer A calls `GET /conversations` → `[]` (never messaged).
+3. Buyer A sends a message via socket (or POST to
+   `/conversations/admin/messages`).
+4. Admin's `GET /conversations` now shows 1 entry (buyer A) with `unread: 1`.
+5. Admin opens it → `GET /conversations/<buyerA id>/messages` → admin's
+   `unread` becomes 0, admin's `chat:unread` event fires.
+6. Admin replies via socket → buyer A receives `chat:message` (isOwn=false).
+7. Buyer A opens panel → marks read → `chat:unread { unread: 0 }`.
+
+If any step fails, check the browser console + Render logs.
