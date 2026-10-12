@@ -17,6 +17,7 @@ import adminRoutes from "./routes/admin";
 import couponRoutes from "./routes/coupons";
 import uploadRoutes from "./routes/uploads";
 import bannerRoutes from "./routes/banners";
+import aiDesignerRoutes from "./routes/aiDesigner";
 import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 
 const app = express();
@@ -67,6 +68,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/coupons", couponRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/banners", bannerRoutes);
+app.use("/api/ai-designer", aiDesignerRoutes);
 
 // ── 404 catch-all ──────────────────────────────────────────────────────────────
 app.use("/api/*", (_req, res) => {

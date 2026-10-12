@@ -41,6 +41,7 @@ export interface ITree extends Document {
   images: string[];        // ảnh bổ sung
   bareImage: string;       // ảnh cây trơn (không trang trí)
   price: number;
+  costPrice?: number; // Giá vốn nội bộ; chỉ admin được xem/quản lý
   stockQuantity: number;
   isActive: boolean;
   sortOrder: number;
@@ -76,6 +77,7 @@ const TreeSchema = new Schema<ITree>(
     images: { type: [String], default: [] },
     bareImage: { type: String, default: "" },
     price: { type: Number, required: true, min: 0 },
+    costPrice: { type: Number, min: 0, default: undefined },
     stockQuantity: { type: Number, required: true, min: 0, default: 0 },
     isActive: { type: Boolean, default: true, index: true },
     sortOrder: { type: Number, default: 0 },

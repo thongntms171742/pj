@@ -32,6 +32,7 @@ export interface IAccessory extends Document {
   description: string;
   image: string;
   price: number;
+  costPrice?: number; // Giá vốn nội bộ; chỉ admin được xem/quản lý
   stock: number;
   styleCodes: StyleCode[];
   maxQtyBySize: { S: number; M: number; L: number };
@@ -71,6 +72,7 @@ const AccessorySchema = new Schema<IAccessory>(
     description: { type: String, default: "" },
     image: { type: String, default: "" },
     price: { type: Number, required: true, min: 0 },
+    costPrice: { type: Number, min: 0, default: undefined },
     stock: { type: Number, required: true, min: 0, default: 0 },
     styleCodes: { type: [String], default: [] },
     maxQtyBySize: {

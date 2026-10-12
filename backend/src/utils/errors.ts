@@ -92,6 +92,11 @@ export const ErrorCode = {
   FILE_TOO_LARGE: "FILE_TOO_LARGE",
   UNSUPPORTED_MEDIA_TYPE: "UNSUPPORTED_MEDIA_TYPE",
   WEBHOOK_INVALID_SIGNATURE: "WEBHOOK_INVALID_SIGNATURE",
+
+  // ── AI Designer ─────────────────────────────────────────────────────────
+  AI_DESIGN_NOT_FOUND: "AI_DESIGN_NOT_FOUND",
+  AI_GENERATION_FAILED: "AI_GENERATION_FAILED",
+  AI_DESIGNER_NOT_CONFIGURED: "AI_DESIGNER_NOT_CONFIGURED",
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -180,6 +185,11 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   FILE_TOO_LARGE: 400,
   UNSUPPORTED_MEDIA_TYPE: 415,
   WEBHOOK_INVALID_SIGNATURE: 401,
+
+  // AI Designer
+  AI_DESIGN_NOT_FOUND: 404,
+  AI_GENERATION_FAILED: 500,
+  AI_DESIGNER_NOT_CONFIGURED: 503,
 };
 
 // ── Main helper: sendError ───────────────────────────────────────────────────

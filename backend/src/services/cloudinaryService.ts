@@ -116,7 +116,7 @@ export async function uploadFromBuffer(
         public_id: randomUUID(),
         overwrite: false,
       },
-      (error, uploaded) => {
+      (error: any, uploaded: any) => {
         if (error) {
           reject(error);
           return;
