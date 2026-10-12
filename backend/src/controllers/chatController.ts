@@ -111,45 +111,39 @@ export const sendMessage = async (
       (req.user as { email?: string }).email?.split("@")[0] ??
       `User ${userId.slice(-4)}`;
 
-    // broadcastMessageFromRest only accepts admin|system; cast user → user but
-    // we still want buyers to be able to send via REST (fallback).
-    // Solution: pass "user" through a separate save path, or extend the function.
-    // Quick fix: save directly here for users, then broadcast via socket.
-    if (role === "user") {
-      const saved = await Message.create({
+    // For buyers, save directly and broadcast via socket. For admin,
+    // use the shared helper (which also updates admin notifications / unread).
+    if (role === "admin") {
+      await broadcastMessageFromRest(userId, senderName, trimmed, "admin");
+      const saved = await Message.findOne({
         conversationId: GLOBAL_CONVERSATION,
-        role: "user",
         senderId: userId,
-        senderName,
-        content: trimmed,
-        isRead: false,
-      });
-      // Broadcast to all connected clients in the global room
-      const { getIO } = await import("../services/socket");
-      const io = (() => {
-        try { return getIO(); } catch { return null; }
-      })();
-      if (io) {
-        const dto = messageToDto(saved, userId);
-        io.to("global").emit("chat:message", dto);
-      }
-      created(res, { message: messageToDto(saved, userId) });
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+      const dto = saved ? messageToDto(saved, userId) : null;
+      created(res, { message: dto });
       return;
     }
 
-    // Admin path: use broadcastMessageFromRest (saves + broadcasts)
-    await broadcastMessageFromRest(userId, senderName, trimmed, "admin");
-
-    // Return the just-saved message DTO
-    const saved = await Message.findOne({
+    // Buyer path: persist then broadcast (if socket server is up)
+    const saved = await Message.create({
       conversationId: GLOBAL_CONVERSATION,
+      role: "user",
       senderId: userId,
-    })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    const dto = saved ? messageToDto(saved, userId) : null;
-    created(res, { message: dto });
+      senderName,
+      content: trimmed,
+      isRead: false,
+    });
+    try {
+      const { getIO } = await import("../services/socket");
+      const io = getIO();
+      const dto = messageToDto(saved, userId);
+      io.to("global").emit("chat:message", dto);
+    } catch {
+      // socket not initialized (e.g. during unit tests) — REST still succeeded
+    }
+    created(res, { message: messageToDto(saved, userId) });
   } catch (err) {
     handleInternalError(res, err, "[chat] sendMessage error");
   }

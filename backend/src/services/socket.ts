@@ -16,10 +16,13 @@
 
 import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
+import jwt from "jsonwebtoken";
 import { Types } from "mongoose";
 import { Message } from "../models/Message";
 import { Notification } from "../models/Notification";
 import { messageToDto } from "../dto/chat";
+
+const JWT_SECRET = process.env.JWT_SECRET || "thriftit_super_secret_key_change_me";
 
 let io: Server | null = null;
 
@@ -62,51 +65,76 @@ export function initSocket(httpServer: HttpServer): Server {
     transports: ["websocket", "polling"],
   });
 
+  // ── Auth middleware: verify JWT on every socket connection ─────────────
+  // Client must pass token in `auth.token` (recommended) or `Authorization`
+  // header. Token is the same JWT issued by /api/auth/login.
+  io.use((socket, next) => {
+    try {
+      const fromAuth = (socket.handshake.auth as { token?: string } | undefined)?.token;
+      const fromHeader = socket.handshake.headers.authorization?.startsWith("Bearer ")
+        ? socket.handshake.headers.authorization.slice(7)
+        : undefined;
+      const token = (fromAuth ?? fromHeader ?? "").toString().trim();
+      if (!token) {
+        return next(new Error("UNAUTHORIZED: token missing"));
+      }
+      const decoded = jwt.verify(token, JWT_SECRET) as {
+        id: string;
+        email?: string;
+        roles?: string[];
+      };
+      socket.data.userId = decoded.id;
+      socket.data.userName = (decoded as { name?: string }).name ?? decoded.email?.split("@")[0] ?? "User";
+      socket.data.isAdmin = Array.isArray(decoded.roles) && decoded.roles.includes("admin");
+      next();
+    } catch {
+      next(new Error("UNAUTHORIZED: invalid token"));
+    }
+  });
+
   const GLOBAL_ROOM = "global";
 
   io.on("connection", (socket: Socket) => {
-    const isAdmin: boolean = socket.data.isAdmin ?? false;
-    console.log(`[socket] connected: ${socket.id}`);
+    // Auth middleware guarantees these are set — but be defensive.
+    const userId: string = socket.data.userId ?? "";
+    const isAdmin: boolean = Boolean(socket.data.isAdmin);
+    const userName: string = socket.data.userName ?? "User";
+    if (!userId) {
+      socket.emit("chat:error", { message: "Xác thực thất bại" });
+      socket.disconnect(true);
+      return;
+    }
+    console.log(`[socket] connected: ${socket.id} (user=${userId} admin=${isAdmin})`);
 
-    // ── Join global chat room ────────────────────────────────────────────────
-    socket.on("chat:join", async (payload: { userId: string }) => {
-      const userId = (payload?.userId ?? "").toString().trim();
-      if (!userId) {
-        socket.emit("chat:error", { message: "userId is required" });
-        return;
-      }
+    // Auto-join on connection so the client doesn't have to emit chat:join
+    socket.join(GLOBAL_ROOM);
+    const existing = userSockets.get(userId) ?? new Set<string>();
+    existing.add(socket.id);
+    userSockets.set(userId, existing);
+    console.log(`[socket] ${userId} auto-joined global room (${existing.size} tab(s))`);
 
-      socket.data.userId = userId;
-      socket.data.isAdmin = isAdmin;
-      socket.join(GLOBAL_ROOM);
+    // Send initial unread count for this user
+    Message.countDocuments({
+      conversationId: GLOBAL_ROOM,
+      isRead: false,
+      senderId: { $ne: userId },
+    })
+      .then((unread) => socket.emit("chat:unread", { unread }))
+      .catch((err) => console.error("[socket] initial unread error:", err));
 
-      const existing = userSockets.get(userId) ?? new Set();
-      existing.add(socket.id);
-      userSockets.set(userId, existing);
-
-      console.log(`[socket] ${userId} joined global room (${existing.size} tab(s))`);
-
-      // Send unread count for this user
-      try {
-        const unread = await Message.countDocuments({
-          conversationId: GLOBAL_ROOM,
-          isRead: false,
-          senderId: { $ne: userId },
-        });
-        socket.emit("chat:unread", { unread });
-      } catch (err) {
-        console.error("[socket] unread count error:", err);
-      }
+    // Optional re-join (kept for back-compat with FE that still emit chat:join)
+    socket.on("chat:join", async (_payload: { userId: string }) => {
+      // No-op: connection handler already auto-joined. Just refresh unread.
+      const unread = await Message.countDocuments({
+        conversationId: GLOBAL_ROOM,
+        isRead: false,
+        senderId: { $ne: userId },
+      });
+      socket.emit("chat:unread", { unread });
     });
 
     // ── Send message ─────────────────────────────────────────────────────────
     socket.on("chat:send", async (payload: { content: string }) => {
-      const userId: string = socket.data.userId;
-      if (!userId) {
-        socket.emit("chat:error", { message: "Bạn chưa đăng nhập" });
-        return;
-      }
-
       const content = (payload?.content ?? "").toString().trim();
       if (!content) {
         socket.emit("chat:error", { message: "Tin nhắn không được để trống" });
@@ -117,16 +145,14 @@ export function initSocket(httpServer: HttpServer): Server {
         return;
       }
 
-      const senderName = socket.data.userName ?? `User ${userId.slice(-4)}`;
-      const role: "user" | "admin" | "system" =
-        socket.data.isAdmin ? "admin" : "user";
+      const role: "user" | "admin" | "system" = isAdmin ? "admin" : "user";
 
       try {
         const saved = await Message.create({
           conversationId: GLOBAL_ROOM,
           role,
           senderId: userId,
-          senderName,
+          senderName: userName,
           content,
           isRead: false,
         });
@@ -136,7 +162,7 @@ export function initSocket(httpServer: HttpServer): Server {
         // Broadcast to ALL in the room (all tabs + all users)
         io!.to(GLOBAL_ROOM).emit("chat:message", dto);
 
-        // Broadcast updated unread count to every connected user
+        // Broadcast updated unread count to every other connected user
         const connectedUserIds = Array.from(userSockets.keys());
         await Promise.all(
           connectedUserIds.map(async (uid) => {
@@ -159,7 +185,7 @@ export function initSocket(httpServer: HttpServer): Server {
           Notification.create({
             userId: new Types.ObjectId(), // admin notification — handled by socket unread
             type: "chat",
-            title: `Tin nhắn mới từ ${senderName}`,
+            title: `Tin nhắn mới từ ${userName}`,
             message: content.length > 80 ? content.slice(0, 80) + "…" : content,
           }).catch(() => {}); // best-effort, don't block
         }
@@ -171,9 +197,6 @@ export function initSocket(httpServer: HttpServer): Server {
 
     // ── Mark messages as read ───────────────────────────────────────────────
     socket.on("chat:markRead", async (payload: { lastMessageId?: string }) => {
-      const userId: string = socket.data.userId;
-      if (!userId) return;
-
       const filter: Record<string, unknown> = {
         conversationId: GLOBAL_ROOM,
         isRead: false,
@@ -200,15 +223,13 @@ export function initSocket(httpServer: HttpServer): Server {
 
     // ── Leave / disconnect ──────────────────────────────────────────────────
     socket.on("chat:leave", () => {
-      const uid = socket.data.userId as string | undefined;
       socket.leave(GLOBAL_ROOM);
-      removeSocket(uid, socket.id);
+      removeSocket(userId, socket.id);
     });
 
     socket.on("disconnect", () => {
-      const uid = socket.data.userId as string | undefined;
-      removeSocket(uid, socket.id);
-      console.log(`[socket] disconnected: ${socket.id}`);
+      removeSocket(userId, socket.id);
+      console.log(`[socket] disconnected: ${socket.id} (user=${userId})`);
     });
   });
 
