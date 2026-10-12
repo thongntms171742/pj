@@ -37,7 +37,9 @@ import {
   parseConversationId,
   isParticipant,
   getOtherParticipant,
+  getAdminTeamId,
   ADMIN_TEAM_ID,
+  ADMIN_TEAM_ID_FALLBACK,
 } from "./conversation";
 
 const JWT_SECRET = process.env.JWT_SECRET || "thriftit_super_secret_key_change_me";
@@ -93,9 +95,12 @@ async function countUnreadForUser(userId: string, isAdmin: boolean): Promise<num
   if (isAdmin) {
     filter.participants = userId;
   } else {
-    // Buyer: only the conversation with admin team.
-    // Build the deterministic id by sorting.
-    const sorted = [userId, ADMIN_TEAM_ID].sort();
+    // Buyer: only the conversation with admin.
+    // Build the deterministic id by sorting. We use the resolved
+    // admin ObjectId (not the legacy literal) so it actually matches
+    // the conversationId stored on messages.
+    const adminId = await getAdminTeamId();
+    const sorted = [userId, adminId].sort();
     filter.conversationId = `c_${sorted[0]}__${sorted[1]}`;
   }
   return Message.countDocuments(filter);

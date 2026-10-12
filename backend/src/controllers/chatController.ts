@@ -24,9 +24,12 @@ import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { broadcastMessageFromRest } from "../services/socket";
 import {
   resolveConversationBetween,
+  resolveConversationBetweenAsync,
   isAdminPeer,
   parseConversationId,
   ADMIN_TEAM_ID,
+  ADMIN_TEAM_ID_FALLBACK,
+  getAdminTeamId,
   getOtherParticipant,
 } from "../services/conversation";
 import { User } from "../models/User";
@@ -167,7 +170,11 @@ export const listConversations = async (
     } else {
       // Buyer: derive their conversation with admin from ANY message they sent
       // or received. This works even before they send a first message.
-      const sorted = [me.id, ADMIN_TEAM_ID].sort();
+      // We MUST use the admin's real ObjectId, not the literal "admin",
+      // otherwise participants won't include the admin user's _id and the
+      // admin's socket auto-join will find 0 conversations.
+      const adminId = await getAdminTeamId();
+      const sorted = [me.id, adminId].sort();
       const buyerConvId = `c_${sorted[0]}__${sorted[1]}`;
 
       const last = await Message.findOne({ conversationId: buyerConvId })
@@ -227,7 +234,7 @@ export const getMessages = async (
 
     let conversationId: string;
     try {
-      conversationId = resolveConversationBetween(
+      conversationId = await resolveConversationBetweenAsync(
         { id: me.id, isAdmin: isAdmin(me) },
         peerId
       );
@@ -312,7 +319,7 @@ export const sendMessage = async (
 
     let conversationId: string;
     try {
-      conversationId = resolveConversationBetween(
+      conversationId = await resolveConversationBetweenAsync(
         { id: me.id, isAdmin: isAdmin(me) },
         peerId
       );
@@ -408,7 +415,7 @@ export const getUnreadForPeer = async (
     }
     let conversationId: string;
     try {
-      conversationId = resolveConversationBetween(
+      conversationId = await resolveConversationBetweenAsync(
         { id: me.id, isAdmin: isAdmin(me) },
         peerId
       );
@@ -449,7 +456,7 @@ export const markRead = async (
     }
     let conversationId: string;
     try {
-      conversationId = resolveConversationBetween(
+      conversationId = await resolveConversationBetweenAsync(
         { id: me.id, isAdmin: isAdmin(me) },
         peerId
       );
@@ -496,18 +503,20 @@ export const getUnreadCount = async (
 ): Promise<void> => {
   try {
     const me = currentUser(req);
+    const isUserAdmin = isAdmin(me);
+    // Build the buyer-side conversationId from the resolved admin ObjectId
+    // (not the legacy literal "admin") so it matches what was stored on
+    // incoming messages.
     const unread = await Message.countDocuments({
       isRead: false,
       senderId: { $ne: me.id },
       // Only count messages in conversations I'm a participant of.
       // For buyers, this is the admin conv (or no conv if never chatted).
       // For admins, this is any conv where I'm a participant.
-      ...(isAdmin(me)
+      ...(isUserAdmin
         ? { participants: me.id }
         : {
-            $or: [
-              { conversationId: `c_${[me.id, ADMIN_TEAM_ID].sort().join("__")}` },
-            ],
+            conversationId: `c_${[me.id, await getAdminTeamId()].sort().join("__")}`,
           }),
     });
     ok(res, { unread });

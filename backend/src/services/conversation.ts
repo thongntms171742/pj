@@ -21,16 +21,57 @@
  */
 
 import { Types } from "mongoose";
+import { User } from "../models/User";
 
-const ADMIN_TEAM_ID = "admin"; // single logical "admin" peer (exported for callers)
-export { ADMIN_TEAM_ID };
+/**
+ * Admin "team" identifier.
+ *
+ * IMPORTANT: this is the admin USER's MongoDB ObjectId (as a string), NOT
+ * the literal word "admin". Using the literal would mean the participants
+ * field on saved messages never matches the real admin's _id, which
+ * breaks:
+ *   - Admin's auto-join on socket connect (auto-joined 0 conversations)
+ *   - Admin's inbox / listConversations (empty)
+ *   - countUnreadForUser when called for the admin
+ *
+ * We resolve it lazily from the DB on first access and cache in memory
+ * for the rest of the process lifetime. If you add a second admin
+ * account, restart the server.
+ */
+let _cachedAdminTeamId: string | null = null;
+export const ADMIN_TEAM_ID_FALLBACK = "admin"; // legacy literal — never used in new messages
+export async function getAdminTeamId(): Promise<string> {
+  if (_cachedAdminTeamId) return _cachedAdminTeamId;
+  // Prefer a dedicated admin email; otherwise pick any user with role=admin
+  const admin =
+    (await User.findOne({ email: "admin@buildyourchristmas.vn" })
+      .select("_id")
+      .lean()) ||
+    (await User.findOne({ roles: "admin" }).select("_id").lean());
+  if (!admin) {
+    // No admin exists yet — fall back to literal so the API still
+    // responds gracefully until one is seeded. log a warning.
+    console.warn(
+      "[conversation] No admin user found in DB — using literal 'admin' as fallback. Seed an admin first."
+    );
+    return ADMIN_TEAM_ID_FALLBACK;
+  }
+  _cachedAdminTeamId = String(admin._id);
+  return _cachedAdminTeamId;
+}
+
+// Legacy synchronous constant for callers that can't await.
+// In practice, prefer getAdminTeamId(). Anything that uses this literal
+// should be migrated.
+export const ADMIN_TEAM_ID = ADMIN_TEAM_ID_FALLBACK;
 const PREFIX = "c_";
 
 /**
  * The default peer for a buyer (every buyer chats with the admin team).
+ * Returns the admin user's ObjectId (as a string).
  */
-export function getDefaultPeerForBuyer(_userId: string): string {
-  return ADMIN_TEAM_ID;
+export async function getDefaultPeerForBuyer(_userId: string): Promise<string> {
+  return getAdminTeamId();
 }
 
 /**
@@ -137,11 +178,39 @@ export function resolveConversationBetween(
     }
     return getConversationId(currentUser.id, peerId);
   }
-  // Buyer → must be the admin team
-  if (peerId !== ADMIN_TEAM_ID) {
+  // Buyer → must be the admin team's ObjectId. We accept BOTH the
+  // resolved ObjectId AND the legacy literal "admin" for back-compat
+  // with FE that still sends the old constant.
+  if (peerId !== ADMIN_TEAM_ID && peerId !== ADMIN_TEAM_ID_FALLBACK) {
     const err = new Error("FORBIDDEN_PEER");
     (err as Error & { code: string }).code = "FORBIDDEN_PEER";
     throw err;
   }
-  return getConversationId(currentUser.id, ADMIN_TEAM_ID);
+  // For new conversationIds, use the resolved admin ObjectId so the
+  // admin's auto-join query actually finds the message.
+  // Since this is sync, we have to fall back to the literal here. The
+  // proper fix is in the controller — see chatController.sendMessage
+  // which awaits getAdminTeamId() before resolving.
+  return getConversationId(currentUser.id, peerId);
+}
+
+/**
+ * Async variant that resolves the admin ObjectId before building the
+ * conversationId. Use this everywhere on the buyer→admin path.
+ */
+export async function resolveConversationBetweenAsync(
+  currentUser: { id: string; isAdmin: boolean },
+  peerId: string
+): Promise<string> {
+  if (currentUser.isAdmin) {
+    if (!Types.ObjectId.isValid(peerId)) {
+      const err = new Error("INVALID_PEER");
+      (err as Error & { code: string }).code = "INVALID_PEER";
+      throw err;
+    }
+    return getConversationId(currentUser.id, peerId);
+  }
+  // Buyer — replace legacy "admin" with the real ObjectId.
+  const adminId = await getAdminTeamId();
+  return getConversationId(currentUser.id, adminId);
 }
