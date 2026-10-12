@@ -166,6 +166,7 @@ export interface TreeVariantSummary {
   heightCmMin: number;
   heightCmMax: number;
   diameterCm: number;
+  description: string;
   bareImage: string;
   price: number;
   stockQuantity: number;
@@ -274,6 +275,7 @@ export async function loadGroupedTreeCatalog(opts?: {
         heightCmMin: v.heightCmMin,
         heightCmMax: v.heightCmMax,
         diameterCm: v.diameterCm,
+        description: v.description || "",
         bareImage: v.bareImage,
         price: v.price,
         stockQuantity: v.stockQuantity,
