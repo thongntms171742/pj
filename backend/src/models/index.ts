@@ -8,6 +8,7 @@ export { TreeProduct } from "./TreeProduct";
 export type { ITreeProduct } from "./TreeProduct";
 export { TreeCode } from "./TreeCode";
 export type { ITreeCode } from "./TreeCode";
+export * from "./Message";
 export * from "./Style";
 export * from "./Accessory";
 export * from "./TreeDesign";
