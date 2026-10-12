@@ -213,15 +213,54 @@ client                          server
 
 ---
 
-## 9. Quick smoke test (after FE wired up)
+## 9. Render deployment notes (READ THIS if FE devs see WS drops)
 
-1. Login as buyer A in tab 1, buyer B in tab 2 (or buyer + admin).
-2. Open tab 1's chat panel → see initial `chat:unread` (likely 0).
-3. In tab 2, send "hello" via socket.
-4. Tab 1 should receive:
-   - `chat:message` with `isOwn: false`, `role: "buyer"`, `senderName: "..."`
-   - `chat:unread` `{ unread: 1 }`
-5. Tab 1 opens panel → calls `GET /messages` → BE marks them read → tab 1 receives `chat:unread` `{ unread: 0 }`.
-6. Tab 2's outgoing message in tab 1 shows **NOT** marked isOwn.
+Render free tier sits behind a proxy that:
 
-If any of these fail, check browser console + server logs.
+- **Closes idle WS after ~55s** — the BE mitigates this with
+  `pingInterval: 20s, pingTimeout: 25s, upgradeTimeout: 30s` so the
+  proxy always sees traffic and the client has time to reply.
+- **Sleeps after 15 min of no traffic** — first connection after sleep
+  will take 30-50s to upgrade. The client MUST:
+  - Use `reconnection: true` with `reconnectionAttempts: Infinity`
+  - Show a "Đang kết nối..." banner while disconnected
+  - Not show error toast on transient disconnect
+
+### Recommended client socket config (canonical)
+
+```ts
+import { io } from "socket.io-client";
+
+const socket = io(import.meta.env.VITE_API_URL, {
+  auth: { token: localStorage.getItem("token") ?? "" },
+  transports: ["websocket", "polling"],  // try WS first, fall back to polling
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,        // first retry after 1s
+  reconnectionDelayMax: 10_000,   // cap at 10s
+  timeout: 30_000,                // match server upgradeTimeout
+  // Force polling only if WS still fails:
+  // transports: ["polling"],
+});
+
+socket.on("connect", () => {
+  console.log(`[chat] connected via ${socket.io.engine.transport.name}`);
+});
+socket.io.engine.on("upgrade", (transport) => {
+  console.log(`[chat] transport upgraded to ${transport.name}`);
+});
+```
+
+### If you still see "WebSocket is closed before the connection is established"
+
+Force polling-only as a workaround (slower but always works on Render):
+
+```ts
+const socket = io(url, { auth: { token }, transports: ["polling"] });
+```
+
+Then open in browser:
+`https://<your-app>.onrender.com/socket.io/?EIO=4&transport=polling`
+— you should see `0{"sid":"...","upgrades":["websocket"],"pingInterval":20000,"pingTimeout":25000}`.
+If you see this, polling works server-side and the only issue is the WS
+upgrade path on the proxy.

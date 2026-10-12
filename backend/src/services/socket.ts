@@ -63,6 +63,17 @@ export function initSocket(httpServer: HttpServer): Server {
       credentials: true,
     },
     transports: ["websocket", "polling"],
+    // Render free tier sits behind a proxy that closes idle WS after ~55s.
+    // Default pingInterval (25s) / pingTimeout (20s) is right at the edge.
+    // We send pings more frequently so the proxy always sees traffic, and
+    // give the client a bit more time to reply before we declare it dead.
+    pingInterval: 20_000,    // server pings every 20s
+    pingTimeout: 25_000,     // wait 25s for pong before disconnect
+    upgradeTimeout: 30_000,  // allow 30s for WS upgrade (Render cold start)
+    maxHttpBufferSize: 1e6,  // 1MB max message
+    // Allow EIO3 clients (older socket.io-client) to connect — some
+    // browser extensions / devtools still emit EIO=3 handshakes.
+    allowEIO3: true,
   });
 
   // ── Auth middleware: verify JWT on every socket connection ─────────────
