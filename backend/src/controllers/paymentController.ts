@@ -27,7 +27,7 @@ export const getSepayInfo = async (
   try {
     const userId = req.user!.id;
     const isAdmin = Boolean(req.user?.roles?.includes("admin"));
-    const { orderId } = req.params;
+    const orderId = String(req.params.orderId || "");
 
     if (!orderId) {
       sendError(res, ErrorCode.ORDER_ID_REQUIRED, "Thiếu orderId");
@@ -68,7 +68,7 @@ export const checkPaymentStatus = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { orderCode } = req.params;
+    const orderCode = String(req.params.orderCode || "");
     if (!orderCode) {
       sendError(res, ErrorCode.MISSING_FIELD, "Thiếu mã đơn hàng");
       return;
