@@ -1239,7 +1239,7 @@ hoặc
 
 **Mục đích**: Nhận thông báo tự động từ cổng thanh toán (PayOS / Sepay / VNPay / MoMo) để cập nhật đơn hàng thành `PAID` và `CONFIRMED`.
 
-**Auth**: Public (xác thực qua chữ ký HMAC `X-Signature` nếu cấu hình `PAYMENT_WEBHOOK_SECRET`).
+**Auth**: Public (xác thực qua chữ ký HMAC `X-Signature` nếu cấu hình `PAYMENT_WEBHOOK_SECRET` hoặc tự động điều hướng sang xử lý SePay nếu phát hiện payload SePay).
 
 **Request**:
 ```json
@@ -1266,6 +1266,99 @@ hoặc
 - `404 ORDER_NOT_FOUND`
 
 ---
+
+### GET `/api/payments/sepay/info/:orderId`
+
+**Mục đích**: Lấy thông tin tài khoản ngân hàng, cú pháp chuyển khoản và URL ảnh mã VietQR sinh từ SePay cho đơn hàng.
+
+**Auth**: Required (Buyer sở hữu đơn hàng hoặc Admin).
+
+**Params**: `orderId` (MongoDB ObjectId hoặc `orderCode`).
+
+**Success (200)**:
+```json
+{
+  "payment": {
+    "orderId": "670c...",
+    "orderCode": "BYC-12345678",
+    "totalAmount": 1250000,
+    "bankAccount": "0123456789",
+    "bankName": "MBBank",
+    "accountHolder": "CONG TY CP BUILD YOUR CHRISTMAS",
+    "transferContent": "BYC 12345678",
+    "qrUrl": "https://qr.sepay.vn/img?acc=0123456789&bank=MBBank&amount=1250000&des=BYC+12345678&template=compact2",
+    "isConfigured": true
+  },
+  "order": { /* ApiOrder */ }
+}
+```
+
+**Errors**:
+- `400 ORDER_ID_REQUIRED`
+- `403 FORBIDDEN`
+- `404 ORDER_NOT_FOUND`
+
+---
+
+### POST `/api/payments/sepay/webhook`
+
+**Mục đích**: Webhook nhận dữ liệu từ SePay khi khách hàng chuyển khoản ngân hàng qua VietQR. Tự động kiểm tra số tiền, bóc tách mã đơn `BYC-XXXXXXXX`, cập nhật đơn hàng sang `PAID` / `CONFIRMED`, tạo thông báo và bắn sự kiện realtime Socket.io (`order:paid` & `payment:success`).
+
+**Auth**: Header `Authorization: Apikey <SEPAY_API_KEY>` hoặc `Authorization: Bearer <SEPAY_API_KEY>`.
+
+**Request Body (Format chuẩn SePay)**:
+```json
+{
+  "id": 92704,
+  "gateway": "MBBank",
+  "transactionDate": "2026-10-14 14:02:37",
+  "accountNumber": "0123456789",
+  "subAccount": null,
+  "transferType": "in",
+  "transferAmount": 1250000,
+  "accumulated": 10500000,
+  "code": null,
+  "content": "BYC 12345678 chuyen khoan",
+  "referenceCode": "FT24080...",
+  "description": "Thanh toan don hang BYC"
+}
+```
+
+**Success (200)**:
+```json
+{
+  "success": true,
+  "message": "Cập nhật thanh toán thành công qua SePay",
+  "orderCode": "BYC-12345678",
+  "status": "CONFIRMED"
+}
+```
+
+**Errors / Handled responses**:
+- `401 WEBHOOK_INVALID_SIGNATURE`: Header Authorization không khớp với `SEPAY_API_KEY`.
+- `200 { success: false, message: "..." }`: Khi nội dung không có mã đơn hàng hoặc chuyển thiếu tiền (trả 200 kèm ghi chú để SePay không retry dồn dập).
+
+---
+
+### GET `/api/payments/sepay/check/:orderCode`
+
+**Mục đích**: Kiểm tra nhanh trạng thái đơn hàng đã thanh toán hay chưa (dành cho frontend fallback polling).
+
+**Auth**: Public.
+
+**Success (200)**:
+```json
+{
+  "orderCode": "BYC-12345678",
+  "status": "CONFIRMED",
+  "isPaid": true,
+  "paidAt": "2026-10-14T07:15:30.000Z",
+  "paymentMethod": "SEPAY"
+}
+```
+
+---
+
 
 ## Notifications
 

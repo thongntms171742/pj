@@ -422,3 +422,26 @@ export async function broadcastMessageFromRest(
     }
   }
 }
+
+/**
+ * Phát sự kiện realtime tới các tab trình duyệt của khách hàng khi đơn hàng được thanh toán thành công (qua SePay hoặc cổng khác).
+ */
+export function emitOrderPaymentUpdate(
+  userId: string,
+  payload: {
+    orderCode: string;
+    orderId: string;
+    status: string;
+    totalAmount: number;
+    transactionId?: string;
+  }
+): void {
+  if (!io) return;
+  const userRoom = userSockets.get(userId);
+  if (userRoom && userRoom.size > 0) {
+    for (const sid of userRoom) {
+      io.to(sid).emit("order:paid", payload);
+      io.to(sid).emit("payment:success", payload);
+    }
+  }
+}
