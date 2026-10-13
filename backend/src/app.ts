@@ -18,6 +18,7 @@ import couponRoutes from "./routes/coupons";
 import uploadRoutes from "./routes/uploads";
 import bannerRoutes from "./routes/banners";
 import aiDesignerRoutes from "./routes/aiDesigner";
+import chatRoutes from "./routes/chat";
 import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 
 const app = express();
@@ -26,7 +27,28 @@ const app = express();
 // requestId must be registered FIRST so every other middleware and route
 // handler has `req.id` available for logging / error tracing.
 app.use(requestId);
-app.use(cors({ origin: true, credentials: true }));
+// ── CORS: allow Vercel domain (production) + localhost (dev) ────────────────
+const ALLOWED_ORIGINS = [
+  "https://rungtrongpho.vercel.app",
+  // Vercel preview URLs (any sub-branch) — pattern matched below
+  /^https:\/\/[a-z0-9-]+\.vercel\.app$/,
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://localhost:4173",
+];
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // Allow same-origin / no-origin (curl, Postman, server-to-server)
+    if (!origin) return cb(null, true);
+    const allowed = ALLOWED_ORIGINS.some((o) =>
+      typeof o === "string" ? o === origin : o.test(origin)
+    );
+    if (allowed) return cb(null, true);
+    cb(new Error(`CORS: origin not allowed — ${origin}`));
+  },
+  credentials: true,
+}));
 
 // Serve static uploads
 app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
@@ -69,6 +91,7 @@ app.use("/api/coupons", couponRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/ai-designer", aiDesignerRoutes);
+app.use("/api/chat", chatRoutes);
 
 // ── 404 catch-all ──────────────────────────────────────────────────────────────
 app.use("/api/*", (_req, res) => {
