@@ -26,7 +26,7 @@ export const SHIPPING_RATES = {
   BASE_KM: 5,
   BASE_FEE: 20_000,
   TIER1_MAX_KM: 20,
-  TIER1_PER_KM: 4_000,
+  TIER1_PER_KM: 4_700,
   TIER2_BASE_FEE: 100_000,
   TIER2_MAX_KM: 60,
   TIER2_PER_KM: 4_500,
@@ -50,13 +50,12 @@ export const DEFAULT_WAREHOUSE: WarehouseLocation = {
   name: "Kho Trung Tâm Rừng Trong Phố",
   phone: "0901234567",
   address: "Lô E2a-7, Đường D1, Khu Công Nghệ Cao",
-  communeId: "26830",
-  communeName: "Phường Tăng Nhơn Phú A",
-  district: "Thành phố Thủ Đức",
+  communeId: "26842",
+  communeName: "Phường Tăng Nhơn Phú",
   provinceId: "79",
   provinceName: "Thành phố Hồ Chí Minh",
-  lat: 10.8411,
-  lng: 106.8099,
+  lat: 10.8447,
+  lng: 106.7909,
 };
 
 // CAS Address Kit province id for TP.HCM. Override via SERVICE_PROVINCE_ID
