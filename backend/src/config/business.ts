@@ -24,12 +24,12 @@ export const DECORATION_FEE_BY_SIZE: Record<TreeSize, number> = {
 // ── Shipping distance & fee policy ──────────────────────────────────────────
 export const SHIPPING_RATES = {
   BASE_KM: 5,
-  BASE_FEE: 20_000,
+  BASE_FEE: 30_000,
   TIER1_MAX_KM: 20,
-  TIER1_PER_KM: 4_700,
+  TIER1_PER_KM: 4_600,
   TIER2_BASE_FEE: 100_000,
   TIER2_MAX_KM: 60,
-  TIER2_PER_KM: 4_500,
+  TIER2_PER_KM: 4_300,
 };
 
 // ── Default Shop Warehouse ──────────────────────────────────────────────────
