@@ -7,6 +7,7 @@ import { Notification } from "../models/Notification";
 import { TreeDesign } from "../models/TreeDesign";
 import { restoreStock, restoreTreeStock } from "../services/inventoryService";
 import { SHIPPING_FEE } from "../config/business";
+import { calculateShippingQuote } from "../services/shippingService";
 import {
   sendError,
   ErrorCode,
@@ -65,6 +66,26 @@ export const createOrder = async (
       couponCode?: string;
       discountCode?: string;
       internalNotes?: string;
+      shippingFee?: number;
+      distanceKm?: number;
+      fromAddress?: {
+        address?: string;
+        communeId?: string;
+        communeName?: string;
+        provinceId?: string;
+        provinceName?: string;
+        lat?: number;
+        lng?: number;
+      };
+      warehouseAddress?: {
+        address?: string;
+        communeId?: string;
+        communeName?: string;
+        provinceId?: string;
+        provinceName?: string;
+        lat?: number;
+        lng?: number;
+      };
     };
     const {
       shippingName,
@@ -178,11 +199,33 @@ export const createOrder = async (
     const { discount: appliedDiscount, code: appliedCouponCode } =
       await applyCoupon(couponInput, subtotal);
 
-    // 8) Persist order
-    const shippingFee = SHIPPING_FEE;
+    // 8) Shipping calculation & Persist order
+    let shippingFee = SHIPPING_FEE;
+    if (typeof body.shippingFee === "number" && body.shippingFee >= 0) {
+      shippingFee = body.shippingFee;
+    } else {
+      try {
+        const quote = await calculateShippingQuote({
+          fromAddress: body.fromAddress || body.warehouseAddress,
+          toAddress: (shippingAddress || "").toString(),
+          toCommuneId: (shippingCommuneId || "").toString(),
+          toCommuneName: (shippingCommuneName || "").toString(),
+          toProvinceId: (shippingProvinceId || "").toString(),
+          toProvinceName: (shippingProvinceName || "").toString(),
+          distanceKm: typeof body.distanceKm === "number" ? body.distanceKm : undefined,
+        });
+        if (quote.supported) {
+          shippingFee = quote.fee;
+        }
+      } catch {
+        // Fallback to default SHIPPING_FEE
+      }
+    }
+
+    // Decoration fee has been removed: 0 VND
     const totalAmount = Math.max(
       0,
-      subtotal + shippingFee + decorationFeeTotal - appliedDiscount
+      subtotal + shippingFee - appliedDiscount
     );
     const orderCode = genOrderCode();
     const isCod = String(paymentMethod).toUpperCase() === "COD";
@@ -198,7 +241,7 @@ export const createOrder = async (
       items: built,
       subtotal,
       shippingFee,
-      decorationFee: decorationFeeTotal,
+      decorationFee: 0,
       discount: appliedDiscount,
       discountCode: appliedCouponCode,
       discountAmount: appliedDiscount,

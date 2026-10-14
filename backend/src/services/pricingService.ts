@@ -252,27 +252,23 @@ export function priceDesign(
     }
   }
 
-  // 5) Decoration fee
-  const decorationFee =
-    config.deliveryOption === "READY_TO_DISPLAY"
-      ? DECORATION_FEE_BY_SIZE[tree.size as keyof typeof DECORATION_FEE_BY_SIZE]
-      : 0;
+  // 5) Decoration fee (removed: 0 VND)
+  const decorationFee = 0;
 
-  // 6) unit total = tree + accessories + decoration; shipping is added at
-  //    order level (depends on province) so we just expose the constant.
+  // 6) unit total = tree + accessories; shipping is calculated based on distance
   const accessorySubtotal = lines.reduce((sum, l) => sum + l.lineTotal, 0);
-  const unitTotal = tree.price + accessorySubtotal + decorationFee;
+  const unitTotal = tree.price + accessorySubtotal;
 
   return {
     tree: { id: tree._id, name: tree.name, size: tree.size, unitPrice: tree.price },
     style: style ? { id: style._id, code: style.code, name: style.name } : null,
     lines,
-    decorationFee,
-    shippingFee: 30_000,
+    decorationFee: 0,
+    shippingFee: 20_000,
     unitTotal,
     productionDays,
     hasPersonalization,
-    hasService: decorationFee > 0,
+    hasService: false,
     warnings,
   };
 }

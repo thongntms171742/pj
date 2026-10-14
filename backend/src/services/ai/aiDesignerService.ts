@@ -163,17 +163,9 @@ export async function validateAndResolveSelection(input: {
     0
   );
   const deliveryOption = input.deliveryOption || "DIY_KIT";
-  const decorationFee =
-    deliveryOption === "READY_TO_DISPLAY"
-      ? treeSize === "S"
-        ? 150000
-        : treeSize === "M"
-        ? 250000
-        : 350000
-      : 0;
-  const shippingFee = 30000;
-  const totalSalePrice =
-    treePrice + accessoriesTotal + decorationFee + shippingFee;
+  const decorationFee = 0;
+  const shippingFee = 20000;
+  const totalSalePrice = treePrice + accessoriesTotal + shippingFee;
 
   // Cost price (support field if exists, fallback 0)
   const variantCost = (variant as any).costPrice || 0;

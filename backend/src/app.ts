@@ -19,6 +19,7 @@ import uploadRoutes from "./routes/uploads";
 import bannerRoutes from "./routes/banners";
 import aiDesignerRoutes from "./routes/aiDesigner";
 import chatRoutes from "./routes/chat";
+import shippingRoutes from "./routes/shipping";
 import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 
 const app = express();
@@ -92,6 +93,7 @@ app.use("/api/uploads", uploadRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/ai-designer", aiDesignerRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/shipping", shippingRoutes);
 
 // ── 404 catch-all ──────────────────────────────────────────────────────────────
 app.use("/api/*", (_req, res) => {
