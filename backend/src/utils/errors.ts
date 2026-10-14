@@ -97,6 +97,12 @@ export const ErrorCode = {
   AI_DESIGN_NOT_FOUND: "AI_DESIGN_NOT_FOUND",
   AI_GENERATION_FAILED: "AI_GENERATION_FAILED",
   AI_DESIGNER_NOT_CONFIGURED: "AI_DESIGNER_NOT_CONFIGURED",
+
+  // ── Review ──────────────────────────────────────────────────────────────
+  REVIEW_NOT_FOUND: "REVIEW_NOT_FOUND",
+  REVIEW_RATING_INVALID: "REVIEW_RATING_INVALID",
+  REVIEW_NOT_ALLOWED: "REVIEW_NOT_ALLOWED",
+  REVIEW_ALREADY_EXISTS: "REVIEW_ALREADY_EXISTS",
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -190,6 +196,12 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   AI_DESIGN_NOT_FOUND: 404,
   AI_GENERATION_FAILED: 500,
   AI_DESIGNER_NOT_CONFIGURED: 503,
+
+  // Review
+  REVIEW_NOT_FOUND: 404,
+  REVIEW_RATING_INVALID: 400,
+  REVIEW_NOT_ALLOWED: 403,
+  REVIEW_ALREADY_EXISTS: 409,
 };
 
 // ── Main helper: sendError ───────────────────────────────────────────────────

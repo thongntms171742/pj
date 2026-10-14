@@ -5,6 +5,27 @@ Track changes to the API contract over time to ensure synchronization between Ba
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Christmas entries (2026-10-07+) là contract hiện tại. Entries cũ (2026-10-06 trở về trước) là **lịch sử marketplace** - chỉ tham khảo context, KHÔNG áp dụng cho code Christmas. Source of truth cho FE = `backend/src/`.
 
 ---
+## 2026-10-15 — 🌟 IMPLEMENT PRODUCT REVIEW FLOW (ĐÁNH GIÁ SẢN PHẨM)
+
+> **Feature added**: Xây dựng hoàn chỉnh luồng Đánh giá sản phẩm (Product Review) cho dự án Christmas e-commerce.
+
+### Added endpoints
+- `GET /api/products/:productId/reviews` — Lấy danh sách review của sản phẩm kèm phân phối sao (1-5★), điểm trung bình và phân trang.
+- `POST /api/products/:productId/reviews` (hoặc `POST /api/reviews`) — Khách hàng gửi đánh giá kèm sao (1-5), nội dung và danh sách ảnh cho đơn hàng đã nhận/hoàn thành. Tự động chuyển đơn hàng `DELIVERED` sang `COMPLETED`.
+- `GET /api/reviews/my` — Lịch sử đánh giá của người dùng.
+- `GET /api/orders/:orderId/reviewable-items` — Kiểm tra các món trong đơn hàng đã đánh giá hay chưa.
+- `GET /api/admin/reviews` — Admin duyệt danh sách đánh giá.
+- `POST /api/admin/reviews/:id/reply` — Admin phản hồi đánh giá của khách hàng (kèm gửi thông báo).
+- `PATCH /api/admin/reviews/:id/status` — Admin ẩn/hiện đánh giá (`APPROVED` / `HIDDEN`).
+- `DELETE /api/admin/reviews/:id` — Admin xóa đánh giá.
+
+### Added error codes
+- `REVIEW_NOT_FOUND` (404)
+- `REVIEW_RATING_INVALID` (400)
+- `REVIEW_NOT_ALLOWED` (403)
+- `REVIEW_ALREADY_EXISTS` (409)
+
+---
 ## 2026-10-10 — 🚨 BREAKING: LEGACY `/api/admin/trees` WRITES BLOCKED + DEAD CODE CLEANUP
 
 > **Breaking change** — FE phải migrate trước khi endpoint bị xoá hẳn (`2026-12-01`).

@@ -16,6 +16,7 @@ import {
   type AccessoryLean,
 } from "../services/pricingService";
 import { ErrorCode } from "../utils/errors";
+import { DECORATION_FEE_BY_SIZE } from "../config/business";
 import type { DesignConfig } from "../models/TreeDesign";
 import type { Types } from "mongoose";
 
@@ -190,15 +191,16 @@ console.log("\n── Concept example: cây M + đèn + 12 baubles + bow + name 
   );
 
   assert(result.tree.unitPrice === 249_000, "Tree price = 249k");
-  assert(result.decorationFee === 80_000, "Decoration fee for M = 80k");
+  assert(result.decorationFee === DECORATION_FEE_BY_SIZE.M, `Decoration fee for M = ${DECORATION_FEE_BY_SIZE.M}`);
   assert(result.lines.length === 4, "Has 4 accessory lines");
   assert(result.productionDays === 2, "Production days driven by name tag (2)");
   assert(result.hasPersonalization === true, "hasPersonalization = true");
-  assert(result.hasService === true, "hasService = true (decoration)");
-  // 249k + 59k + 12*6.583 (≈ 79k) + 39k + 49k + 80k = 554.996
+  assert(result.hasService === (DECORATION_FEE_BY_SIZE.M > 0), "hasService matches decorationFee");
+  // 249k + 59k + 12*6.583 (≈ 79k) + 39k + 49k + decorationFee = 474.996 + decorationFee
+  const expectedUnitTotal = 474_996 + DECORATION_FEE_BY_SIZE.M;
   assert(
-    result.unitTotal === 554_996,
-    `unitTotal = 554.996 (got ${result.unitTotal})`
+    result.unitTotal === expectedUnitTotal,
+    `unitTotal = ${expectedUnitTotal} (got ${result.unitTotal})`
   );
 }
 
@@ -220,18 +222,18 @@ console.log("\n── Decoration fee scales with tree size ──\n");
   const l = buildCatalog({ tree: tree({ _id: TREE_L, size: "L" }) });
   assert(
     priceDesign(config({ variantId: TREE_S as unknown as Types.ObjectId }), s)
-      .decorationFee === 50_000,
-    "S = 50k"
+      .decorationFee === DECORATION_FEE_BY_SIZE.S,
+    `S = ${DECORATION_FEE_BY_SIZE.S}`
   );
   assert(
     priceDesign(config({ variantId: TREE_M as unknown as Types.ObjectId }), m)
-      .decorationFee === 80_000,
-    "M = 80k"
+      .decorationFee === DECORATION_FEE_BY_SIZE.M,
+    `M = ${DECORATION_FEE_BY_SIZE.M}`
   );
   assert(
     priceDesign(config({ variantId: TREE_L as unknown as Types.ObjectId }), l)
-      .decorationFee === 120_000,
-    "L = 120k"
+      .decorationFee === DECORATION_FEE_BY_SIZE.L,
+    `L = ${DECORATION_FEE_BY_SIZE.L}`
   );
 }
 

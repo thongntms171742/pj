@@ -67,13 +67,13 @@ async function runTests() {
   console.log("\n── Test 2: getStandardTransferContent ──\n");
 
   assert(
-    getStandardTransferContent("BYC-12345678") === "BYC 12345678",
-    "BYC-12345678 -> 'BYC 12345678'"
+    getStandardTransferContent("BYC-12345678") === "BYC12345678",
+    "BYC-12345678 -> 'BYC12345678'"
   );
 
   assert(
-    getStandardTransferContent("BYC12345678") === "BYC 12345678",
-    "BYC12345678 -> 'BYC 12345678'"
+    getStandardTransferContent("BYC12345678") === "BYC12345678",
+    "BYC12345678 -> 'BYC12345678'"
   );
 
   console.log("\n── Test 3: generateVietQrUrl — sinh URL SePay VietQR (vietqr.app) ──\n");

@@ -180,6 +180,12 @@ for (const code of mustHaveCodes) {
   );
 }
 
+// ── Test 6: Critical Christmas codes exist ──────────────────────────────────
+assert(ErrorCode.REVIEW_NOT_FOUND !== undefined, "ErrorCode.REVIEW_NOT_FOUND exists");
+assert(ErrorCode.REVIEW_RATING_INVALID !== undefined, "ErrorCode.REVIEW_RATING_INVALID exists");
+assert(ErrorCode.REVIEW_NOT_ALLOWED !== undefined, "ErrorCode.REVIEW_NOT_ALLOWED exists");
+assert(ErrorCode.REVIEW_ALREADY_EXISTS !== undefined, "ErrorCode.REVIEW_ALREADY_EXISTS exists");
+
 // ── Test 7: Legacy marketplace codes are removed ─────────────────────────────
 console.log("\n── Test 7: Legacy marketplace codes are removed ──\n");
 
@@ -191,7 +197,6 @@ const legacyCodes = [
   "PRODUCT_NOT_FOUND",
   "PRODUCT_OUT_OF_STOCK",
   "SELF_PURCHASE_NOT_ALLOWED",
-  "REVIEW_NOT_FOUND",
   "AI_NOT_CONFIGURED",
   "COMMISSION_RATE_INVALID",
 ];

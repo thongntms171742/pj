@@ -16,7 +16,8 @@
     "test:ai": "ts-node --transpile-only src/tests/aiDesigner.test.ts",
     "test:ai:probe": "ts-node --transpile-only src/scripts/probe-ai-designer.ts",
     "test:sepay": "ts-node --transpile-only src/tests/sepay.test.ts",
-    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/presetsResilience.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/aiDesigner.test.ts && ts-node --transpile-only src/tests/sepay.test.ts",
+    "test:review": "ts-node --transpile-only src/tests/review.test.ts",
+    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/presetsResilience.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/aiDesigner.test.ts && ts-node --transpile-only src/tests/sepay.test.ts && ts-node --transpile-only src/tests/review.test.ts",
     "scripts:prune-presets": "ts-node --transpile-only src/scripts/prune-orphaned-presets.ts",
     "clean:trees": "ts-node --transpile-only src/scripts/clean-legacy-trees.ts"
   },

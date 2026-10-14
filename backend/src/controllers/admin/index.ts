@@ -16,3 +16,4 @@ export * from "./orders";
 export * from "./users";
 export * from "./stats";
 export * from "./banners";
+export * from "./reviews";
