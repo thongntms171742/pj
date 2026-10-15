@@ -80,7 +80,7 @@ async function run() {
 
   const qNear = await calculateShippingQuote({ toCommuneId: "26842" }); // Phường Tăng Nhơn Phú
   assert(qNear.distanceKm <= 2, `Tăng Nhơn Phú near warehouse (got ${qNear.distanceKm}km)`);
-  assert(qNear.fee === 20_000, `Tăng Nhơn Phú base fee 20,000đ (got ${qNear.fee}đ)`);
+  assert(qNear.fee === SHIPPING_RATES.BASE_FEE, `Tăng Nhơn Phú base fee ${SHIPPING_RATES.BASE_FEE}đ (got ${qNear.fee}đ)`);
 
   const qThuDuc = await calculateShippingQuote({ toCommuneId: "26824" }); // Phường Thủ Đức
   assert(qThuDuc.distanceKm > 4 && qThuDuc.distanceKm < 8, `Thủ Đức distance ~5-7km (got ${qThuDuc.distanceKm}km)`);
