@@ -25,8 +25,8 @@ const socketUsers = new Map<string, SocketUser>();
 /**
  * Initialize Socket.io on the HTTP server.
  */
-export function initSocketServer(httpServer: HttpServer): SocketIOServer {
-  io = new SocketIOServer(httpServer, {
+export function initSocketServer(httpServer: HttpServer, existingIo?: SocketIOServer): SocketIOServer {
+  io = existingIo || new SocketIOServer(httpServer, {
     cors: {
       origin: true,
       credentials: true,

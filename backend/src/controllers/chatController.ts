@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { Conversation, ChatStatus } from "../models/Conversation";
@@ -134,7 +133,7 @@ export async function getConversationMessages(req: Request, res: Response): Prom
  * Send a message via REST API (fallback for non-socket clients).
  * POST /api/chat/conversations/:id/messages
  */
-export async function sendMessage(req: Request, res: Response): Promise<void> {
+export async function sendAiChatMessage(req: Request, res: Response): Promise<void> {
   try {
     const id = String(req.params.id || "");
     const { content, metadata } = req.body;
@@ -386,30 +385,10 @@ export async function updateAdminConversationStatus(req: Request, res: Response)
     handleInternalError(res, err, "updateAdminConversationStatus");
   }
 }
-=======
-/**
- * chatController.ts — REST API for chat (1-1 model)
- *
- * Endpoints (1-1 buyer ↔ admin):
- *   GET  /api/chat/conversations                 — list my conversations
- *   GET  /api/chat/conversations/:peerId/messages — history with a specific peer
- *   POST /api/chat/conversations/:peerId/messages — send (REST fallback)
- *   GET  /api/chat/conversations/:peerId/unread   — unread count in this conv
- *   POST /api/chat/conversations/:peerId/markRead — mark as read in this conv
- *   GET  /api/chat/unread                          — total unread across all convs
- *
- * Back-compat (returns 404 now — old plan endpoint removed):
- *   GET  /api/chat/messages
- *   POST /api/chat/messages
- *   POST /api/chat/markRead
- */
 
-import { Request, Response } from "express";
-import { Types } from "mongoose";
-import { Message } from "../models/Message";
+// ── 1-1 Chat (Buyer <-> Admin) Endpoints ─────────────────────────────────────
 import { messageToDto, ConversationDto } from "../dto/chat";
 import { ok, created } from "../utils/respond";
-import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { broadcastMessageFromRest } from "../services/socket";
 import {
   resolveConversationBetween,
@@ -421,7 +400,6 @@ import {
   getAdminTeamId,
   getOtherParticipant,
 } from "../services/conversation";
-import { User } from "../models/User";
 
 const PAGE_SIZE = 50;
 
@@ -913,4 +891,3 @@ export const getUnreadCount = async (
     handleInternalError(res, err, "[chat] getUnreadCount error");
   }
 };
->>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8

@@ -19,12 +19,9 @@ import uploadRoutes from "./routes/uploads";
 import bannerRoutes from "./routes/banners";
 import aiDesignerRoutes from "./routes/aiDesigner";
 import chatRoutes from "./routes/chat";
-<<<<<<< HEAD
-=======
 import shippingRoutes from "./routes/shipping";
 import reviewRoutes from "./routes/reviews";
 import productRoutes from "./routes/products";
->>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8
 import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 
 const app = express();
@@ -98,12 +95,9 @@ app.use("/api/uploads", uploadRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/ai-designer", aiDesignerRoutes);
 app.use("/api/chat", chatRoutes);
-<<<<<<< HEAD
-=======
 app.use("/api/shipping", shippingRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/products", productRoutes);
->>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8
 
 // ── 404 catch-all ──────────────────────────────────────────────────────────────
 app.use("/api/*", (_req, res) => {

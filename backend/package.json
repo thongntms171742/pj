@@ -23,6 +23,7 @@
     "clean:trees": "ts-node --transpile-only src/scripts/clean-legacy-trees.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.28.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
@@ -36,12 +37,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^7.6.0",
     "mongoose": "^8.9.5",
-<<<<<<< HEAD
-    "socket.io": "^4.8.4",
-=======
     "socket.io": "^4.8.1",
-    "@types/socket.io": "^3.0.1",
->>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8
     "typescript": "^5.7.3"
   },
   "devDependencies": {

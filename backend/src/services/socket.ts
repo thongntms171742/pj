@@ -134,7 +134,13 @@ export function initSocket(httpServer: HttpServer): Server {
         ? socket.handshake.headers.authorization.slice(7)
         : undefined;
       const token = (fromAuth ?? fromHeader ?? "").toString().trim();
-      if (!token) return next(new Error("UNAUTHORIZED: token missing"));
+      if (!token) {
+        socket.data.isGuest = true;
+        socket.data.userId = "";
+        socket.data.userName = "Khách hàng";
+        socket.data.isAdmin = false;
+        return next();
+      }
       const decoded = jwt.verify(token, JWT_SECRET) as {
         id: string;
         email?: string;
@@ -150,7 +156,11 @@ export function initSocket(httpServer: HttpServer): Server {
         Array.isArray(decoded.roles) && decoded.roles.includes("admin");
       next();
     } catch {
-      next(new Error("UNAUTHORIZED: invalid token"));
+      socket.data.isGuest = true;
+      socket.data.userId = "";
+      socket.data.userName = "Khách hàng";
+      socket.data.isAdmin = false;
+      next();
     }
   });
 
@@ -159,8 +169,7 @@ export function initSocket(httpServer: HttpServer): Server {
     const isAdmin: boolean = Boolean(socket.data.isAdmin);
     const userName: string = socket.data.userName ?? "User";
     if (!userId) {
-      socket.emit("chat:error", { code: "UNAUTHORIZED", message: "Xác thực thất bại" });
-      socket.disconnect(true);
+      // Guest connection (handled by AI Chatbot socket handlers)
       return;
     }
     console.log(`[socket] connected: ${socket.id} (user=${userId} admin=${isAdmin})`);

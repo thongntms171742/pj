@@ -1,62 +1,48 @@
 import { Router } from "express";
-<<<<<<< HEAD
 import { optionalAuth, requireAuth, requireAdmin } from "../middleware/auth";
 import {
   getOrCreateConversation,
   getConversationMessages,
-  sendMessage,
+  sendAiChatMessage,
   requestEscalation,
   listAdminConversations,
   updateAdminConversationStatus,
-=======
-import { requireAuth } from "../middleware/auth";
-import {
   listConversations,
   getMessages,
   sendMessage,
   getUnreadForPeer,
   markRead,
   getUnreadCount,
->>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8
 } from "../controllers/chatController";
 
 const router = Router();
 
-<<<<<<< HEAD
-// ── Customer / Guest Chat Endpoints ──────────────────────────────────────────
-// Get or initialize active conversation (supports guest or logged-in user)
+// ── AI Hybrid Chatbot Endpoints (Guests + Users) ──────────────────────────────
 router.post("/conversations", optionalAuth, getOrCreateConversation);
-
-// Get message history for a conversation
-router.get("/conversations/:id/messages", optionalAuth, getConversationMessages);
-
-// Send message to a conversation
-router.post("/conversations/:id/messages", optionalAuth, sendMessage);
-
-// Escalate conversation to human admin
 router.post("/conversations/:id/escalate", optionalAuth, requestEscalation);
-
-// ── Admin Chat Management Endpoints ──────────────────────────────────────────
-// List all conversations with filters (status, unread, etc.)
 router.get("/admin/conversations", requireAuth, requireAdmin, listAdminConversations);
-
-// Update status of conversation (accept, resolve, return to bot)
 router.put("/admin/conversations/:id/status", requireAuth, requireAdmin, updateAdminConversationStatus);
-=======
-// All chat endpoints require auth
-router.use(requireAuth);
 
-// Total unread across all my conversations (badge on the app)
-router.get("/unread", getUnreadCount);
+// Explicit AI prefixes (prevents any ambiguity)
+router.post("/ai/conversations", optionalAuth, getOrCreateConversation);
+router.get("/ai/conversations/:id/messages", optionalAuth, getConversationMessages);
+router.post("/ai/conversations/:id/messages", optionalAuth, sendAiChatMessage);
+router.post("/ai/conversations/:id/escalate", optionalAuth, requestEscalation);
+router.get("/ai/admin/conversations", requireAuth, requireAdmin, listAdminConversations);
+router.put("/ai/admin/conversations/:id/status", requireAuth, requireAdmin, updateAdminConversationStatus);
 
-// List my conversations (admin: many; buyer: at most 1)
-router.get("/conversations", listConversations);
-
-// Per-conversation (param = peerId)
-router.get("/conversations/:peerId/messages", getMessages);
-router.post("/conversations/:peerId/messages", sendMessage);
-router.get("/conversations/:peerId/unread", getUnreadForPeer);
-router.post("/conversations/:peerId/markRead", markRead);
->>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8
+// ── 1-1 Peer Chat Endpoints (Buyer <-> Admin) ─────────────────────────────────
+router.get("/unread", requireAuth, getUnreadCount);
+router.get("/conversations", requireAuth, listConversations);
+router.get("/conversations/:peerId/messages", requireAuth, getMessages);
+router.post("/conversations/:peerId/messages", requireAuth, (req, res, next) => {
+  // If request has no auth token or body format is AI chat format, route to sendAiChatMessage
+  if (!req.headers.authorization && req.body?.content) {
+    return sendAiChatMessage(req, res);
+  }
+  return sendMessage(req, res);
+});
+router.get("/conversations/:peerId/unread", requireAuth, getUnreadForPeer);
+router.post("/conversations/:peerId/markRead", requireAuth, markRead);
 
 export default router;
