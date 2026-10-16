@@ -231,19 +231,40 @@ export async function recommendCatalogSelection(input: {
     targetSize = "L";
   }
 
-  // 2. Query suitable Tree variant in stock
+  // 2. Query legitimate Christmas tree products (exclude ornaments mistakenly created under TreeProduct)
+  const { TreeProduct } = await import("../../models/TreeProduct");
+  const treeProducts = await TreeProduct.find({
+    isActive: true,
+    category: { $nin: ["ORNAMENT", "Phụ kiện"] },
+    name: { $not: /trái châu|phụ kiện/i },
+  }).select("_id");
+
+  const validProductIds = treeProducts.map((p) => p._id);
+  const sizeRegex = new RegExp(`(^|\\b|SIZE\\s*)${targetSize}($|\\b)`, "i");
+
+  // Query variant matching target size (matches "M", "SIZE M", etc.)
   let variant = await Tree.findOne({
     isActive: true,
-    size: targetSize,
+    ...(validProductIds.length > 0 ? { productId: { $in: validProductIds } } : {}),
+    size: sizeRegex,
     stockQuantity: { $gt: 0 },
   }).sort({ sortOrder: 1, price: 1 });
 
-  // Fallback to any active tree in stock if targetSize is out of stock
+  // Fallback to any real tree variant in stock
+  if (!variant) {
+    variant = await Tree.findOne({
+      isActive: true,
+      ...(validProductIds.length > 0 ? { productId: { $in: validProductIds } } : {}),
+      stockQuantity: { $gt: 0 },
+    }).sort({ sortOrder: 1, price: 1 });
+  }
+
+  // Last-resort fallback to any active variant
   if (!variant) {
     variant = await Tree.findOne({
       isActive: true,
       stockQuantity: { $gt: 0 },
-    }).sort({ sortOrder: 1 });
+    }).sort({ sortOrder: 1, price: 1 });
   }
 
   if (!variant) {

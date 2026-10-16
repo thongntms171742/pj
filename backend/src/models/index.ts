@@ -19,3 +19,5 @@ export * from "./Notification";
 export * from "./Coupon";
 export * from "./Banner";
 export * from "./AIDesign";
+export * from "./Conversation";
+export * from "./Message";

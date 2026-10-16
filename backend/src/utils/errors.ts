@@ -97,6 +97,10 @@ export const ErrorCode = {
   AI_DESIGN_NOT_FOUND: "AI_DESIGN_NOT_FOUND",
   AI_GENERATION_FAILED: "AI_GENERATION_FAILED",
   AI_DESIGNER_NOT_CONFIGURED: "AI_DESIGNER_NOT_CONFIGURED",
+
+  // ── Chat ────────────────────────────────────────────────────────────────
+  CONVERSATION_NOT_FOUND: "CONVERSATION_NOT_FOUND",
+  CONVERSATION_STATUS_INVALID: "CONVERSATION_STATUS_INVALID",
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -190,6 +194,10 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   AI_DESIGN_NOT_FOUND: 404,
   AI_GENERATION_FAILED: 500,
   AI_DESIGNER_NOT_CONFIGURED: 503,
+
+  // Chat
+  CONVERSATION_NOT_FOUND: 404,
+  CONVERSATION_STATUS_INVALID: 400,
 };
 
 // ── Main helper: sendError ───────────────────────────────────────────────────

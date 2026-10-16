@@ -14,6 +14,7 @@
     "test:presets": "ts-node --transpile-only src/tests/presetsResilience.test.ts",
     "test:upload": "ts-node --transpile-only src/tests/upload.test.ts",
     "test:ai": "ts-node --transpile-only src/tests/aiDesigner.test.ts",
+    "test:chat": "ts-node --transpile-only src/tests/chat.test.ts",
     "test:ai:probe": "ts-node --transpile-only src/scripts/probe-ai-designer.ts",
     "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/presetsResilience.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/aiDesigner.test.ts",
     "scripts:prune-presets": "ts-node --transpile-only src/scripts/prune-orphaned-presets.ts",
@@ -36,6 +37,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^7.6.0",
     "mongoose": "^8.9.5",
+    "socket.io": "^4.8.4",
     "typescript": "^5.7.3"
   },
   "devDependencies": {

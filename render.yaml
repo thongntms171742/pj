@@ -32,11 +32,13 @@ services:
         value: buildyourchristmas
       - key: REQUIRE_CLOUDINARY
         value: "true"
-      # ── Google Gemini AI Designer ─────────────────────────
+      # ── Google Gemini AI Designer & Chatbot ───────────────
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_IMAGE_MODEL
         value: gemini-2.5-flash-image
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-2.5-flash
 
   # ── Frontend Static Site ───────────────────────────────────
   # NOTE: FE sẽ build ở repo/folder khác. Khi có FE, uncomment block này
