@@ -6,6 +6,7 @@ import {
   safelyBuildPricedDesign,
   buildPricedDesign,
   loadConfigByDesignId,
+  areConfigsEqual,
 } from "../services/catalogService";
 import { TreeDesign } from "../models/TreeDesign";
 import type { DesignConfig } from "../models/TreeDesign";
@@ -56,9 +57,35 @@ async function getOrCreateCart(req: Request) {
 export const getCart = async (req: Request, res: Response): Promise<void> => {
   try {
     const cart = await getOrCreateCart(req);
-    const items = await CartItem.find({ cartId: cart._id }).sort({
-      createdAt: -1,
+    const rawItems = await CartItem.find({ cartId: cart._id }).sort({
+      createdAt: 1,
     });
+
+    // Tự động gộp các CartItem trùng lặp có sẵn trong giỏ
+    const mergedList: typeof rawItems = [];
+    for (const cur of rawItems) {
+      const match = mergedList.find((m) => {
+        const sameDesignId =
+          (cur.designId && m.designId && String(cur.designId) === String(m.designId)) ||
+          (!cur.designId && !m.designId);
+        return sameDesignId && areConfigsEqual(m.config, cur.config);
+      });
+
+      if (match) {
+        match.quantity += cur.quantity;
+        if (cur.checked) match.checked = true;
+        await CartItem.findByIdAndUpdate(match._id, {
+          quantity: match.quantity,
+          checked: match.checked,
+        });
+        await CartItem.findByIdAndDelete(cur._id);
+      } else {
+        mergedList.push(cur);
+      }
+    }
+
+    // Đảo lại thứ tự từ mới nhất đến cũ nhất
+    const items = mergedList.reverse();
 
     const responseItems: any[] = [];
     for (const item of items) {
@@ -133,14 +160,31 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
     const cart = await getOrCreateCart(req);
     const qty = Math.max(1, parseInt(String(quantity ?? 1), 10) || 1);
 
-    const item = await CartItem.create({
-      cartId: cart._id,
-      designId: persistedDesignId,
-      config: resolvedConfig,
-      quantity: qty,
-      priceSnapshot: pricing.unitTotal,
-      checked: false,
+    // Kiểm tra xem sản phẩm cùng config/designId đã có trong giỏ chưa
+    const existingItems = await CartItem.find({ cartId: cart._id });
+    const match = existingItems.find((existing) => {
+      const sameDesignId =
+        (persistedDesignId && existing.designId && String(persistedDesignId) === String(existing.designId)) ||
+        (!persistedDesignId && !existing.designId);
+      return sameDesignId && areConfigsEqual(existing.config, resolvedConfig);
     });
+
+    let item;
+    if (match) {
+      match.quantity += qty;
+      match.priceSnapshot = pricing.unitTotal;
+      await match.save();
+      item = match;
+    } else {
+      item = await CartItem.create({
+        cartId: cart._id,
+        designId: persistedDesignId,
+        config: resolvedConfig,
+        quantity: qty,
+        priceSnapshot: pricing.unitTotal,
+        checked: false,
+      });
+    }
 
     created(res, {
       item: cartItemToDto(item, pricing),

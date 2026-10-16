@@ -12,8 +12,6 @@ import {
   hydrateAIDesign,
 } from "../services/ai/aiDesignerService";
 import {
-  buildTreeImagePrompt,
-  generateTreeImage,
   generateAIDesignImage,
 } from "../services/ai/googleImageService";
 import { isCloudinaryEnabled } from "../services/cloudinaryService";
@@ -35,19 +33,17 @@ async function runProbe() {
 
   // ── 1. Kiểm tra cấu hình môi trường ──
   console.log("\n[1] KIỂM TRA CẤU HÌNH BIẾN MÔI TRƯỜNG:");
-  const geminiKey = process.env.GEMINI_API_KEY?.trim();
-  const geminiModel =
-    process.env.GEMINI_IMAGE_MODEL?.trim() || "gemini-2.5-flash-image";
+  const kieKey = process.env.KIE_API_KEY?.trim();
   const cloudinaryOk = isCloudinaryEnabled();
 
-  if (geminiKey) {
+  if (kieKey) {
     console.log(
-      `  • GEMINI_API_KEY: Đã cấu hình (${geminiKey.substring(0, 6)}...${geminiKey.slice(-4)})`
+      `  • KIE_API_KEY: Đã cấu hình (${kieKey.substring(0, 6)}...${kieKey.slice(-4)})`
     );
   } else {
-    console.log("  • GEMINI_API_KEY: ⚠️ CHƯA CÓ (Cần điền vào .env hoặc Render để gọi tạo ảnh thật)");
+    console.log("  • KIE_API_KEY: ⚠️ CHƯA CÓ (Cần điền vào .env hoặc Render để gọi tạo ảnh thật qua KIE Nano Banana 2)");
   }
-  console.log(`  • GEMINI_IMAGE_MODEL: ${geminiModel}`);
+  console.log(`  • Model: nano-banana-2`);
   console.log(`  • Cloudinary: ${cloudinaryOk ? "✅ Đã cấu hình" : "⚠️ Chưa có credentials"}`);
 
   // ── 2. Kiểm tra chọn sản phẩm thật từ Catalog ──
@@ -77,43 +73,25 @@ async function runProbe() {
   });
   console.log(`  • Draft ID: ${draft._id} (Trạng thái: ${draft.status})`);
 
-  // ── 4. Kiểm tra Prompt Generation ──
-  console.log("\n[4] KIỂM TRA TẠO PROMPT TỪ CATALOG:");
-  const prompt = buildTreeImagePrompt({
-    tree: {
-      name: selection.variant.name,
-      size: selection.variant.size,
-    },
-    style: selection.style,
-    accessories: selection.accessories.map((a) => ({
-      name: a.accessory.name,
-      type: a.accessory.type,
-      group: a.accessory.group,
-      quantity: a.quantity,
-    })),
-    customerPrompt: draft.prompt,
-  });
-  console.log("  • Prompt sinh ra đạt chuẩn studio thương mại (độ dài:", prompt.length, "ký tự)");
-
-  // ── 5. Thử nghiệm gọi Gemini tạo ảnh thật (nếu có key) ──
-  console.log("\n[5] KIỂM TRA TẠO ẢNH QUA GEMINI & UPLOAD CLOUDINARY:");
-  if (geminiKey && cloudinaryOk) {
+  // ── 4. Thử nghiệm gọi KIE tạo ảnh thật (nếu có key) ──
+  console.log("\n[4] KIỂM TRA TẠO ẢNH QUA KIE NANO BANANA 2 & UPLOAD CLOUDINARY:");
+  if (kieKey && cloudinaryOk) {
     try {
-      console.log("  ⏳ Đang gọi Gemini sinh ảnh và upload Cloudinary...");
+      console.log("  ⏳ Đang gọi KIE createTask sinh ảnh và upload Cloudinary...");
       const genResult = await generateAIDesignImage(
         String(draft._id),
         String(testUserId),
         false
       );
       console.log("  ✅ Tạo ảnh và lưu thành công!");
-      console.log("  • Image URL:", genResult.aiDesign.imageUrl);
-      console.log("  • Status:", genResult.aiDesign.status);
+      console.log("  • Image URL:", genResult.imageUrl);
+      console.log("  • Status:", genResult.status);
     } catch (err: any) {
       console.error("  ❌ Lỗi khi tạo ảnh thực tế:", err.message);
     }
   } else {
-    console.log("  ⏭️ Bỏ qua bước gọi API thật vì thiếu GEMINI_API_KEY hoặc Cloudinary.");
-    console.log("     (Khi thêm key vào .env/Render, chạy lại lệnh này sẽ tự động kiểm tra end-to-end)");
+    console.log("  ⏭️ Bỏ qua bước gọi API thật vì thiếu KIE_API_KEY hoặc Cloudinary.");
+    console.log("     (Khi thêm KIE_API_KEY vào .env/Render, chạy lại lệnh này sẽ tự động kiểm tra end-to-end)");
   }
 
   // ── 6. Kiểm tra lưu sang TreeDesign & Tích hợp Mua hàng ──

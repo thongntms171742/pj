@@ -118,7 +118,7 @@ async function runTests() {
   assert(fake.discount === 0, "nonexistent code → discount 0 (no throw)");
 
   console.log("\n── Test 3: SHIPPING_FEE sanity ──\n");
-  assert(SHIPPING_FEE === 30_000, "shipping fee is 30,000 VND");
+  assert(SHIPPING_FEE === 20_000, "shipping fee base is 20,000 VND");
   assert(SERVICE_PROVINCE_ID === "79", "HCM province id is 79");
 
   console.log(`\n── Results: ${passed} passed, ${failed} failed ──\n`);

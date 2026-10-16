@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import { Tree, ITree } from "../../models/Tree";
+import { TreeProduct } from "../../models/TreeProduct";
 import { Accessory, IAccessory } from "../../models/Accessory";
 import { Style, IStyle } from "../../models/Style";
 import {
@@ -25,8 +26,8 @@ export interface ResolvedCatalogSelection {
     decorationFee: number;
     shippingFee: number;
     totalSalePrice: number;
-    totalCostPrice: number | null;
-    expectedGrossProfit: number | null;
+    totalCostPrice: number;
+    expectedGrossProfit: number;
   };
 }
 
@@ -162,27 +163,18 @@ export async function validateAndResolveSelection(input: {
     0
   );
   const deliveryOption = input.deliveryOption || "DIY_KIT";
-  const decorationFee =
-    deliveryOption === "READY_TO_DISPLAY"
-      ? treeSize === "S"
-        ? 150000
-        : treeSize === "M"
-        ? 250000
-        : 350000
-      : 0;
-  const shippingFee = 30000;
-  const totalSalePrice =
-    treePrice + accessoriesTotal + decorationFee + shippingFee;
+  const decorationFee = 0;
+  const shippingFee = 20000;
+  const totalSalePrice = treePrice + accessoriesTotal + shippingFee;
 
-  // Do not claim a profit when any catalog item has no recorded cost price.
-  const variantCost = typeof variant.costPrice === "number" ? variant.costPrice : null;
-  const accessoryCostsKnown = resolvedAccessories.every(
-    (a) => typeof a.accessory.costPrice === "number"
-  );
-  const totalCostPrice = variantCost !== null && accessoryCostsKnown
-    ? variantCost + resolvedAccessories.reduce((sum, a) => sum + (a.accessory.costPrice as number) * a.quantity, 0)
-    : null;
-  const expectedGrossProfit = totalCostPrice === null ? null : totalSalePrice - totalCostPrice;
+  // Cost price (support field if exists, fallback 0)
+  const variantCost = (variant as any).costPrice || 0;
+  const accessoriesCost = resolvedAccessories.reduce((sum, a) => {
+    const accCost = (a.accessory as any).costPrice || 0;
+    return sum + accCost * a.quantity;
+  }, 0);
+  const totalCostPrice = variantCost + accessoriesCost;
+  const expectedGrossProfit = Math.max(0, totalSalePrice - totalCostPrice);
 
   return {
     variant,
@@ -231,6 +223,7 @@ export async function recommendCatalogSelection(input: {
     targetSize = "L";
   }
 
+<<<<<<< HEAD
   // 2. Query legitimate Christmas tree products (exclude ornaments mistakenly created under TreeProduct)
   const { TreeProduct } = await import("../../models/TreeProduct");
   const treeProducts = await TreeProduct.find({
@@ -247,7 +240,36 @@ export async function recommendCatalogSelection(input: {
     isActive: true,
     ...(validProductIds.length > 0 ? { productId: { $in: validProductIds } } : {}),
     size: sizeRegex,
+=======
+  // 2. Query suitable Tree variant in stock
+  // Filter out any products categorized as ORNAMENT or non-tree
+  const treeProducts = await TreeProduct.find({
+    isActive: true,
+    category: { $ne: "ORNAMENT" },
+  }).select("_id");
+  const treeProductIds = treeProducts.map((p) => p._id);
+
+  const sizeQuery = {
+    $in: [
+      targetSize,
+      `SIZE ${targetSize}`,
+      targetSize.toLowerCase(),
+      `size ${targetSize.toLowerCase()}`,
+    ],
+  };
+
+  const baseTreeFilter: any = {
+    isActive: true,
+>>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8
     stockQuantity: { $gt: 0 },
+  };
+  if (treeProductIds.length > 0) {
+    baseTreeFilter.productId = { $in: treeProductIds };
+  }
+
+  let variant = await Tree.findOne({
+    ...baseTreeFilter,
+    size: sizeQuery,
   }).sort({ sortOrder: 1, price: 1 });
 
   // Fallback to any real tree variant in stock
@@ -261,10 +283,14 @@ export async function recommendCatalogSelection(input: {
 
   // Last-resort fallback to any active variant
   if (!variant) {
+<<<<<<< HEAD
     variant = await Tree.findOne({
       isActive: true,
       stockQuantity: { $gt: 0 },
     }).sort({ sortOrder: 1, price: 1 });
+=======
+    variant = await Tree.findOne(baseTreeFilter).sort({ sortOrder: 1, price: 1 });
+>>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8
   }
 
   if (!variant) {
@@ -392,7 +418,7 @@ export async function createDraftAIDesign(input: {
     ownerId: input.ownerId ? new Types.ObjectId(String(input.ownerId)) : null,
     prompt: input.prompt || "",
     preferences: input.preferences || {},
-    variantId: selection.variant,
+    variantId: (selection.variant._id || selection.variant) as Types.ObjectId,
     styleId: selection.style ? selection.style._id : null,
     accessories: selection.accessories.map((a) => ({
       accessoryId: a.accessory._id,

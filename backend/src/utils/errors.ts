@@ -98,9 +98,17 @@ export const ErrorCode = {
   AI_GENERATION_FAILED: "AI_GENERATION_FAILED",
   AI_DESIGNER_NOT_CONFIGURED: "AI_DESIGNER_NOT_CONFIGURED",
 
+<<<<<<< HEAD
   // ── Chat ────────────────────────────────────────────────────────────────
   CONVERSATION_NOT_FOUND: "CONVERSATION_NOT_FOUND",
   CONVERSATION_STATUS_INVALID: "CONVERSATION_STATUS_INVALID",
+=======
+  // ── Review ──────────────────────────────────────────────────────────────
+  REVIEW_NOT_FOUND: "REVIEW_NOT_FOUND",
+  REVIEW_RATING_INVALID: "REVIEW_RATING_INVALID",
+  REVIEW_NOT_ALLOWED: "REVIEW_NOT_ALLOWED",
+  REVIEW_ALREADY_EXISTS: "REVIEW_ALREADY_EXISTS",
+>>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -195,9 +203,17 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   AI_GENERATION_FAILED: 500,
   AI_DESIGNER_NOT_CONFIGURED: 503,
 
+<<<<<<< HEAD
   // Chat
   CONVERSATION_NOT_FOUND: 404,
   CONVERSATION_STATUS_INVALID: 400,
+=======
+  // Review
+  REVIEW_NOT_FOUND: 404,
+  REVIEW_RATING_INVALID: 400,
+  REVIEW_NOT_ALLOWED: 403,
+  REVIEW_ALREADY_EXISTS: 409,
+>>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8
 };
 
 // ── Main helper: sendError ───────────────────────────────────────────────────

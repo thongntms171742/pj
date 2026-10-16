@@ -155,20 +155,49 @@ export async function buildOrderItems(
       ? await getDesignName(entry.designId)
       : "My Christmas";
 
-    built.push({
-      designId: entry.designId ? new Types.ObjectId(entry.designId) : null,
-      designName,
-      previewImage: "",
-      variant: variantSnapshot as any,
-      style: styleSnapshot,
-      lines,
-      deliveryOption: cfg.deliveryOption as DeliveryOption,
-      unitTotal: itemUnitTotal,
-      quantity,
-      lineTotal: itemLineTotal,
-      hasPersonalization: pricing.hasPersonalization,
-      productionDays: pricing.productionDays,
+    const existingBuilt = built.find((b) => {
+      const sameDesign =
+        String(b.designId || "") === String(entry.designId || "");
+      const sameVariant =
+        String(b.variant._id) === String(variantSnapshot._id);
+      const sameDelivery = b.deliveryOption === cfg.deliveryOption;
+      const sameStyle =
+        (!b.style && !styleSnapshot) ||
+        (b.style && styleSnapshot && String(b.style._id) === String(styleSnapshot._id));
+      const sameLines =
+        b.lines.length === lines.length &&
+        b.lines.every((bl, idx) => {
+          const l = lines[idx];
+          return (
+            bl.kind === l.kind &&
+            String(bl.refId || "") === String(l.refId || "") &&
+            bl.unitPrice === l.unitPrice &&
+            bl.quantity === l.quantity &&
+            (bl.personalizationText || "") === (l.personalizationText || "")
+          );
+        });
+      return sameDesign && sameVariant && sameDelivery && sameStyle && sameLines;
     });
+
+    if (existingBuilt) {
+      existingBuilt.quantity += quantity;
+      existingBuilt.lineTotal += itemLineTotal;
+    } else {
+      built.push({
+        designId: entry.designId ? new Types.ObjectId(entry.designId) : null,
+        designName,
+        previewImage: "",
+        variant: variantSnapshot as any,
+        style: styleSnapshot,
+        lines,
+        deliveryOption: cfg.deliveryOption as DeliveryOption,
+        unitTotal: itemUnitTotal,
+        quantity,
+        lineTotal: itemLineTotal,
+        hasPersonalization: pricing.hasPersonalization,
+        productionDays: pricing.productionDays,
+      });
+    }
 
     subtotal += itemLineTotal;
     decorationFee += pricing.decorationFee * quantity;

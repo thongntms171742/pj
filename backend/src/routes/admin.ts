@@ -40,6 +40,10 @@ import {
   createBanner,
   updateBanner,
   deleteBanner,
+  adminListReviews,
+  adminReplyReview,
+  adminUpdateReviewStatus,
+  adminDeleteReview,
 } from "../controllers/admin";
 
 const router = Router();
@@ -101,5 +105,11 @@ router.get("/banners", listBanners);
 router.post("/banners", createBanner);
 router.patch("/banners/:id", updateBanner);
 router.delete("/banners/:id", deleteBanner);
+
+// ── Reviews ──────────────────────────────────────────────────────────────────
+router.get("/reviews", adminListReviews);
+router.post("/reviews/:id/reply", adminReplyReview);
+router.patch("/reviews/:id/status", adminUpdateReviewStatus);
+router.delete("/reviews/:id", adminDeleteReview);
 
 export default router;

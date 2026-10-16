@@ -166,6 +166,7 @@ export interface TreeVariantSummary {
   heightCmMin: number;
   heightCmMax: number;
   diameterCm: number;
+  description: string;
   bareImage: string;
   price: number;
   stockQuantity: number;
@@ -274,6 +275,7 @@ export async function loadGroupedTreeCatalog(opts?: {
         heightCmMin: v.heightCmMin,
         heightCmMax: v.heightCmMax,
         diameterCm: v.diameterCm,
+        description: v.description || "",
         bareImage: v.bareImage,
         price: v.price,
         stockQuantity: v.stockQuantity,
@@ -283,3 +285,64 @@ export async function loadGroupedTreeCatalog(opts?: {
     })),
   }));
 }
+
+/**
+ * So sánh 2 DesignConfig xem có cùng cấu hình hay không:
+ * - Cùng variantId (cây & kích cỡ)
+ * - Cùng styleId (phong cách)
+ * - Cùng deliveryOption (hình thức giao)
+ * - Cùng danh sách phụ kiện (cùng accessoryId, quantity, personalizationText)
+ */
+export function areConfigsEqual(
+  a?: DesignConfig | null,
+  b?: DesignConfig | null
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+
+  // 1. So sánh variantId
+  const varA = String(a.variantId || "");
+  const varB = String(b.variantId || "");
+  if (varA !== varB) return false;
+
+  // 2. So sánh styleId
+  const styleA = String(a.styleId || "");
+  const styleB = String(b.styleId || "");
+  if (styleA !== styleB) return false;
+
+  // 3. So sánh deliveryOption
+  const delivA = String(a.deliveryOption || "READY_TO_DISPLAY");
+  const delivB = String(b.deliveryOption || "READY_TO_DISPLAY");
+  if (delivA !== delivB) return false;
+
+  // 4. So sánh phụ kiện (accessories)
+  const accsA: any[] = Array.isArray(a.accessories) ? a.accessories : [];
+  const accsB: any[] = Array.isArray(b.accessories) ? b.accessories : [];
+  if (accsA.length !== accsB.length) return false;
+
+  const sortAccs = (list: any[]) =>
+    [...list].sort((x, y) =>
+      String(x.accessoryId || "").localeCompare(String(y.accessoryId || ""))
+    );
+
+  const sortedA = sortAccs(accsA);
+  const sortedB = sortAccs(accsB);
+
+  for (let i = 0; i < sortedA.length; i++) {
+    const itemA = sortedA[i];
+    const itemB = sortedB[i];
+    if (String(itemA.accessoryId || "") !== String(itemB.accessoryId || "")) {
+      return false;
+    }
+    if (Number(itemA.quantity || 1) !== Number(itemB.quantity || 1)) {
+      return false;
+    }
+    const textA = (itemA.personalizationText || "").trim();
+    const textB = (itemB.personalizationText || "").trim();
+    if (textA !== textB) {
+      return false;
+    }
+  }
+
+  return true;
+}

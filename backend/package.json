@@ -16,14 +16,13 @@
     "test:ai": "ts-node --transpile-only src/tests/aiDesigner.test.ts",
     "test:chat": "ts-node --transpile-only src/tests/chat.test.ts",
     "test:ai:probe": "ts-node --transpile-only src/scripts/probe-ai-designer.ts",
-    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/presetsResilience.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/aiDesigner.test.ts",
+    "test:sepay": "ts-node --transpile-only src/tests/sepay.test.ts",
+    "test:review": "ts-node --transpile-only src/tests/review.test.ts",
+    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/presetsResilience.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/aiDesigner.test.ts && ts-node --transpile-only src/tests/sepay.test.ts && ts-node --transpile-only src/tests/review.test.ts",
     "scripts:prune-presets": "ts-node --transpile-only src/scripts/prune-orphaned-presets.ts",
-    "scripts:cleanup-debug-presets": "ts-node --transpile-only src/scripts/cleanup-debug-presets.ts",
-    "scripts:probe-presets": "ts-node --transpile-only src/scripts/probe-presets.ts",
     "clean:trees": "ts-node --transpile-only src/scripts/clean-legacy-trees.ts"
   },
   "dependencies": {
-    "@google/genai": "^2.28.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
@@ -37,7 +36,12 @@
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^7.6.0",
     "mongoose": "^8.9.5",
+<<<<<<< HEAD
     "socket.io": "^4.8.4",
+=======
+    "socket.io": "^4.8.1",
+    "@types/socket.io": "^3.0.1",
+>>>>>>> e9b299b6947f2d1b4aefc82d4ac7a3b7abaf5fc8
     "typescript": "^5.7.3"
   },
   "devDependencies": {

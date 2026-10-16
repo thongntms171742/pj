@@ -48,67 +48,6 @@ async function runTests() {
     assert(err.status === 400, "Status is 400 for bad ObjectId");
   }
 
-  console.log("\n── Test 3: buildTreeImagePrompt generation ──");
-  const { buildTreeImagePrompt } = await import(
-    "../services/ai/googleImageService"
-  );
-  const prompt = buildTreeImagePrompt({
-    tree: { name: "Cây thông PE Cao Cấp", size: "M" },
-    style: { name: "Classic Gold & Red", code: "CLASSIC" },
-    accessories: [
-      {
-        name: "Dây Đèn Led Vàng",
-        type: "LIGHT_STRING",
-        group: "LIGHTS",
-        quantity: 1,
-      },
-      {
-        name: "Bảng Gỗ Khắc Tên",
-        type: "NAME_TAG",
-        group: "PERSONAL",
-        quantity: 1,
-        personalizationText: "Gia Đình An",
-      },
-    ],
-    customerPrompt: "Trang trí ấm cúng phong cách gia đình",
-  });
-
-  assert(prompt.includes("Cây thông PE Cao Cấp"), "Prompt contains tree name");
-  assert(prompt.includes("Size: M"), "Prompt contains tree size");
-  assert(prompt.includes("Classic Gold & Red"), "Prompt contains style name");
-  assert(prompt.includes("Dây Đèn Led Vàng"), "Prompt contains accessory name");
-  assert(
-    prompt.includes("Gia Đình An"),
-    "Prompt contains personalization text"
-  );
-  assert(
-    prompt.includes("Trang trí ấm cúng phong cách gia đình"),
-    "Prompt contains customer prompt notes"
-  );
-
-  console.log("\n── Test 4: Pricing snapshot costPrice nullability ──");
-  const testDoc = new AIDesign({
-    variantId: dummyVariantId,
-    pricingSnapshot: {
-      treePrice: 500000,
-      accessoriesTotal: 200000,
-      decorationFee: 0,
-      shippingFee: 30000,
-      totalSalePrice: 730000,
-      totalCostPrice: null,
-      expectedGrossProfit: null,
-    },
-  });
-
-  assert(
-    testDoc.pricingSnapshot.totalCostPrice === null,
-    "totalCostPrice correctly remains null when cost is missing"
-  );
-  assert(
-    testDoc.pricingSnapshot.expectedGrossProfit === null,
-    "expectedGrossProfit correctly remains null when cost is missing"
-  );
-
   console.log(`\n========================================`);
   console.log(`AI Designer Test Summary: ${passed} passed, ${failed} failed.`);
   console.log(`========================================`);

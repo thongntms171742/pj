@@ -1096,4 +1096,187 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
   - `DELETE /api/admin/banners/:id`
   - **Response (200 OK)**: `{ "success": true, "bannerId": ":id" }`
 
+---
+
+## 🌟 PHẦN 11: ĐÁNH GIÁ SẢN PHẨM (PRODUCT REVIEWS)
+
+### 1. Xem danh sách đánh giá của sản phẩm (Public)
+- **URL**: `GET /api/products/:productId/reviews` (hoặc `GET /api/catalog/tree-products/:productId/reviews`)
+- **Query Params**:
+  - `page` (number, default: 1)
+  - `limit` (number, default: 10, max: 50)
+  - `rating` (1-5, lọc theo số sao)
+  - `hasImages` (boolean, lọc đánh giá có ảnh)
+- **Response (200 OK)**:
+```json
+{
+  "reviews": [
+    {
+      "_id": "670c...",
+      "productId": "670a...",
+      "variant": {
+        "_id": "670b...",
+        "name": "Cây thông Noel — Xanh — M",
+        "size": "M",
+        "bareImage": "https://..."
+      },
+      "buyer": {
+        "_id": "6701...",
+        "name": "Nguyễn Văn A",
+        "avatar": "https://..."
+      },
+      "orderId": "670d...",
+      "rating": 5,
+      "comment": "Cây rất đẹp, tán dày dặn và giao hàng nhanh!",
+      "images": ["https://.../review1.jpg"],
+      "adminReply": {
+        "comment": "Cảm ơn bạn đã ủng hộ shop!",
+        "repliedAt": "2026-10-15T03:00:00.000Z"
+      },
+      "createdAt": "2026-10-15T02:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 24,
+    "totalPages": 3
+  },
+  "stats": {
+    "averageRating": 4.9,
+    "totalReviews": 24,
+    "distribution": {
+      "1": 0,
+      "2": 0,
+      "3": 1,
+      "4": 2,
+      "5": 21
+    }
+  }
+}
+```
+
+---
+
+### 2. Gửi đánh giá sản phẩm (Buyer đã mua hàng)
+- **URL**: `POST /api/products/:productId/reviews` (hoặc `POST /api/reviews`)
+- **Auth**: `Bearer <token>`
+- **Điều kiện**:
+  1. Đơn hàng phải thuộc về tài khoản đang đăng nhập.
+  2. Đơn hàng ở trạng thái `DELIVERED` hoặc `COMPLETED`.
+  3. Đơn hàng có chứa sản phẩm (`productId`).
+  4. Mỗi sản phẩm trong một đơn hàng chỉ được đánh giá 1 lần.
+- **Side effect**: Nếu đơn hàng đang ở trạng thái `DELIVERED`, backend sẽ tự động chuyển đơn sang `COMPLETED`.
+- **Request Body**:
+```json
+{
+  "orderId": "670d...",
+  "rating": 5,
+  "comment": "Cây rất đẹp và chất lượng!",
+  "images": ["https://.../review1.jpg"]
+}
+```
+- **Response (201 Created)**:
+```json
+{
+  "review": {
+    "_id": "670c...",
+    "productId": "670a...",
+    "buyerId": "6701...",
+    "orderId": "670d...",
+    "rating": 5,
+    "comment": "Cây rất đẹp và chất lượng!",
+    "images": ["https://.../review1.jpg"],
+    "status": "APPROVED",
+    "createdAt": "2026-10-15T03:00:00.000Z"
+  }
+}
+```
+
+---
+
+### 3. Kiểm tra các món có thể đánh giá trong đơn hàng
+- **URL**: `GET /api/orders/:orderId/reviewable-items` (hoặc `GET /api/reviews/order/:orderId`)
+- **Auth**: `Bearer <token>`
+- **Response (200 OK)**:
+```json
+{
+  "orderId": "670d...",
+  "orderCode": "BYC-12345678",
+  "orderStatus": "DELIVERED",
+  "isEligibleStatus": true,
+  "items": [
+    {
+      "productId": "670a...",
+      "designId": "670e...",
+      "designName": "Cây Giáng Sinh Ấm Cúng",
+      "previewImage": "https://...",
+      "variantName": "Cây thông Noel — Xanh — M",
+      "variantSize": "M",
+      "canReview": true,
+      "isReviewed": false,
+      "review": null
+    }
+  ]
+}
+```
+
+---
+
+### 4. Xem lịch sử đánh giá của tôi
+- **URL**: `GET /api/reviews/my`
+- **Auth**: `Bearer <token>`
+- **Response (200 OK)**:
+```json
+{
+  "reviews": [
+    {
+      "_id": "670c...",
+      "product": {
+        "_id": "670a...",
+        "name": "Cây thông Noel truyền thống",
+        "coverImage": "https://...",
+        "slug": "cay-thong-noel-truyen-thong"
+      },
+      "variant": {
+        "_id": "670b...",
+        "name": "Cây thông Noel — Xanh — M",
+        "size": "M",
+        "bareImage": "https://..."
+      },
+      "order": {
+        "_id": "670d...",
+        "orderCode": "BYC-12345678",
+        "status": "COMPLETED"
+      },
+      "rating": 5,
+      "comment": "Cây đẹp lắm ạ!",
+      "images": [],
+      "adminReply": null,
+      "createdAt": "2026-10-15T03:00:00.000Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 10, "total": 1, "totalPages": 1 }
+}
+```
+
+---
+
+### 5. Quản lý đánh giá (Dành cho Admin)
+- **Auth**: `Bearer <admin_token>`
+
+#### Lấy danh sách đánh giá
+- `GET /api/admin/reviews?page=1&limit=20&status=APPROVED&rating=5&productId=...`
+
+#### Phản hồi đánh giá của khách
+- `POST /api/admin/reviews/:id/reply`
+- **Body**: `{ "comment": "Dạ cảm ơn bạn nhiều ạ!" }`
+
+#### Ẩn/Hiện đánh giá
+- `PATCH /api/admin/reviews/:id/status`
+- **Body**: `{ "status": "HIDDEN" }` hoặc `{ "status": "APPROVED" }`
+
+#### Xóa đánh giá
+- `DELETE /api/admin/reviews/:id`
+
 

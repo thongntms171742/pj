@@ -21,21 +21,13 @@ export const createAccessory = ah(async (req, res) => {
     );
     return;
   }
-  if (body.costPrice !== undefined && body.costPrice !== null && (typeof body.costPrice !== "number" || body.costPrice < 0)) {
-    sendError(res, ErrorCode.INVALID_INPUT, "Giá vốn phải là số >= 0 hoặc null"); return;
-  }
   const acc = await Accessory.create(body as any);
   created(res, { accessory: acc });
 });
 
 export const updateAccessory = ah(async (req, res) => {
   const { id } = req.params;
-  const body = req.body as Record<string, unknown>;
-  if (body.costPrice !== undefined && body.costPrice !== null && (typeof body.costPrice !== "number" || body.costPrice < 0)) {
-    sendError(res, ErrorCode.INVALID_INPUT, "Giá vốn phải là số >= 0 hoặc null"); return;
-  }
-  if (body.costPrice === null) delete body.costPrice;
-  const acc = await Accessory.findByIdAndUpdate(id, body, { new: true, runValidators: true });
+  const acc = await Accessory.findByIdAndUpdate(id, req.body, { new: true });
   if (!acc) {
     sendError(res, ErrorCode.ACCESSORY_NOT_FOUND, "Không tìm thấy phụ kiện");
     return;

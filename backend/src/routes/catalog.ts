@@ -9,6 +9,7 @@ import {
   getDeliveryOptions,
   quoteDesign,
 } from "../controllers/catalogController";
+import { getReviewsForProduct } from "../controllers/reviewController";
 
 const router = Router();
 
@@ -18,6 +19,8 @@ router.get(
   "/tree-products/:productId/codes/:codeId/variants",
   getVariantsForCode
 );
+router.get("/tree-products/:productId/reviews", getReviewsForProduct);
+router.get("/products/:productId/reviews", getReviewsForProduct);
 
 // Legacy flat list (kept for back-compat)
 router.get("/trees", getTrees);

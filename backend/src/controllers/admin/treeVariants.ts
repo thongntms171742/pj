@@ -51,7 +51,6 @@ export const createTreeVariant = ah(async (req, res) => {
       existingVariant.isActive = true;
       existingVariant.price = body.price as number;
       existingVariant.stockQuantity = body.stockQuantity as number;
-      if (typeof body.costPrice === "number" && body.costPrice >= 0) existingVariant.costPrice = body.costPrice;
       if (typeof body.sku === "string" && body.sku.trim()) {
         existingVariant.sku = normalizedSku;
       }
@@ -100,7 +99,6 @@ export const createTreeVariant = ah(async (req, res) => {
       bareImage: (body.bareImage as string) ?? "",
       images: Array.isArray(body.images) ? (body.images as string[]) : [],
       price: body.price,
-      costPrice: typeof body.costPrice === "number" && body.costPrice >= 0 ? body.costPrice : undefined,
       stockQuantity: body.stockQuantity,
       isActive: (body.isActive as boolean) ?? true,
       sortOrder: (body.sortOrder as number) ?? 0,
@@ -197,9 +195,6 @@ export const updateTreeVariant = ah(async (req, res) => {
       variant.bareImage = body.bareImage;
     if (Array.isArray(body.images)) variant.images = body.images as string[];
     if (typeof body.price === "number") variant.price = body.price;
-    if (body.costPrice === null) variant.costPrice = undefined;
-    else if (typeof body.costPrice === "number" && body.costPrice >= 0) variant.costPrice = body.costPrice;
-    else if (body.costPrice !== undefined) { sendError(res, ErrorCode.INVALID_INPUT, "Giá vốn phải là số >= 0 hoặc null"); return; }
     if (typeof body.stockQuantity === "number")
       variant.stockQuantity = body.stockQuantity;
     if (typeof body.isActive === "boolean") variant.isActive = body.isActive;

@@ -83,6 +83,7 @@ export const getVariantsForCode = async (
         heightCmMin: v.heightCmMin,
         heightCmMax: v.heightCmMax,
         diameterCm: v.diameterCm,
+        description: v.description || "",
         bareImage: v.bareImage,
         price: v.price,
         stockQuantity: v.stockQuantity,
