@@ -3,9 +3,6 @@ import {
   getTrees,
   getTreeProducts,
   getVariantsForCode,
-  getStyles,
-  getAccessories,
-  getPresets,
   getDeliveryOptions,
   quoteDesign,
 } from "../controllers/catalogController";
@@ -13,7 +10,7 @@ import { getReviewsForProduct } from "../controllers/reviewController";
 
 const router = Router();
 
-// 3-tier browse (preferred for new FE)
+// 3-tier browse
 router.get("/tree-products", getTreeProducts);
 router.get(
   "/tree-products/:productId/codes/:codeId/variants",
@@ -25,9 +22,8 @@ router.get("/products/:productId/reviews", getReviewsForProduct);
 // Legacy flat list (kept for back-compat)
 router.get("/trees", getTrees);
 
-router.get("/styles", getStyles);
-router.get("/accessories", getAccessories);
-router.get("/presets", getPresets);
+// Sau refactor phụ kiện: bỏ /styles, /accessories, /presets (đã purge).
+
 router.get("/delivery-options", getDeliveryOptions);
 router.post("/quote", quoteDesign);
 

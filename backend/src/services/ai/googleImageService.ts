@@ -1,10 +1,5 @@
 import { uploadFromBuffer } from "../cloudinaryService";
-import { Tree } from "../../models/Tree";
 import { TreeProduct } from "../../models/TreeProduct";
-import { TreeCode } from "../../models/TreeCode";
-import { Accessory } from "../../models/Accessory";
-import { Style } from "../../models/Style";
-import { AIDesign } from "../../models/AIDesign";
 
 const KIE_BASE_URL = "https://api.kie.ai/api/v1";
 const KIE_MODEL = "nano-banana-2";
@@ -60,7 +55,6 @@ async function kieRequest<T = KieResponse>(url: string, init: RequestInit): Prom
     throw serviceError("KIE API trả về dữ liệu không hợp lệ.", "AI_PROVIDER_INVALID_RESPONSE", 502);
   }
 
-  // KIE may report application errors in JSON while HTTP status remains 200.
   if (!response.ok || (typeof body?.code === "number" && body.code !== 200)) {
     const providerCode = Number(body?.code || response.status);
     const message = String(body?.msg || body?.message || `KIE API error (${providerCode})`).slice(0, 240);
@@ -140,124 +134,114 @@ async function downloadGeneratedImage(imageUrl: string): Promise<Buffer> {
   return Buffer.from(arrayBuffer);
 }
 
-export async function generateAIDesignImage(designId: string, ownerId: string, isAdmin: boolean) {
+// ── Compose prompt từ TreeProduct + prompt khách ───────────────────────────
+//
+// TreeProduct đã là 1 concept hoàn chỉnh: coverImage + description chứa sẵn
+// thông tin cây + phụ kiện + style (cả cấu trúc, dây đèn, nơ, bông tuyết…).
+// AI chỉ cần đọc description → render ra ảnh thành phẩm, có tính tới prompt
+// riêng của khách.
+export interface ComposedPrompt {
+  promptText: string;
+  imageInput: string[];
+}
+
+export function composePrompt(input: {
+  treeProduct: any;
+  customerPrompt?: string;
+}): ComposedPrompt {
+  const tp = input.treeProduct as any;
+  const description = String(tp.description || "").trim();
+  const name = String(tp.name || "Christmas tree");
+  const customerPrompt = String(input.customerPrompt || "").trim();
+
+  const cover = String(tp.coverImage || "").trim();
+  const imageInput = cover && /^https?:\/\//i.test(cover) ? [cover] : [];
+
+  // Prompt text: mô tả concept + yêu cầu khách + style chụp.
+  const lines: string[] = [
+    `Studio product photo of a Christmas tree design concept titled "${name}".`,
+    "",
+    "[REFERENCE CONCEPT]",
+    description
+      ? `The reference image shows the customer's chosen concept. Faithfully render: ${description}`
+      : "The reference image shows the customer's chosen concept. Maintain its style, decorations, and palette.",
+    "",
+    "[CUSTOMER REQUEST]",
+    customerPrompt || "No additional request; render the concept as described.",
+    "",
+    "[COMPOSITION & QUALITY]",
+    "- 3:4 portrait orientation, photorealistic studio shot.",
+    "- Sharp focus on the tree; soft warm ambient studio lighting.",
+    "- High resolution, no watermark, no text overlay unless described.",
+  ];
+
+  return {
+    promptText: lines.filter(Boolean).join("\n"),
+    imageInput,
+  };
+}
+
+// ── Resolve TreeProduct reference image với priority chain ──────────────────
+async function resolveReferenceImage(productId: string): Promise<string> {
+  const product = await TreeProduct.findById(productId)
+    .select("coverImage images")
+    .lean();
+  if (!product) return "";
+  if (product.coverImage && /^https?:\/\//i.test(product.coverImage)) {
+    return product.coverImage;
+  }
+  if (Array.isArray(product.images) && product.images.length > 0) {
+    const first = product.images.find((u) => /^https?:\/\//i.test(u));
+    if (first) return first;
+  }
+  return "";
+}
+
+// ── Render ảnh thành phẩm cho 1 Design (gộp TreeDesign + AIDesign cũ) ───────
+export async function generateDesignImage(designId: string, ownerId: string, isAdmin: boolean) {
   if (!process.env.KIE_API_KEY?.trim()) {
     throw serviceError("KIE API chưa được cấu hình. Hãy thêm KIE_API_KEY vào biến môi trường backend.", "AI_DESIGNER_NOT_CONFIGURED", 503);
   }
 
-  const design = await AIDesign.findById(designId);
-  if (!design) throw serviceError("Không tìm thấy thiết kế AI", "AI_DESIGN_NOT_FOUND", 404);
+  // Lazy import to avoid circular deps at module load.
+  const { Design } = await import("../../models/Design");
+
+  const design = await Design.findById(designId);
+  if (!design) throw serviceError("Không tìm thấy thiết kế", "DESIGN_NOT_FOUND", 404);
   if (!isAdmin && String(design.ownerId || "") !== ownerId) {
     throw serviceError("Bạn không có quyền tạo ảnh cho thiết kế này", "FORBIDDEN", 403);
   }
-  if (design.status === "GENERATING") {
+  if (design.status === "AI_PENDING") {
     throw serviceError("Thiết kế đang được tạo ảnh, vui lòng thử lại sau", "AI_GENERATION_FAILED", 409);
   }
 
-  const tree = await Tree.findById(design.variantId)
-    .select("name size bareImage images productId codeId description")
+  const treeProduct = await TreeProduct.findById(design.baseTreeProductId)
+    .select("name coverImage images description")
     .lean();
-  if (!tree) throw serviceError("Không tìm thấy mẫu cây trong catalog", "TREE_NOT_FOUND", 404);
-
-  // 1. Resolve real base tree image from catalog:
-  // Priority: 1. tree.bareImage -> 2. tree.images[0] -> 3. treeCode.image -> 4. parentProduct.coverImage -> 5. parentProduct.images[0]
-  let baseTreeImageUrl = "";
-  if (tree.bareImage && /^https?:\/\//i.test(tree.bareImage)) {
-    baseTreeImageUrl = tree.bareImage;
-  } else if (Array.isArray(tree.images) && tree.images.length > 0 && /^https?:\/\//i.test(tree.images[0])) {
-    baseTreeImageUrl = tree.images[0];
-  } else if (tree.codeId) {
-    const code = await TreeCode.findById(tree.codeId).select("image").lean();
-    if (code?.image && /^https?:\/\//i.test(code.image)) {
-      baseTreeImageUrl = code.image;
-    }
+  if (!treeProduct) {
+    throw serviceError("Không tìm thấy mẫu cây trong catalog", "TREE_NOT_FOUND", 404);
   }
 
-  if (!baseTreeImageUrl && tree.productId) {
-    const parentProduct = await TreeProduct.findById(tree.productId).select("coverImage images").lean();
-    if (parentProduct?.coverImage && /^https?:\/\//i.test(parentProduct.coverImage)) {
-      baseTreeImageUrl = parentProduct.coverImage;
-    } else if (Array.isArray(parentProduct?.images) && parentProduct.images.length > 0 && /^https?:\/\//i.test(parentProduct.images[0])) {
-      baseTreeImageUrl = parentProduct.images[0];
-    }
-  }
+  const referenceImage = await resolveReferenceImage(design.baseTreeProductId.toString());
+  const imageInput = referenceImage ? [referenceImage] : [];
 
-  const imageInput: string[] = [];
-  if (baseTreeImageUrl) {
-    imageInput.push(baseTreeImageUrl);
-  }
+  const { promptText } = composePrompt({
+    treeProduct: treeProduct,
+    customerPrompt: design.prompt,
+  });
 
-  const accessoryIds = design.accessories.map((a) => a.accessoryId);
-  const accessories = accessoryIds.length
-    ? await Accessory.find({ _id: { $in: accessoryIds } }).select("name type description image").lean()
-    : [];
-  const style = design.styleId
-    ? await Style.findById(design.styleId).select("name code description palette").lean()
-    : null;
-  const accessoryLines = design.accessories.map((item) => {
-    const accessory: any = accessories.find((x: any) => String(x._id) === String(item.accessoryId));
-    return accessory
-      ? `${accessory.name} (${accessory.type}), quantity ${item.quantity}${item.personalizationText ? `, text: ${item.personalizationText}` : ""}`
-      : "";
-  }).filter(Boolean);
-  const palette = style?.palette
-    ? Array.isArray(style.palette) ? style.palette.join(", ") : JSON.stringify(style.palette)
-    : (design.preferences?.theme || "festive Christmas red, gold, blush pink, and evergreen colors");
+  await Design.updateOne(
+    { _id: design._id },
+    { $set: { status: "AI_PENDING", lastError: null } }
+  );
 
-  const customerNote = design.prompt || design.preferences?.notes || "";
-  const isPinkTheme = /hồng|pink|pastel|rose/i.test(customerNote + " " + (design.preferences?.theme || ""));
-
-  const prompt = imageInput.length > 0
-    ? [
-        "Professional commercial studio product photography: Realistically decorate the customer's chosen base tree with their selected Christmas accessories.",
-        "",
-        "[REFERENCE IMAGE DIRECTIVE - EXACT BASE TREE CONDITIONING]:",
-        "- The reference image in image_input[0] is the customer's chosen living base tree model (cây gốc / cây tùng Noel để bàn đang bán).",
-        "- CRITICAL REQUIREMENT: Strictly preserve the exact foundation, branch structure, needle texture, living foliage silhouette, and pot base from this reference image. Do NOT change or replace the base tree with a generic pine/fir tree.",
-        "",
-        "[CUSTOMER-CHOSEN ACCESSORIES TO ATTACH ONTO THIS TREE]:",
-        "Seamlessly hang, drape, and composite the following specific accessories onto the branches of this base tree:",
-        accessoryLines.length
-          ? accessoryLines.map((line) => `- ${line}`).join("\n")
-          : "- Glossy scarlet and glitter red baubles, miniature candy canes, soft white natural cotton flower puffs, tiny white string bows, and a silver 'Merry Christmas' script typography ornament.",
-        `- Crown Topper: Attach an elegant ribbon bow topper (${isPinkTheme ? "soft baby-pink silk ribbon" : "rich velvet red ribbon bow"}) gracefully tied at the very peak tip of the cypress tree.`,
-        "- Garlands: Draped with delicate thin strings of miniature white pearl bead garland spiraling gently around the green branches.",
-        `- Theme & Palette: ${style ? `${style.name} (${style.code})` : (design.preferences?.styleCode || "Cozy Festive Rustic")}. Palette: ${palette}.`,
-        customerNote ? `- Customer Note: "${customerNote}".` : "",
-        "",
-        "[COMPOSITION & BLENDING QUALITY]:",
-        "- The decorations must look physically hanging or attached to the tree foliage with realistic gravity, depth, natural occlusions, and matching studio ambient light reflections.",
-        "- High-end e-commerce product visual, razor-sharp 8k resolution, crisp detail on foliage and ornaments, photorealistic, no distortion.",
-      ].filter(Boolean).join("\n")
-    : [
-        "Professional commercial studio product photography of a real decorated living tabletop Lemon Cypress Christmas tree (cây tùng thơm / tùng Noel để bàn, botanical Cupressus macrocarpa).",
-        "",
-        "[Tree Morphology & Pot Style]",
-        "- Botanical Type & Form: A real living tabletop evergreen lemon cypress tree (cây tùng để bàn). Slender, compact upright conical silhouette with dense, feathery bright-green foliage, tapering gracefully to a slender pointed tip. Strictly NOT a sprawling triangular Western fir or pine tree with wide horizontal branches.",
-        `- Pot Base: The planter pot is neatly wrapped in rustic deep crimson red burlap sackcloth (chậu bọc vải bố đỏ đô), tied around the middle with a delicate silk ribbon bow (${isPinkTheme ? "soft baby pink" : "festive red or pink"}) and natural jute twine cord. Fluffy white faux cotton snow covers the pot rim around the base of the trunk.`,
-        `- Base Tree Variant: ${tree.name} (Size: ${tree.size}).`,
-        "",
-        "[Decorations & Ornaments Applied]",
-        `- Crown Topper: A charming ribbon bow topper (${isPinkTheme ? "baby pink silk ribbon" : "rich velvet red ribbon bow"}) tied at the very peak tip of the cypress tree.`,
-        "- Garlands: Draped with fine, delicate strings of miniature white pearl bead garland spiraling gently around the green branches.",
-        `- Key Ornaments: ${accessoryLines.length ? accessoryLines.join("; ") : "glossy and glitter baubles, striped red-and-white peppermint candy canes, soft natural white cotton flower puffs, tiny white string ribbon bows, and an elegant silver script 'Merry Christmas' typography sign"}.`,
-        `- Theme & Palette: ${style ? `${style.name} (${style.code})` : (design.preferences?.styleCode || "Cozy Festive Rustic")}. Palette: ${palette}.`,
-        customerNote ? `- Customer Specific Request: "${customerNote}".` : "",
-        "",
-        "[Photography & Visual Quality]",
-        "- Composition: Front-facing eye-level commercial product shot, vertical 3:4 portrait orientation showcasing the full tree from the red burlap pot base to the top ribbon bow.",
-        "- Lighting & Setting: Clean minimalist bright studio background, soft warm festive ambient lighting with gentle diffuse fill light.",
-        "- Render Quality: 8k resolution, razor-sharp needle detail, crisp reflections on baubles, authentic textures on burlap, velvet, and cotton, photorealistic, no cartoonish elements, no watermark.",
-      ].filter(Boolean).join("\n");
-
-  await AIDesign.updateOne({ _id: design._id }, { $set: { status: "GENERATING", lastError: null } });
   try {
     const created = await kieRequest<KieResponse>(`${KIE_BASE_URL}/jobs/createTask`, {
       method: "POST",
       body: JSON.stringify({
         model: KIE_MODEL,
         input: {
-          prompt,
+          prompt: promptText,
           image_input: imageInput,
           aspect_ratio: "3:4",
           resolution: "1K",
@@ -270,29 +254,33 @@ export async function generateAIDesignImage(designId: string, ownerId: string, i
 
     const imageUrl = await waitForImage(String(taskId));
     const imageBuffer = await downloadGeneratedImage(imageUrl);
-    const uploaded = await uploadFromBuffer(imageBuffer, { folder: "buildyourchristmas/ai-designs", resourceType: "image" });
-    await AIDesign.updateOne({ _id: design._id }, { $set: { status: "COMPLETED", imageUrl: uploaded.url, imagePublicId: uploaded.publicId, lastError: null } });
+    const uploaded = await uploadFromBuffer(imageBuffer, { folder: "buildyourchristmas/designs", resourceType: "image" });
+
+    await Design.updateOne(
+      { _id: design._id },
+      {
+        $set: {
+          status: "AI_COMPLETED",
+          imageUrl: uploaded.url,
+          imagePublicId: uploaded.publicId,
+          previewImage: uploaded.url,
+          lastError: null,
+        },
+      }
+    );
+
     return {
       designId: String(design._id),
-      status: "COMPLETED",
+      status: "AI_COMPLETED" as const,
       imageUrl: uploaded.url,
       imagePublicId: uploaded.publicId,
-      aiDesign: {
-        _id: design._id,
-        ownerId: design.ownerId,
-        status: "COMPLETED",
-        imageUrl: uploaded.url,
-        imagePublicId: uploaded.publicId,
-        prompt: design.prompt,
-        preferences: design.preferences,
-        pricingSnapshot: design.pricingSnapshot,
-        createdAt: design.createdAt,
-        updatedAt: new Date(),
-      },
     };
   } catch (cause: any) {
     const safeMessage = String(cause?.message || "KIE image generation failed").slice(0, 400);
-    await AIDesign.updateOne({ _id: design._id }, { $set: { status: "FAILED", lastError: safeMessage } });
+    await Design.updateOne(
+      { _id: design._id },
+      { $set: { status: "FAILED", lastError: safeMessage } }
+    );
     if (cause?.code && cause?.status) throw cause;
     throw serviceError(safeMessage, "AI_GENERATION_FAILED", 502);
   }

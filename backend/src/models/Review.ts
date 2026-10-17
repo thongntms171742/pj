@@ -7,9 +7,8 @@ export interface IAdminReply {
 }
 
 export interface IReview extends Document {
-  productId: Types.ObjectId;
+    productId: Types.ObjectId;
   variantId?: Types.ObjectId | null;
-  accessoryId?: Types.ObjectId | null;
   buyerId: Types.ObjectId;
   orderId: Types.ObjectId;
   rating: number; // 1 to 5
@@ -41,11 +40,6 @@ const ReviewSchema = new Schema<IReview>(
     variantId: {
       type: Schema.Types.ObjectId,
       ref: "Tree",
-      default: null,
-    },
-    accessoryId: {
-      type: Schema.Types.ObjectId,
-      ref: "Accessory",
       default: null,
     },
     buyerId: {

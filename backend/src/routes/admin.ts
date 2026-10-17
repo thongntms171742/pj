@@ -2,8 +2,6 @@ import { Router } from "express";
 import { requireAuth, requireAdmin } from "../middleware/auth";
 import {
   // ── Legacy (READ-ONLY, deprecated) ────────────────────────────────────────
-  // Flat variant list kept for older admin FE builds. Writes are blocked in
-  // the controller — use the 3-tier tree-products flow below instead.
   listTrees,
   // 3-tier tree products
   listTreeProducts,
@@ -19,17 +17,7 @@ import {
   updateTreeVariant,
   deleteTreeVariant,
   bulkUpdateTreeVariants,
-  // styles / accessories / presets / orders / users
-  listStyles,
-  createStyle,
-  updateStyle,
-  listAccessories,
-  createAccessory,
-  updateAccessory,
-  listPresets,
-  createPreset,
-  updatePreset,
-  deletePreset,
+  // orders / users
   listAllOrders,
   getAdminStats,
   getAdminAnalytics,
@@ -72,21 +60,7 @@ router.delete("/tree-variants/:variantId", deleteTreeVariant);
 // Shopee "Áp dụng cho tất cả phân loại" — bulk update variants.
 router.patch("/tree-variants/bulk", bulkUpdateTreeVariants);
 
-// ── Styles ───────────────────────────────────────────────────────────────────
-router.get("/styles", listStyles);
-router.post("/styles", createStyle);
-router.patch("/styles/:id", updateStyle);
-
-// ── Accessories ─────────────────────────────────────────────────────────────
-router.get("/accessories", listAccessories);
-router.post("/accessories", createAccessory);
-router.patch("/accessories/:id", updateAccessory);
-
-// ── Presets ──────────────────────────────────────────────────────────────────
-router.get("/presets", listPresets);
-router.post("/presets", createPreset);
-router.patch("/presets/:id", updatePreset);
-router.delete("/presets/:id", deletePreset);
+// Sau refactor phụ kiện: bỏ /styles, /accessories, /presets (đã purge).
 
 // ── Orders ───────────────────────────────────────────────────────────────────
 router.get("/orders", listAllOrders);

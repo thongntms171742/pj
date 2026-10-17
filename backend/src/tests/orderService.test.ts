@@ -24,13 +24,10 @@ function makeItem(deliveryOption: IOrderItem["deliveryOption"]): IOrderItem {
     designName: "Test",
     previewImage: "",
     variant: {} as any,
-    style: {} as any,
-    lines: [],
     deliveryOption,
     unitTotal: 100_000,
     quantity: 1,
     lineTotal: 100_000,
-    hasPersonalization: false,
     productionDays: 0,
   };
 }

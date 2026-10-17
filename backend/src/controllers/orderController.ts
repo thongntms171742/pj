@@ -4,8 +4,7 @@ import { Order, VALID_TRANSITIONS, OrderStatus } from "../models/Order";
 import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { Notification } from "../models/Notification";
-import { TreeDesign } from "../models/TreeDesign";
-import { restoreStock, restoreTreeStock } from "../services/inventoryService";
+import { restoreTreeStock } from "../services/inventoryService";
 import { SHIPPING_FEE } from "../config/business";
 import { calculateShippingQuote } from "../services/shippingService";
 import {
@@ -31,7 +30,7 @@ import {
   WrongProvinceError,
 } from "../services/addressService";
 import { SERVICE_PROVINCE_ID } from "../config/business";
-import type { DesignConfig } from "../models/TreeDesign";
+import type { PricingInput } from "../services/pricingService";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function genOrderCode(): string {
@@ -62,7 +61,7 @@ export const createOrder = async (
       idempotencyKey?: string;
       designConfirmed?: boolean;
       cartItemIds?: string[];
-      items?: Array<{ config?: DesignConfig; designId?: string; quantity?: number }>;
+      items?: Array<{ config?: PricingInput; designId?: string; quantity?: number }>;
       couponCode?: string;
       discountCode?: string;
       internalNotes?: string;
@@ -154,7 +153,7 @@ export const createOrder = async (
       }
       throw err;
     }
-    const { items: built, stockToReserve, subtotal, decorationFee: decorationFeeTotal, productionDaysMax, hasPersonalization } = builtResult;
+    const { items: built, stockToReserve, subtotal, decorationFee: decorationFeeTotal, productionDaysMax } = builtResult;
     if (built.length === 0) {
       sendError(res, ErrorCode.ITEMS_REQUIRED, "Không có thiết kế hợp lệ để đặt hàng");
       return;
@@ -399,10 +398,10 @@ export const updateOrderStatus = async (
         );
         return;
       }
-      // Q5: personalization + PACKING → block cancellation
+      // Sau refactor: hasPersonalization đã bỏ (phụ kiện cũ). Giữ logic PACKING
+      // → CANCEL_REQUESTED như cũ nhưng điều kiện chỉ dựa vào currentStatus.
       if (
         nextStatus === "CANCEL_REQUESTED" &&
-        order.items.some((it) => it.hasPersonalization) &&
         currentStatus === "PACKING"
       ) {
         sendError(
@@ -421,19 +420,12 @@ export const updateOrderStatus = async (
     }
 
     if (nextStatus === "CANCELLED") {
-      // Restore stock for every variant + accessory in the order
-      const restore: Array<{ refId: Types.ObjectId; quantity: number }> = [];
+      // Restore stock for every variant (Tree SKU) trong đơn
       for (const item of order.items) {
         if (item.variant && item.variant._id) {
           await restoreTreeStock(new Types.ObjectId(String(item.variant._id)), item.quantity);
         }
-        for (const line of item.lines) {
-          if (line.kind === "ACCESSORY" && line.refId) {
-            restore.push({ refId: new Types.ObjectId(String(line.refId)), quantity: line.quantity * item.quantity });
-          }
-        }
       }
-      if (restore.length) await restoreStock(restore);
     }
 
     if (nextStatus === "DELIVERED") {

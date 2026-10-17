@@ -1,43 +1,30 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
-import type {
-  DeliveryOption,
-  ResolvedStyleRef,
-  ResolvedAccessoryRef,
-  ResolvedVariantRef,
-} from "./TreeDesign";
+import type { DeliveryOption } from "./Design";
 
 // ── Order line item ──────────────────────────────────────────────────────────
-// `tree` + `style` + `lines[]` = the fully-resolved, immutable snapshot of
-// what the customer agreed to buy. Even if the catalog later changes price,
-// goes out of stock, or deletes an accessory, the order still renders
-// correctly. `personalizationText` lives on each personalizable line so
-// staff can hand it off to production.
-
-export type OrderLineKind = "ACCESSORY" | "SERVICE";
-
-export interface IOrderLine {
-  kind: OrderLineKind;
-  refId: Types.ObjectId | null;
-  type: string;
-  name: string;
-  unitPrice: number;
-  quantity: number;
-  lineTotal: number;
-  personalizationText?: string;
-}
+// Sau refactor phụ kiện: chỉ giữ variant (Tree SKU) + deliveryOption. Không còn
+// style, không còn lines (accessory lines). Mọi thông tin phụ kiện đã nằm
+// trong TreeProduct.description tại thời điểm khách tạo design.
 
 export interface IOrderItem {
   designId: Types.ObjectId | null;
   designName: string;
   previewImage: string;
-  variant: ResolvedVariantRef & { unitPrice: number };
-  style: ResolvedStyleRef | null;
-  lines: IOrderLine[];
+  variant: {
+    _id: string;
+    productId: string;
+    codeId: string;
+    size: string;
+    name: string;
+    unitPrice: number;
+    price: number;
+    sku: string;
+    bareImage: string;
+  };
   deliveryOption: DeliveryOption;
   unitTotal: number;
   quantity: number;
   lineTotal: number;
-  hasPersonalization: boolean;
   productionDays: number;
 }
 
@@ -194,32 +181,6 @@ const OrderItemSchema = new Schema<IOrderItem>(
       sku: { type: String, default: "" },
       bareImage: { type: String, default: "" },
     },
-    style: {
-      type: new Schema(
-        {
-          _id: { type: String, default: "" },
-          code: { type: String, default: "" },
-          name: { type: String, default: "" },
-          coverImage: { type: String, default: "" },
-          palette: { type: [String], default: [] },
-        },
-        { _id: false }
-      ),
-      default: null,
-    },
-    lines: [
-      {
-        _id: false,
-        kind: { type: String, enum: ["ACCESSORY", "SERVICE"], required: true },
-        refId: { type: Schema.Types.ObjectId, default: null },
-        type: { type: String, required: true },
-        name: { type: String, required: true },
-        unitPrice: { type: Number, required: true, min: 0 },
-        quantity: { type: Number, required: true, min: 1 },
-        lineTotal: { type: Number, required: true, min: 0 },
-        personalizationText: { type: String, default: "" },
-      },
-    ],
     deliveryOption: {
       type: String,
       enum: ["READY_TO_DISPLAY", "DIY_KIT", "SEPARATE"],
@@ -228,7 +189,6 @@ const OrderItemSchema = new Schema<IOrderItem>(
     unitTotal: { type: Number, required: true, min: 0 },
     quantity: { type: Number, required: true, min: 1, default: 1 },
     lineTotal: { type: Number, required: true, min: 0 },
-    hasPersonalization: { type: Boolean, default: false },
     productionDays: { type: Number, default: 0, min: 0 },
   },
   { _id: false }

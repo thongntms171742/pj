@@ -3,14 +3,13 @@ import { Types } from "mongoose";
 import { Conversation } from "../../models/Conversation";
 import { Message, IMessageMetadata } from "../../models/Message";
 import { Tree } from "../../models/Tree";
-import { Accessory } from "../../models/Accessory";
 import { Order } from "../../models/Order";
 import { getSocketIO } from "../chat/socketService";
 
 const SYSTEM_INSTRUCTION = `
 Bạn là "Trợ lý Noel 🎄" - nhân viên tư vấn ảo của thương hiệu "Build Your Christmas".
 Nhiệm vụ của bạn:
-1. Tư vấn các sản phẩm cây thông Noel, phụ kiện trang trí (châu, đèn led, nơ, ngôi sao đỉnh), phong cách thiết kế (Classic, Nordic, Luxury, Gingerbread).
+1. Tư vấn các sản phẩm cây thông Noel (concept hoàn chỉnh đã bao gồm phụ kiện + style).
 2. Tra cứu trạng thái đơn hàng khi khách hàng cung cấp mã đơn hoặc số điện thoại.
 3. Khi khách hàng có nhu cầu gặp người thật, thắc mắc đơn khiếu nại / bảo hành / mua sỉ số lượng lớn hoặc bày tỏ thái độ bức xúc, hãy gọi ngay tool "escalate_to_admin" để kết nối với tư vấn viên.
 4. Phong cách giao tiếp: Ấm áp, lịch sự, thân thiện, mang không khí Giáng Sinh (dùng biểu tượng 🎄, ⭐, 🎁 nhẹ nhàng), câu từ ngắn gọn, rõ ràng.
@@ -27,12 +26,12 @@ const toolsDeclarations: FunctionDeclaration[] = [
       properties: {
         query: {
           type: "string",
-          description: "Từ khóa tìm kiếm (ví dụ: 'cây thông 1m8', 'đèn led', 'trái châu đỏ', 'nordic')",
+          description: "Từ khóa tìm kiếm (ví dụ: 'cây thông 1m8', 'phong cách cổ điển', 'màu đỏ')",
         },
         type: {
           type: "string",
-          enum: ["all", "tree", "accessory"],
-          description: "Loại sản phẩm cần tìm: 'tree' (cây thông), 'accessory' (phụ kiện), 'all' (tất cả)",
+          enum: ["all", "tree"],
+          description: "Loại sản phẩm cần tìm: 'tree' (cây thông concept hoàn chỉnh), 'all' (tất cả)",
         },
         maxPrice: {
           type: "number",
@@ -77,12 +76,12 @@ const toolsDeclarations: FunctionDeclaration[] = [
 // ── Tool Execution Handlers ──────────────────────────────────────────────────
 
 /**
- * Tool 1: Search products in Tree and Accessory collections.
+ * Tool 1: Search products in Tree collection (concept hoàn chỉnh).
  */
 async function executeSearchProducts(args: { query?: string; type?: string; maxPrice?: number }) {
   const { query = "", type = "all", maxPrice } = args;
   const regex = new RegExp(query.trim(), "i");
-  const results: any = { trees: [], accessories: [] };
+  const results: any = { trees: [] };
 
   if (type === "all" || type === "tree") {
     const treeFilter: any = { isActive: true };
@@ -95,7 +94,7 @@ async function executeSearchProducts(args: { query?: string; type?: string; maxP
 
     const trees = await Tree.find(treeFilter)
       .select("name size price heightCmMin heightCmMax stockQuantity bareImage")
-      .limit(4);
+      .limit(6);
 
     results.trees = trees.map((t) => ({
       id: t._id,
@@ -105,30 +104,6 @@ async function executeSearchProducts(args: { query?: string; type?: string; maxP
       heightRange: `${t.heightCmMin}-${t.heightCmMax}cm`,
       stock: t.stockQuantity,
       image: t.bareImage,
-    }));
-  }
-
-  if (type === "all" || type === "accessory") {
-    const accFilter: any = { isActive: true };
-    if (query.trim()) {
-      accFilter.$or = [{ name: regex }, { description: regex }, { group: regex }, { type: regex }];
-    }
-    if (maxPrice && maxPrice > 0) {
-      accFilter.price = { $lte: maxPrice };
-    }
-
-    const accessories = await Accessory.find(accFilter)
-      .select("name group type price stock image")
-      .limit(6);
-
-    results.accessories = accessories.map((a) => ({
-      id: a._id,
-      name: a.name,
-      group: a.group,
-      type: a.type,
-      price: a.price,
-      stock: a.stock,
-      image: a.image,
     }));
   }
 
@@ -296,23 +271,14 @@ export async function processAiChatMessage(
 
       if (call.name === "search_products") {
         toolResult = await executeSearchProducts(call.args as any);
-        if (toolResult.trees?.length > 0 || toolResult.accessories?.length > 0) {
-          botMetadata.suggestedProducts = [
-            ...(toolResult.trees || []).map((t: any) => ({
-              id: String(t.id),
-              type: "tree" as const,
-              name: t.name,
-              price: t.price,
-              imageUrl: t.image,
-            })),
-            ...(toolResult.accessories || []).map((a: any) => ({
-              id: String(a.id),
-              type: "accessory" as const,
-              name: a.name,
-              price: a.price,
-              imageUrl: a.image,
-            })),
-          ];
+        if (toolResult.trees?.length > 0) {
+          botMetadata.suggestedProducts = (toolResult.trees || []).map((t: any) => ({
+            id: String(t.id),
+            type: "tree" as const,
+            name: t.name,
+            price: t.price,
+            imageUrl: t.image,
+          }));
         }
       } else if (call.name === "lookup_order") {
         toolResult = await executeLookupOrder(call.args as any);
@@ -423,16 +389,12 @@ export async function processAiChatMessage(
 function formatToolFallbackText(toolName?: string, result?: any): string {
   if (toolName === "search_products") {
     const trees = result?.trees || [];
-    const accs = result?.accessories || [];
-    if (trees.length === 0 && accs.length === 0) {
-      return "Hiện tại em chưa tìm thấy mẫu cây hoặc phụ kiện khớp hoàn toàn với yêu cầu của anh/chị. Anh/chị có thể cho em biết thêm ngân sách hoặc kích thước mong muốn không ạ? 🎄";
+    if (trees.length === 0) {
+      return "Hiện tại em chưa tìm thấy mẫu cây khớp hoàn toàn với yêu cầu của anh/chị. Anh/chị có thể cho em biết thêm ngân sách hoặc kích thước mong muốn không ạ? 🎄";
     }
     let msg = "Dưới đây là một số gợi ý phù hợp dành cho anh/chị:\n";
     for (const t of trees) {
       msg += `• 🎄 ${t.name} (Size ${t.size}) - ${t.price.toLocaleString()}đ\n`;
-    }
-    for (const a of accs) {
-      msg += `• ⭐ ${a.name} - ${a.price.toLocaleString()}đ\n`;
     }
     return msg;
   }

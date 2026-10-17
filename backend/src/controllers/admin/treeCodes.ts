@@ -34,7 +34,7 @@ export const createTreeCode = ah(async (req, res) => {
     if ((err as { code?: number }).code === 11000) {
       sendError(
         res,
-        ErrorCode.ACCESSORY_DUPLICATED,
+        ErrorCode.CONFLICT,
         "Mã cây đã tồn tại trong sản phẩm này"
       );
       return;
@@ -65,7 +65,7 @@ export const updateTreeCode = ah(async (req, res) => {
     if ((err as { code?: number }).code === 11000) {
       sendError(
         res,
-        ErrorCode.ACCESSORY_DUPLICATED,
+        ErrorCode.CONFLICT,
         "Mã cây đã tồn tại trong sản phẩm này"
       );
       return;

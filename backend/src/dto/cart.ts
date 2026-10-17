@@ -1,14 +1,17 @@
 import { toStr } from "../utils/ids";
 import { buildDesignResponse } from "../services/designService";
 import type { PriceBreakdown } from "../services/pricingService";
-import type { DesignConfig } from "../models/TreeDesign";
+import type { DesignLean } from "../services/designService";
 
 /**
- * Cart item DTO. This is the single source of truth for what a cart item
- * JSON looks like. Previously this lived in cartController.shapeItem and
- * was duplicated in `getCart` and `mergeCart` (and a near-copy in
- * `addCartItem` / `updateCartItem`).
+ * Cart item DTO. Sau refactor: chỉ còn variantId (Tree) + deliveryOption
+ * trong config. Không còn styleId, accessories array.
  */
+export interface CartItemConfig {
+  variantId: string;
+  deliveryOption: "READY_TO_DISPLAY" | "DIY_KIT" | "SEPARATE";
+}
+
 export interface CartItemDto {
   _id: string;
   cartId: string;
@@ -18,7 +21,7 @@ export interface CartItemDto {
   currentUnitTotal: number | null;
   priceChanged: boolean;
   checked: boolean;
-  config: DesignConfig;
+  config: CartItemConfig;
   design: ReturnType<typeof buildDesignResponse> | null;
   warning?: string;
 }
@@ -33,16 +36,12 @@ export interface CartResponse {
   items: CartItemDto[];
 }
 
-/**
- * Shape a single cart item into the FE-facing DTO.
- * If `pricing` is null, the item is "stale" — its config no longer matches
- * the current catalog. We still return it but with a warning.
- */
 export function cartItemToDto(
   item: any,
   pricing: PriceBreakdown | null,
   design: any = null
 ): CartItemDto {
+  const cfg = item.config || {};
   return {
     _id: toStr(item._id),
     cartId: toStr(item.cartId),
@@ -52,8 +51,11 @@ export function cartItemToDto(
     currentUnitTotal: pricing ? pricing.unitTotal : null,
     priceChanged: pricing ? item.priceSnapshot !== pricing.unitTotal : true,
     checked: item.checked,
-    config: item.config,
-    design: design ? buildDesignResponse(design, pricing!) : null,
+    config: {
+      variantId: toStr(cfg.variantId),
+      deliveryOption: cfg.deliveryOption,
+    },
+    design: design && pricing ? buildDesignResponse(design as any) : null,
     ...(pricing
       ? {}
       : { warning: "Cấu hình không còn hợp lệ với catalog hiện tại" }),

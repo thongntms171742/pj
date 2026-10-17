@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import { Types } from "mongoose";
-import { TreeDesign } from "../models/TreeDesign";
+import { Design } from "../models/Design";
 import { safelyBuildPricedDesign } from "../services/catalogService";
 import {
-  loadCatalogForDesign,
+  resolveDesign,
   buildDesignResponse,
   findUniqueSlug,
 } from "../services/designService";
@@ -12,22 +12,27 @@ import {
   ErrorCode,
   handleInternalError,
 } from "../utils/errors";
-import { loadConfigByDesignId } from "../services/catalogService";
 import { ok, created } from "../utils/respond";
+import { generateDesignImage } from "../services/ai/googleImageService";
+import type { PricingInput } from "../services/pricingService";
 
 // ── POST /api/designs/quote ──────────────────────────────────────────────────
-// Public — preview price before saving.
+// Public — preview price trước khi save.
+// Body: { variantId, deliveryOption }
 export const quoteDesign = async (req: Request, res: Response): Promise<void> => {
-  const { config } = req.body as { config?: unknown };
-  if (!config) {
-    sendError(res, ErrorCode.MISSING_FIELD, "Thiếu `config` trong body");
+  const { variantId, deliveryOption } = req.body as {
+    variantId?: string;
+    deliveryOption?: string;
+  };
+  if (!variantId || !deliveryOption) {
+    sendError(res, ErrorCode.MISSING_FIELD, "Thiếu `variantId` hoặc `deliveryOption`");
     return;
   }
   try {
-    const result = await safelyBuildPricedDesign(
-      res,
-      config as Parameters<typeof safelyBuildPricedDesign>[1]
-    );
+    const result = await safelyBuildPricedDesign(res, {
+      variantId: String(variantId),
+      deliveryOption: deliveryOption as any,
+    });
     if (!result) return;
     ok(res, { pricing: result.pricing });
   } catch (err) {
@@ -36,19 +41,22 @@ export const quoteDesign = async (req: Request, res: Response): Promise<void> =>
 };
 
 // ── POST /api/designs ────────────────────────────────────────────────────────
-// Save a TreeDesign for the authenticated user. Returns { design, shareUrl }.
+// Tạo 1 Design mới (status=DRAFT) gắn với 1 TreeProduct concept + prompt.
+// Body: { name, baseTreeProductId, prompt, deliveryOption, isPublic? }
 export const createDesign = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
-    const { name, config, previewImage, isPublic } = req.body as {
+    const { name, baseTreeProductId, prompt, deliveryOption, isPublic, variantId } = req.body as {
       name?: string;
-      config?: any;
-      previewImage?: string;
+      baseTreeProductId?: string;
+      prompt?: string;
+      deliveryOption?: string;
       isPublic?: boolean;
+      variantId?: string;
     };
 
-    if (!config) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu `config` trong body");
+    if (!baseTreeProductId) {
+      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu `baseTreeProductId`");
       return;
     }
     const trimmedName = (name || "").trim();
@@ -56,34 +64,37 @@ export const createDesign = async (req: Request, res: Response): Promise<void> =
       sendError(res, ErrorCode.DESIGN_NAME_REQUIRED, "Thiếu tên thiết kế");
       return;
     }
-
-    // Validate via pricingService (throws DesignValidationError)
-    const result = await safelyBuildPricedDesign(
-      res,
-      config as Parameters<typeof safelyBuildPricedDesign>[1]
-    );
-    if (!result) return;
+    if (!Types.ObjectId.isValid(String(baseTreeProductId))) {
+      sendError(res, ErrorCode.INVALID_INPUT, "baseTreeProductId không hợp lệ", 400);
+      return;
+    }
 
     const slug = await findUniqueSlug(trimmedName);
-    const doc = await TreeDesign.create({
+    const doc = await Design.create({
       ownerId: new Types.ObjectId(userId),
       name: trimmedName,
       slug,
       year: new Date().getFullYear(),
-      config,
+      baseTreeProductId: new Types.ObjectId(String(baseTreeProductId)),
+      prompt: String(prompt || ""),
+      deliveryOption: (deliveryOption as any) || "READY_TO_DISPLAY",
       isPublic: isPublic !== false,
-      isPreset: false,
       duplicatedFrom: null,
-      previewImage: previewImage || "",
     });
 
-    const populated = await TreeDesign.findById(doc._id).lean();
-    if (!populated) {
-      sendError(res, ErrorCode.INTERNAL_ERROR, "Không tìm thấy thiết kế vừa tạo");
-      return;
+    const resolved = await resolveDesign(doc.toObject(), { variantIdOverride: variantId });
+    if (resolved.pricingInput.variantId) {
+      doc.pricingSnapshot = {
+        treePrice: resolved.pricing.tree.unitPrice,
+        decorationFee: resolved.pricing.decorationFee,
+        shippingFee: resolved.pricing.shippingFee,
+        totalSalePrice: resolved.pricing.unitTotal,
+      };
+      await doc.save();
     }
-    const response = buildDesignResponse(populated, result.pricing);
-    created(res, { design: response, shareUrl: response.shareUrl });
+    const refreshed = await Design.findById(doc._id).lean();
+    const resolvedFinal = await resolveDesign(refreshed as any, { variantIdOverride: variantId });
+    created(res, { design: buildDesignResponse(resolvedFinal), shareUrl: buildDesignResponse(resolvedFinal).shareUrl });
   } catch (err) {
     handleInternalError(res, err, "[designs] createDesign error");
   }
@@ -93,14 +104,14 @@ export const createDesign = async (req: Request, res: Response): Promise<void> =
 export const getMyDesigns = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
-    const docs = await TreeDesign.find({ ownerId: userId, isPreset: false })
+    const docs = await Design.find({ ownerId: userId })
       .sort({ updatedAt: -1 })
       .lean();
 
     const out = await Promise.all(
       docs.map(async (d) => {
-        const { design, pricing } = await loadCatalogForDesign(d);
-        return buildDesignResponse(design, pricing);
+        const resolved = await resolveDesign(d as any);
+        return buildDesignResponse(resolved);
       })
     );
     ok(res, { designs: out, total: out.length });
@@ -110,19 +121,17 @@ export const getMyDesigns = async (req: Request, res: Response): Promise<void> =
 };
 
 // ── GET /api/designs/share/:slug ─────────────────────────────────────────────
-// Public if isPublic; otherwise requires ownership or admin role.
 export const getSharedDesignBySlug = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
     const { slug } = req.params;
-    const design = await TreeDesign.findOne({ slug }).lean();
+    const design = await Design.findOne({ slug }).lean();
     if (!design) {
       sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
       return;
     }
-
     const isOwner =
       design.ownerId && req.user?.id
         ? String(design.ownerId) === String(req.user.id)
@@ -134,8 +143,8 @@ export const getSharedDesignBySlug = async (
       return;
     }
 
-    const { pricing } = await loadCatalogForDesign(design);
-    ok(res, { design: buildDesignResponse(design, pricing) });
+    const resolved = await resolveDesign(design as any);
+    ok(res, { design: buildDesignResponse(resolved) });
   } catch (err) {
     handleInternalError(res, err, "[designs] getSharedDesignBySlug error");
   }
@@ -148,7 +157,7 @@ export const getDesignById = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const design = await TreeDesign.findById(id).lean();
+    const design = await Design.findById(id).lean();
     if (!design) {
       sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
       return;
@@ -162,8 +171,8 @@ export const getDesignById = async (
       sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền xem thiết kế này");
       return;
     }
-    const { pricing } = await loadCatalogForDesign(design);
-    ok(res, { design: buildDesignResponse(design, pricing) });
+    const resolved = await resolveDesign(design as any);
+    ok(res, { design: buildDesignResponse(resolved) });
   } catch (err) {
     handleInternalError(res, err, "[designs] getDesignById error");
   }
@@ -176,13 +185,9 @@ export const updateDesign = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const design = await TreeDesign.findById(id);
+    const design = await Design.findById(id);
     if (!design) {
       sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
-      return;
-    }
-    if (design.isPreset) {
-      sendError(res, ErrorCode.FORBIDDEN, "Không thể sửa mẫu thiết kế có sẵn");
       return;
     }
     if (!design.ownerId || String(design.ownerId) !== String(req.user!.id)) {
@@ -190,11 +195,12 @@ export const updateDesign = async (
       return;
     }
 
-    const { name, config, previewImage, isPublic } = req.body as {
+    const { name, prompt, isPublic, deliveryOption, variantId } = req.body as {
       name?: string;
-      config?: any;
-      previewImage?: string;
+      prompt?: string;
       isPublic?: boolean;
+      deliveryOption?: string;
+      variantId?: string;
     };
 
     if (name !== undefined) {
@@ -205,27 +211,14 @@ export const updateDesign = async (
       }
       design.name = trimmed;
     }
-    if (previewImage !== undefined) design.previewImage = String(previewImage);
+    if (prompt !== undefined) design.prompt = String(prompt);
     if (isPublic !== undefined) design.isPublic = Boolean(isPublic);
-
-    if (config) {
-      const result = await safelyBuildPricedDesign(
-        res,
-        config as Parameters<typeof safelyBuildPricedDesign>[1]
-      );
-      if (!result) return;
-      design.config = config;
-      design.year = new Date().getFullYear();
-    }
+    if (deliveryOption !== undefined) design.deliveryOption = deliveryOption as any;
 
     await design.save();
-    const populated = await TreeDesign.findById(design._id).lean();
-    if (!populated) {
-      sendError(res, ErrorCode.INTERNAL_ERROR, "Không tìm thấy thiết kế sau khi cập nhật");
-      return;
-    }
-    const { pricing } = await loadCatalogForDesign(populated);
-    ok(res, { design: buildDesignResponse(populated, pricing) });
+
+    const resolved = await resolveDesign(design.toObject() as any, { variantIdOverride: variantId });
+    ok(res, { design: buildDesignResponse(resolved) });
   } catch (err) {
     handleInternalError(res, err, "[designs] updateDesign error");
   }
@@ -238,20 +231,16 @@ export const deleteDesign = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const design = await TreeDesign.findById(id);
+    const design = await Design.findById(id);
     if (!design) {
       sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
-      return;
-    }
-    if (design.isPreset) {
-      sendError(res, ErrorCode.FORBIDDEN, "Không thể xóa mẫu thiết kế có sẵn");
       return;
     }
     if (!design.ownerId || String(design.ownerId) !== String(req.user!.id)) {
       sendError(res, ErrorCode.FORBIDDEN, "Bạn không phải chủ sở hữu thiết kế này");
       return;
     }
-    await TreeDesign.findByIdAndDelete(id);
+    await Design.findByIdAndDelete(id);
     ok(res, { success: true });
   } catch (err) {
     handleInternalError(res, err, "[designs] deleteDesign error");
@@ -259,14 +248,13 @@ export const deleteDesign = async (
 };
 
 // ── POST /api/designs/:id/duplicate ──────────────────────────────────────────
-// User-facing: clone a design (own / public / preset) and return the new doc.
 export const duplicateDesign = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const src = await TreeDesign.findById(id).lean();
+    const src = await Design.findById(id).lean();
     if (!src) {
       sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
       return;
@@ -281,40 +269,100 @@ export const duplicateDesign = async (
       return;
     }
 
-    const srcConfig = await loadConfigByDesignId(src._id);
-    if (!srcConfig) {
-      sendError(res, ErrorCode.DESIGN_CONFIG_INVALID, "Thiết kế nguồn không có config");
-      return;
-    }
-
     const newName = req.body?.name
       ? String(req.body.name).trim()
       : `${src.name} (copy)`;
 
     const slug = await findUniqueSlug(newName);
-    const duplicated = await TreeDesign.create({
+    const duplicated = await Design.create({
       ownerId: new Types.ObjectId(req.user!.id),
       name: newName,
       slug,
       year: new Date().getFullYear(),
-      config: srcConfig,
+      baseTreeProductId: src.baseTreeProductId,
+      prompt: src.prompt,
+      deliveryOption: src.deliveryOption,
       isPublic: true,
-      isPreset: false,
       duplicatedFrom: src._id,
-      previewImage: src.previewImage || "",
+      previewImage: src.previewImage || src.imageUrl || "",
     });
 
-    const populated = await TreeDesign.findById(duplicated._id).lean();
-    if (!populated) {
-      sendError(res, ErrorCode.INTERNAL_ERROR, "Không tìm thấy thiết kế vừa nhân bản");
-      return;
-    }
-    const { pricing } = await loadCatalogForDesign(populated);
+    const resolved = await resolveDesign(duplicated.toObject() as any);
     created(res, {
-      design: buildDesignResponse(populated, pricing),
-      shareUrl: `/tree/${populated.slug}`,
+      design: buildDesignResponse(resolved),
+      shareUrl: buildDesignResponse(resolved).shareUrl,
     });
   } catch (err) {
     handleInternalError(res, err, "[designs] duplicateDesign error");
+  }
+};
+
+// ── POST /api/designs/:id/generate-image ─────────────────────────────────────
+// Gọi KIE nano-banana-2 để render ảnh từ TreeProduct.coverImage + prompt.
+export const generateImage = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = String(req.params.id || "");
+    if (!Types.ObjectId.isValid(id)) {
+      sendError(res, ErrorCode.INVALID_INPUT, "ID thiết kế không hợp lệ", 400);
+      return;
+    }
+    const isAdmin = Boolean(req.user?.roles?.includes("admin"));
+    const result = await generateDesignImage(id, String(req.user?.id || ""), isAdmin);
+    ok(res, result);
+  } catch (err: any) {
+    if (err?.code && err?.status) {
+      sendError(res, err.code as any, err.message, err.status);
+      return;
+    }
+    handleInternalError(res, err, "[designs] generateImage error");
+  }
+};
+
+// ── POST /api/designs/:id/confirm ────────────────────────────────────────────
+// Khách chốt design → set status=CONFIRMED + lưu pricingSnapshot.
+export const confirmDesign = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const design = await Design.findById(id);
+    if (!design) {
+      sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
+      return;
+    }
+    if (!design.ownerId || String(design.ownerId) !== String(req.user!.id)) {
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không phải chủ sở hữu thiết kế này");
+      return;
+    }
+    if (design.status !== "AI_COMPLETED" && design.status !== "DRAFT") {
+      sendError(
+        res,
+        ErrorCode.DESIGN_NOT_CONFIRMED,
+        `Không thể confirm ở trạng thái ${design.status}`,
+        400
+      );
+      return;
+    }
+
+    // Tính giá từ variant đầu tiên active của TreeProduct.
+    const { variantId } = req.body as { variantId?: string };
+    const resolved = await resolveDesign(design.toObject() as any, { variantIdOverride: variantId });
+    if (!resolved.pricingInput.variantId) {
+      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy variant để tính giá", 404);
+      return;
+    }
+
+    design.status = "CONFIRMED";
+    design.pricingSnapshot = {
+      treePrice: resolved.pricing.tree.unitPrice,
+      decorationFee: resolved.pricing.decorationFee,
+      shippingFee: resolved.pricing.shippingFee,
+      totalSalePrice: resolved.pricing.unitTotal,
+    };
+    await design.save();
+
+    const refreshed = await Design.findById(design._id).lean();
+    const final = await resolveDesign(refreshed as any, { variantIdOverride: variantId });
+    ok(res, { design: buildDesignResponse(final) });
+  } catch (err) {
+    handleInternalError(res, err, "[designs] confirmDesign error");
   }
 };

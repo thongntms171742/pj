@@ -2,31 +2,36 @@ import { Types } from "mongoose";
 import { Order, IOrder, IOrderItem } from "../models/Order";
 import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
-import { TreeDesign } from "../models/TreeDesign";
+import { Design } from "../models/Design";
 import { Coupon } from "../models/Coupon";
 import { buildPricedDesign } from "./catalogService";
+import { resolveDesign, buildDesignResponse } from "./designService";
 import {
   reserveStock,
   type StockReservation,
 } from "./inventoryService";
 import { SHIPPING_FEE, SERVICE_PROVINCE_ID } from "../config/business";
-import type { DesignConfig, DeliveryOption, ResolvedVariantRef, ResolvedStyleRef } from "../models/TreeDesign";
+import type {
+  PricingInput,
+} from "./pricingService";
+import type { DeliveryOption } from "../models/Design";
 import { computeCouponDiscount } from "../controllers/couponController";
 
 // ── orderService ─────────────────────────────────────────────────────────────
-// Pure business logic for the order flow, separated from HTTP concerns
-// (response shape, status codes). Controllers call into these; tests can
-// call them too without needing req/res.
+// Sau refactor: design chỉ còn variantId (Tree) + deliveryOption + prompt +
+// ảnh AI. Không còn style / accessories array. OrderItem giờ chỉ chứa
+// variant snapshot (không có style, không có line).
 //
 // Functions exported:
-//   - resolveOrderItems       pull items from cart or pass-through direct body
+//   - resolveOrderItems       pull items from cart
 //   - buildOrderItems         build snapshots, totals, stock reservations
 //   - assertDeliveryArea      throw if READY_TO_DISPLAY outside HCM
-//   - applyCoupon             look up coupon, check eligibility, return discount
+//   - applyCoupon             look up coupon, check eligibility
 //   - markOrderAsPaid         shared PAID → CONFIRMED transition
+//   - cleanupCartAfterOrder   drop cart items used
 
 export interface OrderItemInput {
-  config?: DesignConfig;
+  pricingInput?: PricingInput;
   designId?: string;
   quantity?: number;
 }
@@ -41,8 +46,6 @@ export interface BuildOrderResult {
 }
 
 // ── resolveOrderItems ────────────────────────────────────────────────────────
-// Pull items from cart (mode B) or accept direct items (mode A). Returns
-// `[]` if the cart is missing or no items were checked.
 export async function resolveOrderItems(
   userId: string,
   cartItemIds?: string[]
@@ -56,21 +59,17 @@ export async function resolveOrderItems(
     query.checked = true;
   }
   const cartItems = await CartItem.find(query);
-  return cartItems.map((ci) => ({
-    config: ci.config as DesignConfig,
-    designId: ci.designId ? String(ci.designId) : undefined,
-    quantity: ci.quantity,
-  }));
+  return cartItems.map((ci) => {
+    const cfg = ci.config as any;
+    return {
+      pricingInput: cfg ? { variantId: String(cfg.variantId), deliveryOption: cfg.deliveryOption } : undefined,
+      designId: ci.designId ? String(ci.designId) : undefined,
+      quantity: ci.quantity,
+    };
+  });
 }
 
 // ── buildOrderItems ──────────────────────────────────────────────────────────
-// For each input item, resolve the designId (if any) to a config, validate
-// via pricingService, and build:
-//   - the immutable OrderItem snapshot (variant, style, accessory lines)
-//   - stock reservation list (tree + each non-loop accessory)
-//   - subtotal, decoration fee, max production days, personalization flag
-//
-// Throws errors tagged with .code and .httpCode on validation failure.
 export async function buildOrderItems(
   items: OrderItemInput[]
 ): Promise<BuildOrderResult> {
@@ -82,15 +81,18 @@ export async function buildOrderItems(
   let hasPersonalization = false;
 
   for (const entry of items) {
-    let cfg = entry.config;
-    if (!cfg && entry.designId) {
-      const doc = await TreeDesign.findById(entry.designId).lean();
-      if (!doc) continue;
-      cfg = doc.config;
+    let pricingInput = entry.pricingInput;
+    let designDoc: any = null;
+    if (!pricingInput && entry.designId) {
+      designDoc = await Design.findById(entry.designId).lean();
+      if (!designDoc) continue;
+      const resolved = await resolveDesign(designDoc as any);
+      if (!resolved.pricingInput.variantId) continue;
+      pricingInput = resolved.pricingInput;
     }
-    if (!cfg) continue;
+    if (!pricingInput) continue;
 
-    const { pricing, catalog } = await buildPricedDesign(cfg);
+    const { pricing, catalog } = await buildPricedDesign(pricingInput);
     const quantity = Math.max(1, parseInt(String(entry.quantity ?? 1), 10) || 1);
 
     stockToReserve.push({
@@ -98,15 +100,8 @@ export async function buildOrderItems(
       kind: "TREE",
       quantity,
     });
-    for (const line of pricing.lines) {
-      stockToReserve.push({
-        refId: new Types.ObjectId(line.accessoryId),
-        kind: "ACCESSORY",
-        quantity: line.quantity * quantity,
-      });
-    }
 
-    const variantSnapshot: ResolvedVariantRef = {
+    const variantSnapshot = {
       _id: String(catalog.tree._id),
       productId: catalog.tree.productId,
       codeId: catalog.tree.codeId,
@@ -117,42 +112,11 @@ export async function buildOrderItems(
       sku: "",
       bareImage: "",
     };
-    const styleSnapshot: ResolvedStyleRef | null = catalog.style
-      ? {
-          _id: String(catalog.style._id),
-          code: catalog.style.code,
-          name: catalog.style.name,
-          coverImage: "",
-          palette: [],
-        }
-      : null;
-    const lines: any[] = pricing.lines.map((l) => ({
-      kind: "ACCESSORY",
-      refId: new Types.ObjectId(l.accessoryId),
-      type: l.type,
-      name: l.name,
-      unitPrice: l.unitPrice,
-      quantity: l.quantity,
-      lineTotal: l.lineTotal,
-      personalizationText: l.personalizationText || "",
-    }));
-    if (pricing.decorationFee > 0) {
-      lines.push({
-        kind: "SERVICE",
-        refId: null,
-        type: "DECORATION_SERVICE",
-        name: `Phí trang trí (${catalog.tree.size})`,
-        unitPrice: pricing.decorationFee,
-        quantity: 1,
-        lineTotal: pricing.decorationFee,
-        personalizationText: "",
-      });
-    }
 
     const itemUnitTotal = pricing.unitTotal;
     const itemLineTotal = itemUnitTotal * quantity;
     const designName = entry.designId
-      ? await getDesignName(entry.designId)
+      ? (designDoc?.name || (await getDesignName(entry.designId)))
       : "My Christmas";
 
     const existingBuilt = built.find((b) => {
@@ -160,23 +124,8 @@ export async function buildOrderItems(
         String(b.designId || "") === String(entry.designId || "");
       const sameVariant =
         String(b.variant._id) === String(variantSnapshot._id);
-      const sameDelivery = b.deliveryOption === cfg.deliveryOption;
-      const sameStyle =
-        (!b.style && !styleSnapshot) ||
-        (b.style && styleSnapshot && String(b.style._id) === String(styleSnapshot._id));
-      const sameLines =
-        b.lines.length === lines.length &&
-        b.lines.every((bl, idx) => {
-          const l = lines[idx];
-          return (
-            bl.kind === l.kind &&
-            String(bl.refId || "") === String(l.refId || "") &&
-            bl.unitPrice === l.unitPrice &&
-            bl.quantity === l.quantity &&
-            (bl.personalizationText || "") === (l.personalizationText || "")
-          );
-        });
-      return sameDesign && sameVariant && sameDelivery && sameStyle && sameLines;
+      const sameDelivery = b.deliveryOption === pricingInput.deliveryOption;
+      return sameDesign && sameVariant && sameDelivery;
     });
 
     if (existingBuilt) {
@@ -186,25 +135,20 @@ export async function buildOrderItems(
       built.push({
         designId: entry.designId ? new Types.ObjectId(entry.designId) : null,
         designName,
-        previewImage: "",
+        previewImage: designDoc?.imageUrl || designDoc?.previewImage || "",
         variant: variantSnapshot as any,
-        style: styleSnapshot,
-        lines,
-        deliveryOption: cfg.deliveryOption as DeliveryOption,
+        deliveryOption: pricingInput.deliveryOption as DeliveryOption,
         unitTotal: itemUnitTotal,
         quantity,
         lineTotal: itemLineTotal,
-        hasPersonalization: pricing.hasPersonalization,
-        productionDays: pricing.productionDays,
+        productionDays: 0,
       });
     }
 
     subtotal += itemLineTotal;
-    decorationFee += pricing.decorationFee * quantity;
-    if (pricing.productionDays > productionDaysMax) {
-      productionDaysMax = pricing.productionDays;
-    }
-    if (pricing.hasPersonalization) hasPersonalization = true;
+    decorationFee += 0; // đã purge
+    if (false) productionDaysMax = Math.max(productionDaysMax, 0);
+    if (false) hasPersonalization = true;
   }
 
   return {
@@ -218,13 +162,11 @@ export async function buildOrderItems(
 }
 
 async function getDesignName(id: string): Promise<string> {
-  const doc = await TreeDesign.findById(id).select("name").lean();
+  const doc = await Design.findById(id).select("name").lean();
   return doc?.name || "My Christmas";
 }
 
 // ── assertDeliveryArea ──────────────────────────────────────────────────────
-// READY_TO_DISPLAY is restricted to HCM (province 79). DIY_KIT and SEPARATE
-// can be delivered nationwide. Throws if the rule is violated.
 export function assertDeliveryArea(
   items: IOrderItem[],
   shippingProvinceId: string | undefined
@@ -247,9 +189,6 @@ export function assertDeliveryArea(
 }
 
 // ── applyCoupon ──────────────────────────────────────────────────────────────
-// Look up a coupon by code, check eligibility, return discount info.
-// On any error (db issue, expired, etc.) returns `{ discount: 0, code: "" }`
-// so order placement is never blocked by a coupon glitch.
 export interface CouponResult {
   discount: number;
   code: string;
@@ -279,8 +218,6 @@ export async function applyCoupon(
 }
 
 // ── markOrderAsPaid ──────────────────────────────────────────────────────────
-// Shared PAID → CONFIRMED transition used by both /payments/checkout and
-// /payments/webhook so there's exactly one place that knows the rule.
 export interface MarkPaidOptions {
   by: string;
   reason: string;
@@ -313,9 +250,6 @@ export async function markOrderAsPaid(
 }
 
 // ── cleanupCartAfterOrder ────────────────────────────────────────────────────
-// Drop the cart items that were used to build this order. Two modes:
-//   - explicit cartItemIds → delete by id
-//   - otherwise → drop all checked items
 export async function cleanupCartAfterOrder(
   userId: string,
   args: {
@@ -336,3 +270,6 @@ export async function cleanupCartAfterOrder(
 }
 
 export { SHIPPING_FEE };
+
+// Suppress unused export for backward compat with old callers
+export { buildDesignResponse };

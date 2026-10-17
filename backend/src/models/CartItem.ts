@@ -1,16 +1,16 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
-import type { DesignConfig } from "./TreeDesign";
 
 // ── Cart item (Build Your Christmas) ─────────────────────────────────────────
-// A cart item wraps a TreeDesign snapshot: `designId` points to the design
-// the user can return to (and keep editing), `config` is the immutable
-// snapshot used at checkout, and `priceSnapshot` caches the unit total at
-// the time the item was added so FE can show a fast "price changed?" hint.
-
+// Sau refactor: config chỉ còn variantId (Tree) + deliveryOption. Không còn
+// accessories array, không còn styleId. Phụ kiện/style giờ nằm gọn trong
+// TreeProduct.description.
 export interface ICartItem extends Document {
   cartId: Types.ObjectId;
   designId: Types.ObjectId | null;
-  config: DesignConfig;
+  config: {
+    variantId: Types.ObjectId;
+    deliveryOption: "READY_TO_DISPLAY" | "DIY_KIT" | "SEPARATE";
+  };
   quantity: number;
   priceSnapshot: number;
   checked: boolean;
@@ -21,23 +21,11 @@ const CartItemSchema = new Schema<ICartItem>(
     cartId: { type: Schema.Types.ObjectId, ref: "Cart", required: true, index: true },
     designId: {
       type: Schema.Types.ObjectId,
-      ref: "TreeDesign",
+      ref: "Design",
       default: null,
     },
     config: {
       variantId: { type: Schema.Types.ObjectId, ref: "Tree", required: true },
-      accessories: [
-        {
-          _id: false,
-          accessoryId: {
-            type: Schema.Types.ObjectId,
-            ref: "Accessory",
-            required: true,
-          },
-          quantity: { type: Number, required: true, min: 1 },
-          personalizationText: { type: String, default: "" },
-        },
-      ],
       deliveryOption: {
         type: String,
         enum: ["READY_TO_DISPLAY", "DIY_KIT", "SEPARATE"],
@@ -51,8 +39,5 @@ const CartItemSchema = new Schema<ICartItem>(
   },
   { timestamps: true }
 );
-
-// No unique index — FE may legitimately add the same design multiple times
-// with different configurations / personalizations.
 
 export const CartItem = mongoose.model<ICartItem>("CartItem", CartItemSchema);

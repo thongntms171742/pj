@@ -33,27 +33,18 @@ export const ErrorCode = {
   INVALID_CREDENTIALS: "INVALID_CREDENTIALS",
   ITEMS_REQUIRED: "ITEMS_REQUIRED",
 
-  // ── Christmas catalog (Tree / Style / Accessory) ────────────────────────
+  // ── Christmas catalog (Tree only) ──────────────────────────────────────
   TREE_NOT_FOUND: "TREE_NOT_FOUND",
-  STYLE_NOT_FOUND: "STYLE_NOT_FOUND",
-  ACCESSORY_NOT_FOUND: "ACCESSORY_NOT_FOUND",
   BANNER_NOT_FOUND: "BANNER_NOT_FOUND",
   CATALOG_ITEM_UNAVAILABLE: "CATALOG_ITEM_UNAVAILABLE",
-  ACCESSORY_STYLE_MISMATCH: "ACCESSORY_STYLE_MISMATCH",
-  ACCESSORY_QUANTITY_INVALID: "ACCESSORY_QUANTITY_INVALID",
-  ACCESSORY_DUPLICATED: "ACCESSORY_DUPLICATED",
   OUT_OF_STOCK: "OUT_OF_STOCK",
 
-  // ── Design (TreeDesign) ─────────────────────────────────────────────────
+  // ── Design ─────────────────────────────────────────────────────────────
   DESIGN_NOT_FOUND: "DESIGN_NOT_FOUND",
   DESIGN_CONFIG_INVALID: "DESIGN_CONFIG_INVALID",
   DESIGN_NOT_CONFIRMED: "DESIGN_NOT_CONFIRMED",
   DESIGN_NAME_REQUIRED: "DESIGN_NAME_REQUIRED",
   DESIGN_SLUG_TAKEN: "DESIGN_SLUG_TAKEN",
-
-  // ── Personalization ─────────────────────────────────────────────────────
-  PERSONALIZATION_REQUIRED: "PERSONALIZATION_REQUIRED",
-  PERSONALIZATION_INVALID: "PERSONALIZATION_INVALID",
 
   // ── Delivery ────────────────────────────────────────────────────────────
   DELIVERY_OPTION_INVALID: "DELIVERY_OPTION_INVALID",
@@ -138,13 +129,8 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
 
   // Christmas catalog
   TREE_NOT_FOUND: 404,
-  STYLE_NOT_FOUND: 404,
-  ACCESSORY_NOT_FOUND: 404,
   BANNER_NOT_FOUND: 404,
   CATALOG_ITEM_UNAVAILABLE: 409,
-  ACCESSORY_STYLE_MISMATCH: 400,
-  ACCESSORY_QUANTITY_INVALID: 400,
-  ACCESSORY_DUPLICATED: 400,
   OUT_OF_STOCK: 409,
 
   // Design
@@ -153,10 +139,6 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   DESIGN_NOT_CONFIRMED: 400,
   DESIGN_NAME_REQUIRED: 400,
   DESIGN_SLUG_TAKEN: 409,
-
-  // Personalization
-  PERSONALIZATION_REQUIRED: 400,
-  PERSONALIZATION_INVALID: 400,
 
   // Delivery
   DELIVERY_OPTION_INVALID: 400,

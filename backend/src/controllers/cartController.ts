@@ -2,24 +2,16 @@ import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
+import { Design } from "../models/Design";
 import {
   safelyBuildPricedDesign,
   buildPricedDesign,
-  loadConfigByDesignId,
-  areConfigsEqual,
 } from "../services/catalogService";
-import { TreeDesign } from "../models/TreeDesign";
-import type { DesignConfig } from "../models/TreeDesign";
-import type { PriceBreakdown } from "../services/pricingService";
-import {
-  sendError,
-  ErrorCode,
-  handleInternalError,
-} from "../utils/errors";
+import { resolveDesign, buildDesignResponse } from "../services/designService";
+import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { ok, created, noContent } from "../utils/respond";
 import { cartItemToDto, cartToDto } from "../dto/cart";
 
-// Helper to determine whether request is authenticated or guest
 export function extractCartIdentifier(req: Request): {
   userId?: string;
   sessionId?: string;
@@ -57,45 +49,21 @@ async function getOrCreateCart(req: Request) {
 export const getCart = async (req: Request, res: Response): Promise<void> => {
   try {
     const cart = await getOrCreateCart(req);
-    const rawItems = await CartItem.find({ cartId: cart._id }).sort({
-      createdAt: 1,
+    const items = await CartItem.find({ cartId: cart._id }).sort({
+      createdAt: -1,
     });
-
-    // Tự động gộp các CartItem trùng lặp có sẵn trong giỏ
-    const mergedList: typeof rawItems = [];
-    for (const cur of rawItems) {
-      const match = mergedList.find((m) => {
-        const sameDesignId =
-          (cur.designId && m.designId && String(cur.designId) === String(m.designId)) ||
-          (!cur.designId && !m.designId);
-        return sameDesignId && areConfigsEqual(m.config, cur.config);
-      });
-
-      if (match) {
-        match.quantity += cur.quantity;
-        if (cur.checked) match.checked = true;
-        await CartItem.findByIdAndUpdate(match._id, {
-          quantity: match.quantity,
-          checked: match.checked,
-        });
-        await CartItem.findByIdAndDelete(cur._id);
-      } else {
-        mergedList.push(cur);
-      }
-    }
-
-    // Đảo lại thứ tự từ mới nhất đến cũ nhất
-    const items = mergedList.reverse();
 
     const responseItems: any[] = [];
     for (const item of items) {
       try {
-        const { pricing } = await buildPricedDesign(
-          item.config as DesignConfig
-        );
+        const config = item.config as any;
+        const { pricing } = await buildPricedDesign({
+          variantId: String(config.variantId),
+          deliveryOption: config.deliveryOption,
+        });
         let designDoc = null;
         if (item.designId) {
-          designDoc = await TreeDesign.findById(item.designId).lean();
+          designDoc = await Design.findById(item.designId).lean();
         }
         responseItems.push(cartItemToDto(item, pricing, designDoc));
       } catch {
@@ -113,43 +81,35 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
 };
 
 // ── POST /api/cart/items ──────────────────────────────────────────────────────
+// Body: { variantId, deliveryOption, designId?, quantity? }
 export const addCartItem = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { config, designId, quantity } = req.body as {
-      config?: DesignConfig;
+    const { variantId, deliveryOption, designId, quantity } = req.body as {
+      variantId?: string;
+      deliveryOption?: string;
       designId?: string;
       quantity?: number;
     };
 
-    if (!config && !designId) {
+    if (!variantId || !deliveryOption) {
       sendError(
         res,
         ErrorCode.MISSING_FIELD,
-        "Cần cung cấp `config` hoặc `designId`"
+        "Cần cung cấp `variantId` và `deliveryOption`"
       );
       return;
     }
 
-    let resolvedConfig: DesignConfig | null = config ?? null;
-    if (!resolvedConfig && designId) {
-      resolvedConfig = await loadConfigByDesignId(designId);
-      if (!resolvedConfig) {
-        sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
-        return;
-      }
-    }
-    if (!resolvedConfig) {
-      sendError(res, ErrorCode.DESIGN_CONFIG_INVALID, "Không thể phân giải config");
-      return;
-    }
-
-    const built = await safelyBuildPricedDesign(res, resolvedConfig);
+    const built = await safelyBuildPricedDesign(res, {
+      variantId: String(variantId),
+      deliveryOption: deliveryOption as any,
+    });
     if (!built) return;
     const pricing = built.pricing;
 
     let persistedDesignId: Types.ObjectId | null = null;
     if (designId && Types.ObjectId.isValid(designId)) {
-      const source = await TreeDesign.findById(designId).lean();
+      const source = await Design.findById(designId).lean();
       const isOwner =
         req.user?.id && source?.ownerId && String(source.ownerId) === req.user.id;
       if (source && (source.isPublic || isOwner)) {
@@ -160,13 +120,14 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
     const cart = await getOrCreateCart(req);
     const qty = Math.max(1, parseInt(String(quantity ?? 1), 10) || 1);
 
-    // Kiểm tra xem sản phẩm cùng config/designId đã có trong giỏ chưa
+    // Tìm cart item cùng variant + delivery
     const existingItems = await CartItem.find({ cartId: cart._id });
     const match = existingItems.find((existing) => {
-      const sameDesignId =
-        (persistedDesignId && existing.designId && String(persistedDesignId) === String(existing.designId)) ||
-        (!persistedDesignId && !existing.designId);
-      return sameDesignId && areConfigsEqual(existing.config, resolvedConfig);
+      const cfg = existing.config as any;
+      return (
+        String(cfg.variantId) === String(variantId) &&
+        cfg.deliveryOption === deliveryOption
+      );
     });
 
     let item;
@@ -179,7 +140,10 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
       item = await CartItem.create({
         cartId: cart._id,
         designId: persistedDesignId,
-        config: resolvedConfig,
+        config: {
+          variantId: new Types.ObjectId(String(variantId)),
+          deliveryOption: deliveryOption as any,
+        },
         quantity: qty,
         priceSnapshot: pricing.unitTotal,
         checked: false,
@@ -209,10 +173,11 @@ export const updateCartItem = async (
       return;
     }
 
-    const { quantity, checked, config } = req.body as {
+    const { quantity, checked, variantId, deliveryOption } = req.body as {
       quantity?: number;
       checked?: boolean;
-      config?: DesignConfig;
+      variantId?: string;
+      deliveryOption?: string;
     };
 
     if (quantity !== undefined) {
@@ -224,12 +189,18 @@ export const updateCartItem = async (
       item.quantity = n;
     }
 
-    let pricing: PriceBreakdown | null = null;
-    if (config) {
-      const built = await safelyBuildPricedDesign(res, config);
+    let pricing: any = null;
+    if (variantId && deliveryOption) {
+      const built = await safelyBuildPricedDesign(res, {
+        variantId: String(variantId),
+        deliveryOption: deliveryOption as any,
+      });
       if (!built) return;
       pricing = built.pricing;
-      item.config = config;
+      item.config = {
+        variantId: new Types.ObjectId(String(variantId)),
+        deliveryOption: deliveryOption as any,
+      } as any;
       item.priceSnapshot = pricing.unitTotal;
     }
 
@@ -275,7 +246,6 @@ export const clearCart = async (req: Request, res: Response): Promise<void> => {
 };
 
 // ── POST /api/cart/merge (Logged-in Buyer) ────────────────────────────────────
-// Merge guest session cart into authenticated user cart
 export const mergeCart = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
@@ -293,11 +263,11 @@ export const mergeCart = async (req: Request, res: Response): Promise<void> => {
       if (guestCart && String(guestCart._id) !== String(userCart._id)) {
         const guestItems = await CartItem.find({ cartId: guestCart._id });
         for (const gItem of guestItems) {
-          // Check matching variant and deliveryOption
+          const cfg = gItem.config as any;
           const existing = await CartItem.findOne({
             cartId: userCart._id,
-            "config.variantId": gItem.config.variantId,
-            "config.deliveryOption": gItem.config.deliveryOption,
+            "config.variantId": cfg.variantId,
+            "config.deliveryOption": cfg.deliveryOption,
           });
           if (existing) {
             existing.quantity += gItem.quantity;
@@ -315,10 +285,14 @@ export const mergeCart = async (req: Request, res: Response): Promise<void> => {
     const responseItems: any[] = [];
     for (const item of items) {
       try {
-        const { pricing } = await buildPricedDesign(item.config as DesignConfig);
+        const config = item.config as any;
+        const { pricing } = await buildPricedDesign({
+          variantId: String(config.variantId),
+          deliveryOption: config.deliveryOption,
+        });
         let designDoc = null;
         if (item.designId) {
-          designDoc = await TreeDesign.findById(item.designId).lean();
+          designDoc = await Design.findById(item.designId).lean();
         }
         responseItems.push(cartItemToDto(item, pricing, designDoc));
       } catch {

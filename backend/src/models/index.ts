@@ -1,6 +1,10 @@
 // Mongoose model registration for Build Your Christmas.
 // Importing this module once ensures every model is registered before
 // controllers/services try to populate it.
+//
+// NOTE: Accessory / Style / Category / AIDesign đã bị purge trong refactor
+// phụ kiện. Style/Accessory info giờ nằm gọn trong TreeProduct.description.
+// AI render dùng TreeProduct.coverImage + description làm reference.
 export * from "./User";
 export { Tree } from "./Tree";
 export type { ITree, TreeSize } from "./Tree";
@@ -9,17 +13,12 @@ export type { ITreeProduct } from "./TreeProduct";
 export { TreeCode } from "./TreeCode";
 export type { ITreeCode } from "./TreeCode";
 export * from "./Message";
-export * from "./Style";
-export * from "./Accessory";
-export * from "./TreeDesign";
+export * from "./Design";
 export * from "./Cart";
 export * from "./CartItem";
 export * from "./Order";
-export * from "./Category";
 export * from "./Notification";
 export * from "./Coupon";
 export * from "./Banner";
-export * from "./AIDesign";
 export * from "./Conversation";
-export * from "./Message";
 export * from "./Review";

@@ -3,23 +3,16 @@ dotenv.config();
 
 import mongoose, { Types } from "mongoose";
 import { Tree } from "../models/Tree";
-import { Accessory } from "../models/Accessory";
-import { AIDesign } from "../models/AIDesign";
-import { TreeDesign } from "../models/TreeDesign";
-import {
-  recommendCatalogSelection,
-  createDraftAIDesign,
-  hydrateAIDesign,
-} from "../services/ai/aiDesignerService";
-import {
-  generateAIDesignImage,
-} from "../services/ai/googleImageService";
+import { TreeProduct } from "../models/TreeProduct";
+import { Design } from "../models/Design";
+import { generateDesignImage } from "../services/ai/googleImageService";
 import { isCloudinaryEnabled } from "../services/cloudinaryService";
 import { buildOrderItems } from "../services/orderService";
+import { composePrompt } from "../services/ai/googleImageService";
 
 async function runProbe() {
   console.log("=================================================");
-  console.log("🎄 BUILD YOUR CHRISTMAS — AI DESIGNER PROBE & ACCEPTANCE");
+  console.log("🎄 BUILD YOUR CHRISTMAS — DESIGN PROBE & ACCEPTANCE");
   console.log("=================================================\n");
 
   const mongoUri = process.env.MONGODB_URI;
@@ -41,47 +34,62 @@ async function runProbe() {
       `  • KIE_API_KEY: Đã cấu hình (${kieKey.substring(0, 6)}...${kieKey.slice(-4)})`
     );
   } else {
-    console.log("  • KIE_API_KEY: ⚠️ CHƯA CÓ (Cần điền vào .env hoặc Render để gọi tạo ảnh thật qua KIE Nano Banana 2)");
+    console.log("  • KIE_API_KEY: ⚠️ CHƯA CÓ");
   }
   console.log(`  • Model: nano-banana-2`);
   console.log(`  • Cloudinary: ${cloudinaryOk ? "✅ Đã cấu hình" : "⚠️ Chưa có credentials"}`);
 
-  // ── 2. Kiểm tra chọn sản phẩm thật từ Catalog ──
-  console.log("\n[2] KIỂM TRA RECOMMEND SẢN PHẨM TỪ CATALOG THẬT:");
-  const selection = await recommendCatalogSelection({
-    prompt: "Cây thông Noel ấm cúng cho phòng khách gia đình",
-    preferences: { spaceSize: "M", theme: "Classic" },
-  });
+  // ── 2. Kiểm tra TreeProduct + variant thật ──
+  console.log("\n[2] KIỂM TRA CATALOG:");
+  const product = await TreeProduct.findOne({ isActive: true });
+  if (!product) {
+    console.error("  ❌ Không có TreeProduct nào active. Chạy `npm run seed` trước.");
+    process.exit(1);
+  }
+  console.log(`  • Concept: ${product.name} (slug=${product.slug})`);
+  console.log(`  • Description length: ${product.description.length} chars`);
 
-  console.log(`  • Cây được chọn: ${selection.variant.name} (Size ${selection.variant.size}) — ${selection.variant.price.toLocaleString()}đ (Tồn kho: ${selection.variant.stockQuantity})`);
-  console.log(`  • Concept Style: ${selection.style ? selection.style.name : "Không có"}`);
-  console.log(`  • Phụ kiện được chọn: ${selection.accessories.length} loại:`);
-  selection.accessories.forEach((a) => {
-    console.log(`    - ${a.quantity}x ${a.accessory.name} (${a.accessory.price.toLocaleString()}đ/món)`);
-  });
-  console.log(`  • Tổng giá bán tạm tính: ${selection.pricing.totalSalePrice.toLocaleString()}đ`);
-  console.log(`  • Trạng thái giá vốn: ${selection.pricing.totalCostPrice !== null ? `${selection.pricing.totalCostPrice.toLocaleString()}đ (Lợi nhuận: ${selection.pricing.expectedGrossProfit?.toLocaleString()}đ)` : "Chưa nhập đủ giá vốn (giá trị = null, bảo vệ an toàn)"}`);
+  const variant = await Tree.findOne({ productId: product._id, isActive: true }).sort({ sortOrder: 1, size: 1 });
+  if (!variant) {
+    console.error("  ❌ Không có variant nào.");
+    process.exit(1);
+  }
+  console.log(`  • Variant: ${variant.name} (Size ${variant.size}) — ${variant.price.toLocaleString()}đ`);
 
-  // ── 3. Tạo Draft AIDesign ──
-  console.log("\n[3] TẠO VÀ LƯU DRAFT AIDesign:");
+  // ── 3. Test composePrompt ──
+  console.log("\n[3] KIỂM TRA composePrompt():");
+  const { promptText, imageInput } = composePrompt({
+    treeProduct: product as any,
+    customerPrompt: "Cây thông Noel ấm cúng cho phòng khách gia đình",
+  });
+  console.log(`  • Prompt length: ${promptText.length} chars`);
+  console.log(`  • Image input: ${imageInput.length} URL(s)`);
+  console.log(`  • First 200 chars: ${promptText.slice(0, 200)}...`);
+
+  // ── 4. Tạo draft Design ──
+  console.log("\n[4] TẠO VÀ LƯU DRAFT Design:");
   const testUserId = new Types.ObjectId();
-  const draft = await createDraftAIDesign({
+  const draft = await Design.create({
     ownerId: testUserId,
+    name: "AI Verified Tree",
+    slug: `ai-test-${Date.now()}`,
+    year: new Date().getFullYear(),
+    baseTreeProductId: product._id,
     prompt: "Cây thông Noel ấm cúng gia đình",
-    preferences: { spaceSize: "M" },
-    selection,
+    deliveryOption: "DIY_KIT",
+    status: "DRAFT",
   });
   console.log(`  • Draft ID: ${draft._id} (Trạng thái: ${draft.status})`);
 
-  // ── 4. Thử nghiệm gọi KIE tạo ảnh thật (nếu có key) ──
-  console.log("\n[4] KIỂM TRA TẠO ẢNH QUA KIE NANO BANANA 2 & UPLOAD CLOUDINARY:");
+  // ── 5. Thử gọi KIE tạo ảnh thật ──
+  console.log("\n[5] KIỂM TRA TẠO ẢNH QUA KIE NANO BANANA 2 & UPLOAD CLOUDINARY:");
   if (kieKey && cloudinaryOk) {
     try {
       console.log("  ⏳ Đang gọi KIE createTask sinh ảnh và upload Cloudinary...");
-      const genResult = await generateAIDesignImage(
+      const genResult = await generateDesignImage(
         String(draft._id),
         String(testUserId),
-        false
+        true
       );
       console.log("  ✅ Tạo ảnh và lưu thành công!");
       console.log("  • Image URL:", genResult.imageUrl);
@@ -91,38 +99,22 @@ async function runProbe() {
     }
   } else {
     console.log("  ⏭️ Bỏ qua bước gọi API thật vì thiếu KIE_API_KEY hoặc Cloudinary.");
-    console.log("     (Khi thêm KIE_API_KEY vào .env/Render, chạy lại lệnh này sẽ tự động kiểm tra end-to-end)");
   }
 
-  // ── 6. Kiểm tra lưu sang TreeDesign & Tích hợp Mua hàng ──
-  console.log("\n[6] KIỂM TRA LƯU THÀNH TreeDesign VÀ CHECKOUT:");
-  const slug = `ai-test-${Date.now()}`;
-  const treeDesign = await TreeDesign.create({
-    ownerId: testUserId,
-    name: "AI Verified Tree",
-    slug,
-    year: new Date().getFullYear(),
-    config: {
-      variantId: draft.variantId,
-      styleId: draft.styleId,
-      accessories: draft.accessories,
-      deliveryOption: draft.deliveryOption,
-    },
-    previewImage: draft.imageUrl || "/images/placeholder.jpg",
-  });
-  console.log(`  • Đã lưu sang TreeDesign: ID ${treeDesign._id} (Slug: ${treeDesign.slug})`);
-
-  // Thử nghiệm luồng buildOrderItems() để xác nhận giá được tính lại từ DB
+  // ── 6. Kiểm tra buildOrderItems ──
+  console.log("\n[6] KIỂM TRA buildOrderItems():");
   const orderResult = await buildOrderItems([
-    { designId: String(treeDesign._id), quantity: 1 },
+    {
+      pricingInput: { variantId: String(variant._id), deliveryOption: "DIY_KIT" },
+      quantity: 1,
+    },
   ]);
-  console.log(`  • Báo giá đơn hàng được tính lại từ DB: ${orderResult.subtotal.toLocaleString()}đ`);
-  console.log(`  • Danh sách giữ kho (stock reservation): ${orderResult.stockToReserve.length} mục (1 cây + ${orderResult.stockToReserve.length - 1} phụ kiện)`);
+  console.log(`  • Báo giá đơn hàng: ${orderResult.subtotal.toLocaleString()}đ`);
+  console.log(`  • Stock reservation: ${orderResult.stockToReserve.length} mục`);
 
-  // Dọn dẹp dữ liệu test probe
-  await AIDesign.findByIdAndDelete(draft._id);
-  await TreeDesign.findByIdAndDelete(treeDesign._id);
-  console.log("  • Đã dọn dẹp các tài liệu tạm thử nghiệm.");
+  // Cleanup
+  await Design.findByIdAndDelete(draft._id);
+  console.log("  • Đã dọn dẹp design tạm.");
 
   console.log("\n=================================================");
   console.log("🎉 NGHIỆM THU LOGIC BACKEND HOÀN TẤT THÀNH CÔNG!");

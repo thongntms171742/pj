@@ -1,29 +1,68 @@
-# KIE API – Nano Banana 2 integration (Rừng Thông Phố)
+# KIE API – Nano Banana 2 integration (Build Your Christmas)
+
+> Updated sau refactor: gộp `TreeDesign` + `AIDesign` thành `Design` duy nhất; dùng `TreeProduct.coverImage` + `TreeProduct.description` + customer `prompt` để compose AI prompt.
 
 ## What changed
-- Replaced the Gemini image provider in `backend/src/services/ai/googleImageService.ts` with KIE's async task API.
-- Uses `POST https://api.kie.ai/api/v1/jobs/createTask` with model `nano-banana-2`, then polls `GET /api/v1/jobs/recordInfo?taskId=...`.
-- Downloads the generated image and uploads it to Cloudinary, so `imageUrl` and `imagePublicId` keep their existing meaning.
-- Keeps the existing endpoint `POST /api/ai-designer/:id/generate-image` and response fields `designId`, `status`, `imageUrl`, `imagePublicId`.
-- Keeps authorization, catalog prompt composition, `AIDesign` status tracking, and error handling. Removes `@google/genai` dependency.
+
+### Service layer — `backend/src/services/ai/googleImageService.ts`
+- Thay thế provider Gemini cũ bằng KIE async task API.
+- Flow:
+  1. `composePrompt({ treeProduct, customerPrompt })` → trộn `description` (form/decor/material) của `TreeProduct` với `prompt` của khách, ép style "studio product photography, realistic".
+  2. Lấy `TreeProduct.coverImage` làm reference image (URL gốc trên Cloudinary).
+  3. Gọi `POST https://api.kie.ai/api/v1/jobs/createTask` với `model: "nano-banana-2"`, `input.image_input = [coverImage]`, `input.prompt = composedPrompt`, `input.aspect_ratio = "1:1"`.
+  4. Poll `GET /api/v1/jobs/recordInfo?taskId=...` cho tới khi state ∈ {`success`, `fail`}.
+  5. Download buffer ảnh từ URL trả về → upload Cloudinary → lưu `imageUrl` + `imagePublicId` lên `Design`.
+- Status machine của `Design`: `DRAFT → AI_PENDING → AI_COMPLETED | FAILED → CONFIRMED`.
+- Helper `composePrompt` được export để dùng cho chatbot và test.
+
+### Controller layer — `backend/src/controllers/designController.ts`
+- Thay thế `aiDesignerController` (đã bị purge).
+- Endpoint mới:
+  - `POST /api/designs/:id/generate-image` — tạo task KIE, set `status = AI_PENDING`, lưu `lastError = null`, trả về `{ designId, status, imageUrl, imagePublicId, taskId }`.
+  - `POST /api/designs/:id/confirm` — sau khi `AI_COMPLETED`, đánh dấu `CONFIRMED` và snapshot pricing & delivery option.
+- Authorization: owner hoặc admin (`isAdmin`); `Design.ownerId` là ObjectId hoặc `null` (guest draft).
+- Validation: `baseTreeProductId` phải tồn tại và active; `prompt` ≤ 1000 chars.
+
+### Models
+- `Design` (mới, thay thế `TreeDesign` + `AIDesign`): schema tối giản gồm `name, slug, year, baseTreeProductId, prompt, imageUrl, imagePublicId, status, lastError, pricingSnapshot, deliveryOption, isPublic, duplicatedFrom, ownerId, previewImage`.
+- Bỏ hoàn toàn: `styleId`, `accessories[]`, `isPreset`, `isPersonalizable`, `maxQtyBySize`, `personalization*`.
+- `TreeProduct` (giữ nguyên) chứa `description` (form/decor/material) và `coverImage` (URL Cloudinary).
 
 ## Configure Render
-1. Create a KIE API key at https://kie.ai/api-key.
-2. In Render, open the backend Web Service → Environment.
-3. Add `KIE_API_KEY` with the secret key value. Do not put this key in the frontend, Git, or chat.
-4. Save changes and deploy/restart the service.
-5. `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and `GEMINI_IMAGE_MODEL` are no longer used by this image generation service; remove them from Render only after confirming no other backend feature uses them.
-6. Ensure Cloudinary environment variables remain configured; generated images are persisted to Cloudinary rather than relying on temporary KIE URLs.
+1. Tạo KIE API key tại https://kie.ai/api-key.
+2. Mở Render → Web Service → Environment.
+3. Thêm biến `KIE_API_KEY` với giá trị secret key. **Không** đưa key này vào frontend, Git, hay chat.
+4. Save & deploy/restart service.
+5. `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_IMAGE_MODEL` không còn dùng cho image generation nữa; có thể gỡ nếu xác nhận không còn feature nào khác dùng tới.
+6. Đảm bảo Cloudinary env vars (`CLOUDINARY_*`) còn cấu hình — ảnh sinh ra được upload Cloudinary chứ không phụ thuộc URL tạm của KIE.
+
+## Cấu trúc data flow mới
+
+```
+Customer
+  ↓ chọn TreeProduct (Yêu Thương, …) + viết prompt
+POST /api/designs                      → tạo Design (DRAFT, ownerId = user._id)
+POST /api/designs/:id/generate-image   → service composePrompt + gọi KIE
+                                          ↓
+                                       poll recordInfo → success
+                                          ↓
+                                       download → upload Cloudinary
+                                          ↓
+                                       set Design.imageUrl, status = AI_COMPLETED
+POST /api/designs/:id/confirm          → status = CONFIRMED
+                                          ↓
+POST /api/cart/items                   → thêm Design vào Cart với deliveryOption
+```
 
 ## Test
 - `cd backend`
 - `npm install`
 - `npm run build`
-- `npm run test:ai`
-- `npm run test:all` (the address tests need external CAS Address Kit access; they may fail in network-restricted environments)
+- `npm run test:all` (test:all bao gồm `design.test.ts` xác nhận `composePrompt` đúng format và enum status hoạt động)
 
 ## Notes
-- KIE charges its own credits. Check current pricing and task history at https://kie.ai/pricing and https://kie.ai/logs.
-- KIE output URLs are temporary (KIE documentation says generated files are retained for 14 days); this implementation downloads the result and uploads it to Cloudinary.
-- The task polling timeout is 8 minutes. If it times out, the design record remains and its status/error is saved; the user can retry image generation.
-- Model ID is `nano-banana-2`, output defaults here to PNG, 1K, portrait 3:4.
+- KIE tính credit riêng. Xem giá tại https://kie.ai/pricing và log tại https://kie.ai/logs.
+- URL output của KIE chỉ tồn tại tạm (KIE docs ghi ~14 ngày); implementation này download và upload Cloudinary.
+- Polling timeout 8 phút. Nếu timeout, `Design` vẫn còn trong DB với `status` và `lastError` được lưu — user có thể retry.
+- Model ID: `nano-banana-2`, output mặc định PNG, 1K, square 1:1.
+- `composePrompt` luôn kết thúc bằng câu anchor: *"Studio product photography, realistic textures, soft natural light, festive Christmas mood, no human, no watermark."* để KIE trả ra ảnh đúng style product.

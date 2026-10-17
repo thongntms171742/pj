@@ -2,48 +2,40 @@ import { Types } from "mongoose";
 import { Tree } from "../models/Tree";
 import { TreeProduct } from "../models/TreeProduct";
 import { TreeCode } from "../models/TreeCode";
-import { Style } from "../models/Style";
-import { Accessory } from "../models/Accessory";
-import { TreeDesign } from "../models/TreeDesign";
 import {
   priceDesign,
   type CatalogSnapshot,
   type TreeLean,
-  type StyleLean,
-  type AccessoryLean,
+  type PriceBreakdown,
+  type PricingInput,
   DesignValidationError,
 } from "./pricingService";
-import type { DesignConfig } from "../models/TreeDesign";
 import { sendError, ErrorCode } from "../utils/errors";
 import type { Response } from "express";
 
-// ── Resolve a DesignConfig to a fully-hydrated catalog snapshot + price ──────
-// Throws an Error that callers can route through sendError / handleInternalError.
-// Used by quote endpoint, cart-add endpoint, design-save endpoint, and
-// order-creation. Keep DB queries batched to 3 (tree, style, accessories).
-export async function buildPricedDesign(config: DesignConfig): Promise<{
+// ── Resolve pricing input → catalog snapshot + price ─────────────────────────
+// Sau refactor: chỉ cần variantId (Tree) + deliveryOption. Không còn
+// styleId / accessories array.
+export async function buildPricedDesign(input: PricingInput): Promise<{
   catalog: CatalogSnapshot;
-  pricing: ReturnType<typeof priceDesign>;
+  pricing: PriceBreakdown;
 }> {
-  const catalog = await loadCatalogForConfig(config);
-  const pricing = priceDesign(config, catalog);
+  const catalog = await loadCatalogForPricingInput(input);
+  const pricing = priceDesign(input, catalog);
   return { catalog, pricing };
 }
 
-export async function loadCatalogForConfig(
-  config: DesignConfig
+export async function loadCatalogForPricingInput(
+  input: PricingInput
 ): Promise<CatalogSnapshot> {
-  const accessoryIds = Array.from(
-    new Set(
-      (config.accessories || [])
-        .map((a) => String(a.accessoryId))
-        .filter(Boolean)
-    )
-  );
-
-  // After 3-tier refactor: DesignConfig.variantId points to a Tree variant
-  // (code × size SKU). catalog.tree carries the variant-shaped lean record.
-  const tree = await Tree.findById(config.variantId).lean();
+  if (!input.variantId || !Types.ObjectId.isValid(String(input.variantId))) {
+    throw makeServiceError(
+      ErrorCode.TREE_NOT_FOUND,
+      "variantId không hợp lệ hoặc bị thiếu",
+      400
+    );
+  }
+  const tree = await Tree.findById(input.variantId).lean();
   if (!tree) {
     throw makeServiceError(
       ErrorCode.TREE_NOT_FOUND,
@@ -51,34 +43,6 @@ export async function loadCatalogForConfig(
       404
     );
   }
-  let style: any = null;
-  if (config.styleId) {
-    style = await Style.findById(config.styleId).lean();
-    if (!style) {
-      throw makeServiceError(ErrorCode.STYLE_NOT_FOUND, "Không tìm thấy style", 404);
-    }
-  }
-  const accDocs = accessoryIds.length
-    ? await Accessory.find({ _id: { $in: accessoryIds } }).lean()
-    : [];
-
-  const accessoryMap = new Map<string, AccessoryLean>();
-  for (const a of accDocs) {
-    accessoryMap.set(String(a._id), {
-      _id: String(a._id),
-      name: a.name,
-      type: a.type,
-      group: a.group,
-      price: a.price,
-      isActive: a.isActive,
-      styleCodes: a.styleCodes,
-      maxQtyBySize: a.maxQtyBySize,
-      isPersonalizable: a.isPersonalizable,
-      personalizationMaxLength: a.personalizationMaxLength,
-      productionDays: a.productionDays,
-    });
-  }
-
   return {
     tree: {
       _id: String(tree._id),
@@ -90,26 +54,7 @@ export async function loadCatalogForConfig(
       stockQuantity: tree.stockQuantity,
       isActive: tree.isActive,
     },
-    style: style
-      ? {
-          _id: String(style._id),
-          code: style.code,
-          name: style.name,
-          isActive: style.isActive,
-        }
-      : null,
-    accessories: accessoryMap,
   };
-}
-
-// ── Helper: convert designId → its embedded DesignConfig ────────────────────
-export async function loadConfigByDesignId(
-  designId: string | Types.ObjectId | null | undefined
-): Promise<DesignConfig | null> {
-  if (!designId) return null;
-  const design = await TreeDesign.findById(designId).lean();
-  if (!design) return null;
-  return design.config;
 }
 
 // ── Service error wrapper ────────────────────────────────────────────────────
@@ -117,8 +62,7 @@ export interface CatalogServiceError extends Error {
   code: ErrorCodeValue;
   httpCode: number;
 }
-type ErrorCodeValue =
-  (typeof ErrorCode)[keyof typeof ErrorCode];
+type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 
 function makeServiceError(
   code: ErrorCodeValue,
@@ -135,10 +79,10 @@ function makeServiceError(
 // get a result or a surfaced sendError()-style response object.
 export async function safelyBuildPricedDesign(
   res: Response,
-  config: DesignConfig
-): Promise<{ catalog: CatalogSnapshot; pricing: ReturnType<typeof priceDesign> } | null> {
+  input: PricingInput
+): Promise<{ catalog: CatalogSnapshot; pricing: PriceBreakdown } | null> {
   try {
-    return await buildPricedDesign(config);
+    return await buildPricedDesign(input);
   } catch (err) {
     if (err instanceof DesignValidationError) {
       sendError(res, err.code, err.message, err.httpCode);
@@ -156,9 +100,6 @@ export async function safelyBuildPricedDesign(
 }
 
 // ── Shopee-style 3-tier grouped catalog (Product → Code → Variant) ──────────
-// Returns products each with N codes, each code with M size variants.
-// Used by admin product form (render 3-level table) and FE customer browse
-// (show 1 product card → expand to codes → pick size).
 export interface TreeVariantSummary {
   _id: string;
   size: string;
@@ -227,7 +168,6 @@ export async function loadGroupedTreeCatalog(opts?: {
         .lean()
     : [];
 
-  // Group variants by codeId
   const variantsByCode = new Map<string, Array<typeof variants[number]>>();
   for (const v of variants) {
     const key = String(v.codeId);
@@ -236,7 +176,6 @@ export async function loadGroupedTreeCatalog(opts?: {
     variantsByCode.set(key, arr);
   }
 
-  // Group codes by productId
   const codesByProduct = new Map<string, Array<typeof codes[number]>>();
   for (const c of codes) {
     const key = String(c.productId);
@@ -285,64 +224,3 @@ export async function loadGroupedTreeCatalog(opts?: {
     })),
   }));
 }
-
-/**
- * So sánh 2 DesignConfig xem có cùng cấu hình hay không:
- * - Cùng variantId (cây & kích cỡ)
- * - Cùng styleId (phong cách)
- * - Cùng deliveryOption (hình thức giao)
- * - Cùng danh sách phụ kiện (cùng accessoryId, quantity, personalizationText)
- */
-export function areConfigsEqual(
-  a?: DesignConfig | null,
-  b?: DesignConfig | null
-): boolean {
-  if (!a && !b) return true;
-  if (!a || !b) return false;
-
-  // 1. So sánh variantId
-  const varA = String(a.variantId || "");
-  const varB = String(b.variantId || "");
-  if (varA !== varB) return false;
-
-  // 2. So sánh styleId
-  const styleA = String(a.styleId || "");
-  const styleB = String(b.styleId || "");
-  if (styleA !== styleB) return false;
-
-  // 3. So sánh deliveryOption
-  const delivA = String(a.deliveryOption || "READY_TO_DISPLAY");
-  const delivB = String(b.deliveryOption || "READY_TO_DISPLAY");
-  if (delivA !== delivB) return false;
-
-  // 4. So sánh phụ kiện (accessories)
-  const accsA: any[] = Array.isArray(a.accessories) ? a.accessories : [];
-  const accsB: any[] = Array.isArray(b.accessories) ? b.accessories : [];
-  if (accsA.length !== accsB.length) return false;
-
-  const sortAccs = (list: any[]) =>
-    [...list].sort((x, y) =>
-      String(x.accessoryId || "").localeCompare(String(y.accessoryId || ""))
-    );
-
-  const sortedA = sortAccs(accsA);
-  const sortedB = sortAccs(accsB);
-
-  for (let i = 0; i < sortedA.length; i++) {
-    const itemA = sortedA[i];
-    const itemB = sortedB[i];
-    if (String(itemA.accessoryId || "") !== String(itemB.accessoryId || "")) {
-      return false;
-    }
-    if (Number(itemA.quantity || 1) !== Number(itemB.quantity || 1)) {
-      return false;
-    }
-    const textA = (itemA.personalizationText || "").trim();
-    const textB = (itemB.personalizationText || "").trim();
-    if (textA !== textB) {
-      return false;
-    }
-  }
-
-  return true;
-}
