@@ -2,7 +2,6 @@ import { Router } from "express";
 import multer from "multer";
 import { requireAuth } from "../middleware/auth";
 import {
-  quoteDesign,
   uploadRoomImage,
   createDesign,
   getMyDesigns,
@@ -19,9 +18,6 @@ const upload = multer({
 });
 
 const router = Router();
-
-// Quote (preview price) — public-style nhưng vẫn yêu cầu auth để chống spam.
-router.post("/quote", requireAuth, quoteDesign);
 
 // Upload ảnh phòng lên Cloudinary (multipart) → trả URL + publicId.
 router.post(

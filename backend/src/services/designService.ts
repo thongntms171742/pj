@@ -1,20 +1,19 @@
 import { Tree, type ITree } from "../models/Tree";
 import { Design, type IRoomDesign } from "../models/Design";
-import { buildPricedDesign } from "./catalogService";
-import {
-  type PriceBreakdown,
-  type PricingInput,
-} from "./pricingService";
 import type { DeliveryOption } from "../config/business";
 
 // ── roomDesignService ────────────────────────────────────────────────────────
-// Resolve RoomDesign → Tree variant + pricing. Output là RoomDesignResponse
-// cho FE.
+// Resolve RoomDesign → Tree variant. Output là RoomDesignResponse cho FE.
+//
+// Sau refactor: RoomDesign chỉ để xem preview ảnh AI ghép cây vào phòng —
+// KHÔNG còn quote giá ở bước này (giờ /cart đảm nhận). Nên resolve chỉ cần
+// load variant, không cần build pricing.
 
 export interface RoomDesignLean {
   _id: unknown;
   ownerId: unknown;
   name: string;
+  slug: string;
   treeVariantId: unknown;
   prompt: string;
   roomImageUrl: string;
@@ -30,43 +29,16 @@ export interface RoomDesignLean {
 export interface ResolvedRoomDesign {
   design: IRoomDesign | RoomDesignLean;
   variant: ITree | null;
-  pricing: PriceBreakdown;
-  pricingInput: PricingInput;
 }
 
-// ── Resolve RoomDesign → Tree variant + pricing ──────────────────────────────
+// ── Resolve RoomDesign → Tree variant ────────────────────────────────────────
 export async function resolveRoomDesign(
   design: IRoomDesign | RoomDesignLean
 ): Promise<ResolvedRoomDesign> {
   const variant = await Tree.findById(design.treeVariantId).lean();
-
-  const pricingInput: PricingInput = {
-    variantId: variant ? String(variant._id) : "",
-    deliveryOption:
-      (design.deliveryOption as DeliveryOption) || "READY_TO_DISPLAY",
-  };
-
-  let pricing: PriceBreakdown = {
-    tree: { id: "", name: "", size: "" as never, unitPrice: 0 },
-    decorationFee: 0,
-    shippingFee: 20_000,
-    unitTotal: 20_000,
-    productionDays: 0,
-    hasPersonalization: false,
-    hasService: false,
-    warnings: [],
-  };
-
-  if (pricingInput.variantId) {
-    const built = await buildPricedDesign(pricingInput);
-    pricing = built.pricing;
-  }
-
   return {
     design,
     variant: variant as ITree | null,
-    pricing,
-    pricingInput,
   };
 }
 
@@ -75,13 +47,13 @@ export interface RoomDesignResponse {
   id: string;
   ownerId: string | null;
   name: string;
+  slug: string;
   treeVariantId: string;
   prompt: string;
   roomImageUrl: string;
   resultImageUrl: string;
   status: string;
   deliveryOption: string;
-  pricing: PriceBreakdown;
   variant: {
     _id: string;
     name: string;
@@ -101,6 +73,7 @@ export function buildRoomDesignResponse(
     _id: unknown;
     ownerId?: unknown;
     name: string;
+    slug: string;
     treeVariantId: unknown;
     prompt: string;
     roomImageUrl: string;
@@ -115,13 +88,13 @@ export function buildRoomDesignResponse(
     id: String(d._id),
     ownerId: d.ownerId ? String(d.ownerId) : null,
     name: d.name,
+    slug: d.slug,
     treeVariantId: String(d.treeVariantId),
     prompt: d.prompt,
     roomImageUrl: d.roomImageUrl,
     resultImageUrl: d.resultImageUrl,
     status: d.status,
     deliveryOption: d.deliveryOption,
-    pricing: resolved.pricing,
     variant: resolved.variant
       ? {
           _id: String(resolved.variant._id),

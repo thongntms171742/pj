@@ -7,54 +7,14 @@ import {
   deleteAsset,
   isCloudinaryEnabled,
 } from "../services/cloudinaryService";
-import { safelyBuildPricedDesign } from "../services/catalogService";
-import {
-  resolveRoomDesign,
-  buildRoomDesignResponse,
-} from "../services/designService";
-import {
-  sendError,
-  ErrorCode,
-  handleInternalError,
-} from "../utils/errors";
+import { resolveRoomDesign, buildRoomDesignResponse } from "../services/designService";
+import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { ok, created } from "../utils/respond";
 import { generateRoomDesignImage } from "../services/ai/googleImageService";
-import type { PricingInput } from "../services/pricingService";
 import type { DeliveryOption } from "../config/business";
 
 const ROOM_IMAGE_MAX_BYTES = 8 * 1024 * 1024; // 8 MB
 const ALLOWED_ROOM_MIME = ["image/jpeg", "image/png", "image/webp"];
-
-// ── POST /api/designs/quote ──────────────────────────────────────────────────
-// Public — preview price trước khi lưu RoomDesign.
-// Body: { treeVariantId, deliveryOption }
-export const quoteDesign = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const { treeVariantId, deliveryOption } = req.body as {
-    treeVariantId?: string;
-    deliveryOption?: string;
-  };
-  if (!treeVariantId || !deliveryOption) {
-    sendError(
-      res,
-      ErrorCode.MISSING_FIELD,
-      "Thiếu `treeVariantId` hoặc `deliveryOption`"
-    );
-    return;
-  }
-  try {
-    const result = await safelyBuildPricedDesign(res, {
-      variantId: String(treeVariantId),
-      deliveryOption: deliveryOption as DeliveryOption,
-    });
-    if (!result) return;
-    ok(res, { pricing: result.pricing });
-  } catch (err) {
-    handleInternalError(res, err, "[designs] quoteDesign error");
-  }
-};
 
 // ── POST /api/designs/upload-room ───────────────────────────────────────────
 // Multipart upload (field: `roomImage`) → upload Cloudinary → trả URL.
@@ -116,8 +76,13 @@ export const uploadRoomImage = async (
 
 // ── POST /api/designs ────────────────────────────────────────────────────────
 // Tạo 1 RoomDesign mới (status=DRAFT).
-// Body: { treeVariantId, roomImageUrl?, roomImagePublicId?, prompt?, name?, deliveryOption? }
-// Ảnh phòng là tùy chọn — nếu không upload thì dùng ảnh cây mặc định.
+// Body: { treeVariantId, roomImageUrl?, roomImagePublicId?, prompt?, name? }
+//
+// Sau refactor: RoomDesign chỉ để khách xem preview ảnh AI ghép cây vào phòng
+// — KHÔNG còn là bước tạo sản phẩm cây nữa. Vì vậy:
+//   - deliveryOption KHÔNG bắt buộc (vẫn lưu READY_TO_DISPLAY mặc định để
+//     giữ schema tương thích với data lịch sử).
+//   - pricing KHÔNG trả về — quote giá giờ do /cart đảm nhận.
 export const createDesign = async (
   req: Request,
   res: Response
@@ -172,6 +137,10 @@ export const createDesign = async (
     const safeRoomImageUrl = roomImageUrl?.trim() || "";
     const safeRoomImagePublicId = roomImagePublicId?.trim() || "";
 
+    // deliveryOption: optional, giữ mặc định READY_TO_DISPLAY nếu FE không gửi.
+    const finalDeliveryOption: DeliveryOption =
+      (deliveryOption as DeliveryOption) || "READY_TO_DISPLAY";
+
     const doc = await Design.create({
       ownerId: new Types.ObjectId(userId),
       name: String(name || "").trim() || "My Room",
@@ -179,7 +148,7 @@ export const createDesign = async (
       prompt: String(prompt || "").trim(),
       roomImageUrl: safeRoomImageUrl,
       roomImagePublicId: safeRoomImagePublicId,
-      deliveryOption: (deliveryOption as DeliveryOption) || "READY_TO_DISPLAY",
+      deliveryOption: finalDeliveryOption,
       status: "DRAFT",
     });
 

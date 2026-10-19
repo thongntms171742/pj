@@ -1,25 +1,6 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
-
-// ── DeliveryOption re-export từ config/business.ts ──────────────────────────
-// Giữ single source of truth ở config layer; Mongoose model chỉ type-import.
 import type { DeliveryOption } from "../config/business";
-
-// ── RoomDesign (Build Your Christmas) ───────────────────────────────────────
-// RoomDesign là 1 "bản ghép AI" do khách tạo: chọn 1 Tree variant (SKU),
-// upload ảnh phòng, viết prompt mô tả mong muốn. AI sẽ ghép cây vào phòng.
-//
-// Schema:
-//   - ownerId: null nếu guest
-//   - name: label tùy chọn
-//   - treeVariantId: ref Tree (SKU) — KHÔNG dùng TreeProduct concept cũ
-//   - prompt: text khách viết
-//   - roomImageUrl / roomImagePublicId: ảnh phòng user upload lên Cloudinary
-//   - resultImageUrl / resultImagePublicId: ảnh AI render → Cloudinary
-//   - status: DRAFT → AI_PENDING → AI_COMPLETED / FAILED
-//
-// Không còn: baseTreeProductId, slug, year, isPublic, pricingSnapshot,
-// duplicatedFrom, previewImage (== resultImageUrl).
-// Không còn status CONFIRMED — checkout không cần design confirmed.
+import { slugify } from "../utils/slug";
 
 export type RoomDesignStatus = "DRAFT" | "AI_PENDING" | "AI_COMPLETED" | "FAILED";
 
@@ -33,6 +14,7 @@ export const ROOM_DESIGN_STATUSES: ReadonlyArray<RoomDesignStatus> = [
 export interface IRoomDesign extends Document {
   ownerId: Types.ObjectId | null;
   name: string;
+  slug: string;
   treeVariantId: Types.ObjectId;
   prompt: string;
   roomImageUrl: string;
@@ -55,6 +37,14 @@ const RoomDesignSchema = new Schema<IRoomDesign>(
       index: true,
     },
     name: { type: String, default: "My Room", trim: true, maxlength: 80 },
+    slug: {
+      type: String,
+      default: "",
+      trim: true,
+      // Unique index — đảm bảo không bao giờ có 2 document cùng null.
+      // Slug được generate tự động trước khi save.
+      index: { unique: true },
+    },
     treeVariantId: {
       type: Schema.Types.ObjectId,
       ref: "Tree",
@@ -85,10 +75,38 @@ const RoomDesignSchema = new Schema<IRoomDesign>(
 
 RoomDesignSchema.index({ ownerId: 1, updatedAt: -1 });
 
+// ── Pre-save: auto-generate unique slug ──────────────────────────────────────
+// Slug dùng làm shareable link (VD: /designs/my-room-abc123).
+// Chỉ generate khi chưa có slug (không overwrite khi re-save).
+RoomDesignSchema.pre("save", async function (next) {
+  if (this.slug && this.slug.length > 0) return next();
+
+  const base = slugify(this.name || "design") || "design";
+  // Cast sang Model<any> để gọi static `.exists()` không bị TS lỗi kiểu.
+  const Model = this.constructor as unknown as {
+    exists(filter: Record<string, unknown>): Promise<{ _id: unknown } | null>;
+  };
+
+  const MAX_ATTEMPTS = 10;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const suffix =
+      Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const candidate = `${base}-${suffix}`;
+    const existing = await Model.exists({ slug: candidate });
+    if (!existing) {
+      this.slug = candidate;
+      return next();
+    }
+  }
+
+  // Fallback: dùng UUID ngắn nếu tất cả candidates đều trùng (rất hiếm).
+  const fallback =
+    Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  this.slug = `design-${fallback}`;
+  next();
+});
+
 // ── Model export ─────────────────────────────────────────────────────────────
-// Tên `Design` giữ để tương thích với file cũ (`models/Design.ts` trước đó
-// từng định nghĩa TreeDesign + AIDesign). Import path khác đổi sang schema
-// RoomDesign; cần migrate imports nếu có dùng `IDesign`/`ITreeDesign`.
 export const Design = mongoose.model<IRoomDesign>("Design", RoomDesignSchema);
 export type IDesign = IRoomDesign;
 export type ITreeDesign = IRoomDesign;
