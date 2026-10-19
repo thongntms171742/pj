@@ -1,5 +1,5 @@
-import { uploadFromBuffer, deleteAsset } from "../cloudinaryService";
-import { Tree } from "../../models/Tree";
+import { uploadFromBuffer } from "../cloudinaryService";
+import { TreeProduct } from "../../models/TreeProduct";
 
 const KIE_BASE_URL = "https://api.kie.ai/api/v1";
 const KIE_MODEL = "nano-banana-2-1";
