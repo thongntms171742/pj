@@ -1,11 +1,11 @@
-import { Request, Response } from "express";
-import { TreeProduct, TreeCode, Tree } from "../../models";
+import { Response } from "express";
+import { TreeProduct, TreeCode, Tree, Review, Design, CartItem } from "../../models";
 import { loadGroupedTreeCatalog } from "../../services/catalogService";
 import { sendError, ErrorCode } from "../../utils/errors";
 import { ah } from "../../utils/asyncRoute";
 import { ok, created } from "../../utils/respond";
 import { V, requireField } from "../../utils/validation";
-import { slugify, ensureUniqueSlug } from "../../utils/slug";
+import { ensureUniqueSlug } from "../../utils/slug";
 
 // ── Tree Products (Shopee-style parent) ──────────────────────────────────────
 
@@ -71,12 +71,42 @@ export const deleteTreeProduct = ah(async (req, res) => {
     sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy tree product");
     return;
   }
-  product.isActive = false;
-  product.slug = `${product.slug}-deleted-${Date.now()}`;
-  await product.save();
-  // Cascade-deactivate child codes + variants (no hard delete — historical
-  // orders need to keep resolving their refs).
-  await TreeCode.updateMany({ productId }, { isActive: false });
-  await Tree.updateMany({ productId }, { isActive: false });
-  ok(res, { success: true, productId: String(product._id) });
+
+  // ── Safety check: không cho xóa nếu còn Review tham chiếu tới product
+  // Review là dữ liệu đánh giá lịch sử, xóa sẽ làm mất data của khách.
+  const reviewCount = await Review.countDocuments({ productId: product._id });
+  if (reviewCount > 0) {
+    sendError(
+      res,
+      ErrorCode.CONFLICT,
+      `Không thể xóa sản phẩm đã có ${reviewCount} đánh giá. ` +
+        `Vui lòng ẩn sản phẩm hoặc xóa các đánh giá trước.`
+    );
+    return;
+  }
+
+  // ── Cascade hard delete: xóa product → tất cả code → tất cả variant
+  // - OrderItem.variant là string snapshot, KHÔNG cần clean.
+  // - Review đã được chặn ở trên.
+  // - CartItem trỏ tới Tree (variant) — xóa cascade sẽ tự dọn.
+  const variantIds = await Tree.find({ productId }, { _id: 1 }).distinct("_id");
+  if (variantIds.length > 0) {
+    await CartItem.deleteMany({
+      "config.variantId": { $in: variantIds },
+    });
+    await Design.deleteMany({ treeVariantId: { $in: variantIds } });
+    await Tree.deleteMany({ productId: product._id });
+  }
+  await TreeCode.deleteMany({ productId: product._id });
+  await TreeProduct.deleteOne({ _id: product._id });
+
+  ok(res, {
+    success: true,
+    productId: String(product._id),
+    deleted: {
+      variants: variantIds.length,
+      codes: "cascade",
+      product: 1,
+    },
+  });
 });

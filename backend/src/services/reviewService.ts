@@ -414,9 +414,6 @@ export async function getOrderReviewableItems(orderId: string, buyerId: string) 
 
     return {
       productId: pId,
-      designId: item.designId,
-      designName: item.designName,
-      previewImage: item.previewImage,
       variantName: item.variant?.name,
       variantSize: item.variant?.size,
       canReview: isEligibleStatus && !isReviewed && Boolean(pId),

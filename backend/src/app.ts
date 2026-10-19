@@ -21,6 +21,7 @@ import chatRoutes from "./routes/chat";
 import shippingRoutes from "./routes/shipping";
 import reviewRoutes from "./routes/reviews";
 import productRoutes from "./routes/products";
+import greetingCardRoutes from "./routes/greetingCards";
 import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 
 const app = express();
@@ -96,6 +97,7 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/shipping", shippingRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/greeting-cards", greetingCardRoutes);
 
 // ── 404 catch-all ──────────────────────────────────────────────────────────────
 app.use("/api/*", (_req, res) => {

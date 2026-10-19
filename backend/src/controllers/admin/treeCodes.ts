@@ -1,5 +1,5 @@
-import { Request, Response } from "express";
-import { TreeCode, TreeProduct, Tree } from "../../models";
+import { Response } from "express";
+import { TreeCode, TreeProduct, Tree, Review, Design, CartItem } from "../../models";
 import { sendError, ErrorCode } from "../../utils/errors";
 import { ah } from "../../utils/asyncRoute";
 import { ok, created } from "../../utils/respond";
@@ -81,10 +81,36 @@ export const deleteTreeCode = ah(async (req, res) => {
     sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy mã cây");
     return;
   }
-  treeCode.isActive = false;
-  treeCode.code = `${treeCode.code}-deleted-${Date.now()}`;
-  await treeCode.save();
-  // Cascade-deactivate child variants (soft delete — keep refs for orders).
-  await Tree.updateMany({ codeId }, { isActive: false });
-  ok(res, { success: true, codeId: String(treeCode._id) });
+
+  // ── Safety check: không xóa nếu còn Review tham chiếu qua variantId của code
+  // (Review tham chiếu tới productId ở tier 1 sẽ bị chặn khi xóa product).
+  const variantIds = await Tree.find({ codeId }, { _id: 1 }).distinct("_id");
+  const reviewCount = await Review.countDocuments({
+    variantId: { $in: variantIds },
+  });
+  if (reviewCount > 0) {
+    sendError(
+      res,
+      ErrorCode.CONFLICT,
+      `Không thể xóa mã cây đã có ${reviewCount} đánh giá liên kết. ` +
+        `Vui lòng xóa các đánh giá trước.`
+    );
+    return;
+  }
+
+  // ── Cascade hard delete: xóa code → tất cả variant của code
+  if (variantIds.length > 0) {
+    await CartItem.deleteMany({
+      "config.variantId": { $in: variantIds },
+    });
+    await Design.deleteMany({ treeVariantId: { $in: variantIds } });
+    await Tree.deleteMany({ codeId: treeCode._id });
+  }
+  await TreeCode.deleteOne({ _id: treeCode._id });
+
+  ok(res, {
+    success: true,
+    codeId: String(treeCode._id),
+    deleted: { variants: variantIds.length, code: 1 },
+  });
 });

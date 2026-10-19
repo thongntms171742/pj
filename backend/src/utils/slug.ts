@@ -1,11 +1,9 @@
 import mongoose from "mongoose";
 
 /**
- * Slug helpers — currently duplicated in `adminController.ts`
- * (slugify/ensureUniqueSlug) and `designService.ts`
- * (generateDesignSlug/findUniqueSlug). These two will converge in
- * Phase 2/3, but for Phase 1 we expose a single canonical implementation
- * that both call sites can use.
+ * Slug helpers — generic utilities dùng cho admin treeProducts, banners, etc.
+ * Đã purge `generateDesignSlug`/`findUniqueSlug` cũ (dùng cho Design slug).
+ * Các tính năng tương lai cần slug có thể dùng `slugify` + `ensureUniqueSlug`.
  */
 
 /**

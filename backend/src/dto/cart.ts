@@ -1,11 +1,15 @@
 import { toStr } from "../utils/ids";
-import { buildDesignResponse } from "../services/designService";
+import { buildRoomDesignResponse } from "../services/designService";
 import type { PriceBreakdown } from "../services/pricingService";
-import type { DesignLean } from "../services/designService";
+import type { ResolvedRoomDesign } from "../services/designService";
+
+// Re-export để controller import DTO mappers từ 1 chỗ (`dto/design`).
+export { buildRoomDesignResponse } from "../services/designService";
+export type { RoomDesignResponse } from "../services/designService";
 
 /**
- * Cart item DTO. Sau refactor: chỉ còn variantId (Tree) + deliveryOption
- * trong config. Không còn styleId, accessories array.
+ * Cart item DTO. Sau refactor RoomDesign: bỏ `designId` và `design` field —
+ * cart chỉ lưu variantId + deliveryOption. Không còn reference tới Design.
  */
 export interface CartItemConfig {
   variantId: string;
@@ -15,14 +19,12 @@ export interface CartItemConfig {
 export interface CartItemDto {
   _id: string;
   cartId: string;
-  designId: string | null;
   quantity: number;
   priceSnapshot: number;
   currentUnitTotal: number | null;
   priceChanged: boolean;
   checked: boolean;
   config: CartItemConfig;
-  design: ReturnType<typeof buildDesignResponse> | null;
   warning?: string;
 }
 
@@ -38,14 +40,12 @@ export interface CartResponse {
 
 export function cartItemToDto(
   item: any,
-  pricing: PriceBreakdown | null,
-  design: any = null
+  pricing: PriceBreakdown | null
 ): CartItemDto {
   const cfg = item.config || {};
   return {
     _id: toStr(item._id),
     cartId: toStr(item.cartId),
-    designId: item.designId ? toStr(item.designId) : null,
     quantity: item.quantity,
     priceSnapshot: item.priceSnapshot,
     currentUnitTotal: pricing ? pricing.unitTotal : null,
@@ -55,7 +55,6 @@ export function cartItemToDto(
       variantId: toStr(cfg.variantId),
       deliveryOption: cfg.deliveryOption,
     },
-    design: design && pricing ? buildDesignResponse(design as any) : null,
     ...(pricing
       ? {}
       : { warning: "Cấu hình không còn hợp lệ với catalog hiện tại" }),
@@ -68,3 +67,6 @@ export function cartToDto(cart: any): CartDto {
     sessionId: cart.sessionId || undefined,
   };
 }
+
+// Suppress unused exports warning — giữ type re-exports cho controller.
+export type { PriceBreakdown, ResolvedRoomDesign };

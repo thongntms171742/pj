@@ -1,64 +1,52 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 
-// ── Design (gộp TreeDesign + AIDesign cũ) — Build Your Christmas ────────────
-// Design là 1 "bản thiết kế" do khách tạo: chọn 1 TreeProduct (concept cây
-// hoàn chỉnh đã có sẵn trong catalog — gồm cây + phụ kiện + style mô tả
-// trong coverImage/description), viết prompt mô tả mong muốn, AI sẽ render
-// ảnh thành phẩm dựa trên TreeProduct làm reference.
+// ── DeliveryOption re-export từ config/business.ts ──────────────────────────
+// Giữ single source of truth ở config layer; Mongoose model chỉ type-import.
+import type { DeliveryOption } from "../config/business";
+
+// ── RoomDesign (Build Your Christmas) ───────────────────────────────────────
+// RoomDesign là 1 "bản ghép AI" do khách tạo: chọn 1 Tree variant (SKU),
+// upload ảnh phòng, viết prompt mô tả mong muốn. AI sẽ ghép cây vào phòng.
 //
-// Schema tối giản: không còn styleId, accessories array, isPreset.
-//   - baseTreeProductId: ref TreeProduct (concept hoàn chỉnh)
+// Schema:
+//   - ownerId: null nếu guest
+//   - name: label tùy chọn
+//   - treeVariantId: ref Tree (SKU) — KHÔNG dùng TreeProduct concept cũ
 //   - prompt: text khách viết
-//   - imageUrl: ảnh AI render
-//   - status: DRAFT → AI_PENDING → AI_COMPLETED → CONFIRMED (khi add-to-cart)
-//   - deliveryOption: READY_TO_DISPLAY / DIY_KIT / SEPARATE
-//   - pricingSnapshot: cache giá tại thời điểm confirm
-//   - isPublic: bật/tắt chia sẻ qua slug
-//   - duplicatedFrom: clone từ design khác
+//   - roomImageUrl / roomImagePublicId: ảnh phòng user upload lên Cloudinary
+//   - resultImageUrl / resultImagePublicId: ảnh AI render → Cloudinary
+//   - status: DRAFT → AI_PENDING → AI_COMPLETED / FAILED
+//
+// Không còn: baseTreeProductId, slug, year, isPublic, pricingSnapshot,
+// duplicatedFrom, previewImage (== resultImageUrl).
+// Không còn status CONFIRMED — checkout không cần design confirmed.
 
-export type DeliveryOption = "READY_TO_DISPLAY" | "DIY_KIT" | "SEPARATE";
+export type RoomDesignStatus = "DRAFT" | "AI_PENDING" | "AI_COMPLETED" | "FAILED";
 
-export const DELIVERY_OPTIONS: ReadonlyArray<DeliveryOption> = [
-  "READY_TO_DISPLAY",
-  "DIY_KIT",
-  "SEPARATE",
+export const ROOM_DESIGN_STATUSES: ReadonlyArray<RoomDesignStatus> = [
+  "DRAFT",
+  "AI_PENDING",
+  "AI_COMPLETED",
+  "FAILED",
 ];
 
-export type DesignStatus =
-  | "DRAFT"
-  | "AI_PENDING"
-  | "AI_COMPLETED"
-  | "CONFIRMED"
-  | "FAILED";
-
-export interface DesignPricingSnapshot {
-  treePrice: number;
-  decorationFee: number;
-  shippingFee: number;
-  totalSalePrice: number;
-}
-
-export interface IDesign extends Document {
+export interface IRoomDesign extends Document {
   ownerId: Types.ObjectId | null;
   name: string;
-  slug: string;
-  year: number;
-  baseTreeProductId: Types.ObjectId;
+  treeVariantId: Types.ObjectId;
   prompt: string;
-  imageUrl: string;
-  imagePublicId: string;
-  status: DesignStatus;
+  roomImageUrl: string;
+  roomImagePublicId: string;
+  resultImageUrl: string;
+  resultImagePublicId: string;
+  status: RoomDesignStatus;
   lastError: string | null;
-  pricingSnapshot: DesignPricingSnapshot;
   deliveryOption: DeliveryOption;
-  isPublic: boolean;
-  duplicatedFrom: Types.ObjectId | null;
-  previewImage: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const DesignSchema = new Schema<IDesign>(
+const RoomDesignSchema = new Schema<IRoomDesign>(
   {
     ownerId: {
       type: Schema.Types.ObjectId,
@@ -66,60 +54,41 @@ const DesignSchema = new Schema<IDesign>(
       default: null,
       index: true,
     },
-    name: { type: String, required: true, trim: true, default: "My Christmas" },
-    slug: {
-      type: String,
-      required: true,
-      unique: true,
-      lowercase: true,
-      trim: true,
-      index: true,
-    },
-    year: { type: Number, required: true, default: () => new Date().getFullYear() },
-    baseTreeProductId: {
+    name: { type: String, default: "My Room", trim: true, maxlength: 80 },
+    treeVariantId: {
       type: Schema.Types.ObjectId,
-      ref: "TreeProduct",
+      ref: "Tree",
       required: true,
       index: true,
     },
-    prompt: { type: String, default: "", trim: true },
-    imageUrl: { type: String, default: "", trim: true },
-    imagePublicId: { type: String, default: "", trim: true },
+    prompt: { type: String, default: "", trim: true, maxlength: 1000 },
+    roomImageUrl: { type: String, default: "", trim: true },
+    roomImagePublicId: { type: String, default: "", trim: true },
+    resultImageUrl: { type: String, default: "", trim: true },
+    resultImagePublicId: { type: String, default: "", trim: true },
     status: {
       type: String,
-      enum: ["DRAFT", "AI_PENDING", "AI_COMPLETED", "CONFIRMED", "FAILED"],
+      enum: ROOM_DESIGN_STATUSES,
       default: "DRAFT",
       index: true,
     },
     lastError: { type: String, default: null },
-    pricingSnapshot: {
-      treePrice: { type: Number, default: 0 },
-      decorationFee: { type: Number, default: 0 },
-      shippingFee: { type: Number, default: 0 },
-      totalSalePrice: { type: Number, default: 0 },
-    },
     deliveryOption: {
       type: String,
       enum: ["READY_TO_DISPLAY", "DIY_KIT", "SEPARATE"],
       required: true,
       default: "READY_TO_DISPLAY",
     },
-    isPublic: { type: Boolean, default: true },
-    duplicatedFrom: {
-      type: Schema.Types.ObjectId,
-      ref: "Design",
-      default: null,
-    },
-    previewImage: { type: String, default: "" },
   },
   { timestamps: true }
 );
 
-DesignSchema.index({ ownerId: 1, updatedAt: -1 });
-DesignSchema.index({ isPublic: 1, updatedAt: -1 });
+RoomDesignSchema.index({ ownerId: 1, updatedAt: -1 });
 
-export const Design = mongoose.model<IDesign>("Design", DesignSchema);
-
-// Backward-compat alias — code cũ vẫn dùng tên TreeDesign.
-export const TreeDesign = Design;
-export type ITreeDesign = IDesign;
+// ── Model export ─────────────────────────────────────────────────────────────
+// Tên `Design` giữ để tương thích với file cũ (`models/Design.ts` trước đó
+// từng định nghĩa TreeDesign + AIDesign). Import path khác đổi sang schema
+// RoomDesign; cần migrate imports nếu có dùng `IDesign`/`ITreeDesign`.
+export const Design = mongoose.model<IRoomDesign>("Design", RoomDesignSchema);
+export type IDesign = IRoomDesign;
+export type ITreeDesign = IRoomDesign;

@@ -1,13 +1,13 @@
 import { Request, Response } from "express";
 import { Order } from "../../models/Order";
 import { User } from "../../models/User";
-import { Design } from "../../models/Design";
 import { Tree } from "../../models/Tree";
 import { ah } from "../../utils/asyncRoute";
 import { ok } from "../../utils/respond";
 
 // ── Admin stats & analytics ──────────────────────────────────────────────────
-// Sau refactor: thay Accessory → chỉ Tree; thay TreeDesign.isPreset → Design.
+// Sau refactor RoomDesign: bỏ Design count (Bây giờ là "room designs" — có thể
+// thêm lại nếu cần track số lượng room design).
 
 export const getAdminStats = ah(async (_req, res) => {
   const [
@@ -15,8 +15,6 @@ export const getAdminStats = ah(async (_req, res) => {
     pendingOrders,
     completedOrders,
     totalUsers,
-    totalDesigns,
-    designsShared,
     revenueAgg,
     lowStockTrees,
   ] = await Promise.all([
@@ -28,8 +26,6 @@ export const getAdminStats = ah(async (_req, res) => {
     }),
     Order.countDocuments({ status: "COMPLETED" }),
     User.countDocuments(),
-    Design.countDocuments(),
-    Design.countDocuments({ isPublic: true }),
     Order.aggregate([
       {
         $match: {
@@ -62,8 +58,6 @@ export const getAdminStats = ah(async (_req, res) => {
       pendingOrders,
       completedOrders,
       totalUsers,
-      totalDesigns,
-      designsShared,
       revenue,
       aov,
       ordersByStatus: await Order.aggregate([

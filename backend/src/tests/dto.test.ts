@@ -12,10 +12,10 @@ let failed = 0;
 function assert(cond: boolean, message: string) {
   if (cond) {
     passed++;
-    console.log(`✅ PASS: ${message}`);
+    console.log(`PASS: ${message}`);
   } else {
     failed++;
-    console.error(`❌ FAIL: ${message}`);
+    console.error(`FAIL: ${message}`);
   }
 }
 
@@ -28,19 +28,11 @@ function run() {
     buyerId: oid,
     items: [
       {
-        designId: oid,
-        designName: "My Design",
-        previewImage: "",
-        variant: { _id: "v1", size: "M" },
-        style: { _id: "s1", code: "GREEN" },
-        lines: [
-          { kind: "ACCESSORY", refId: oid, type: "BALL", name: "Red ball", unitPrice: 1000, quantity: 2, lineTotal: 2000 },
-        ],
+        variant: { _id: "v1", size: "M", productId: "p1", codeId: "c1", name: "Cây", unitPrice: 499000, price: 499000, sku: "BYC-M", bareImage: "" },
         deliveryOption: "DIY_KIT",
         unitTotal: 5000,
         quantity: 1,
         lineTotal: 5000,
-        hasPersonalization: false,
         productionDays: 0,
       },
     ],
@@ -58,8 +50,6 @@ function run() {
     paymentMethod: "COD",
     paymentId: "",
     paidAt: null,
-    designConfirmedAt: null,
-    designLockedAt: null,
     shippingName: "Test User",
     shippingPhone: "0901",
     shippingAddress: "1 đường 1",
@@ -85,7 +75,7 @@ function run() {
   assert(dto.orderCode === "BYC-12345678", "orderCode preserved");
   assert(dto.buyerId === oid.toString(), "buyerId stringified");
   assert(dto.items.length === 1, "1 item");
-  assert(dto.items[0].lines[0].refId === oid.toString(), "line refId stringified");
+  assert(dto.items[0].variant._id === "v1", "variant _id preserved");
   assert(dto.status === "PENDING_PAYMENT", "status preserved");
   assert(typeof dto.createdAt === "string", "createdAt is ISO string");
   assert(dto.discountAmount === 0, "discountAmount is 0");
@@ -100,19 +90,18 @@ function run() {
   const item = {
     _id: oid,
     cartId: oid,
-    designId: null,
     quantity: 2,
     priceSnapshot: 5000,
     checked: true,
-    config: { variantId: oid, styleId: oid, accessories: [], deliveryOption: "DIY_KIT" },
+    config: { variantId: oid, deliveryOption: "DIY_KIT" },
   };
-  const itemDto = cartItemToDto(item, { unitTotal: 5500 } as any, null);
+  const itemDto = cartItemToDto(item, { unitTotal: 5500 } as any);
   assert(itemDto._id === oid.toString(), "item _id stringified");
   assert(itemDto.priceChanged === true, "price changed when snapshot != current");
   assert(itemDto.currentUnitTotal === 5500, "current unit total from pricing");
   assert(itemDto.warning === undefined, "no warning when pricing succeeded");
 
-  const stale = cartItemToDto(item, null, null);
+  const stale = cartItemToDto(item, null);
   assert(stale.warning !== undefined, "warning set when pricing is null");
   assert(stale.currentUnitTotal === null, "currentUnitTotal is null when stale");
 

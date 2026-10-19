@@ -1,11 +1,16 @@
 import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { Design } from "../models/Design";
+import { Tree } from "../models/Tree";
+import {
+  uploadFromBuffer,
+  deleteAsset,
+  isCloudinaryEnabled,
+} from "../services/cloudinaryService";
 import { safelyBuildPricedDesign } from "../services/catalogService";
 import {
-  resolveDesign,
-  buildDesignResponse,
-  findUniqueSlug,
+  resolveRoomDesign,
+  buildRoomDesignResponse,
 } from "../services/designService";
 import {
   sendError,
@@ -13,25 +18,36 @@ import {
   handleInternalError,
 } from "../utils/errors";
 import { ok, created } from "../utils/respond";
-import { generateDesignImage } from "../services/ai/googleImageService";
+import { generateRoomDesignImage } from "../services/ai/googleImageService";
 import type { PricingInput } from "../services/pricingService";
+import type { DeliveryOption } from "../config/business";
+
+const ROOM_IMAGE_MAX_BYTES = 8 * 1024 * 1024; // 8 MB
+const ALLOWED_ROOM_MIME = ["image/jpeg", "image/png", "image/webp"];
 
 // ── POST /api/designs/quote ──────────────────────────────────────────────────
-// Public — preview price trước khi save.
-// Body: { variantId, deliveryOption }
-export const quoteDesign = async (req: Request, res: Response): Promise<void> => {
-  const { variantId, deliveryOption } = req.body as {
-    variantId?: string;
+// Public — preview price trước khi lưu RoomDesign.
+// Body: { treeVariantId, deliveryOption }
+export const quoteDesign = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { treeVariantId, deliveryOption } = req.body as {
+    treeVariantId?: string;
     deliveryOption?: string;
   };
-  if (!variantId || !deliveryOption) {
-    sendError(res, ErrorCode.MISSING_FIELD, "Thiếu `variantId` hoặc `deliveryOption`");
+  if (!treeVariantId || !deliveryOption) {
+    sendError(
+      res,
+      ErrorCode.MISSING_FIELD,
+      "Thiếu `treeVariantId` hoặc `deliveryOption`"
+    );
     return;
   }
   try {
     const result = await safelyBuildPricedDesign(res, {
-      variantId: String(variantId),
-      deliveryOption: deliveryOption as any,
+      variantId: String(treeVariantId),
+      deliveryOption: deliveryOption as DeliveryOption,
     });
     if (!result) return;
     ok(res, { pricing: result.pricing });
@@ -40,68 +56,146 @@ export const quoteDesign = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
-// ── POST /api/designs ────────────────────────────────────────────────────────
-// Tạo 1 Design mới (status=DRAFT) gắn với 1 TreeProduct concept + prompt.
-// Body: { name, baseTreeProductId, prompt, deliveryOption, isPublic? }
-export const createDesign = async (req: Request, res: Response): Promise<void> => {
+// ── POST /api/designs/upload-room ───────────────────────────────────────────
+// Multipart upload (field: `roomImage`) → upload Cloudinary → trả URL.
+// Required trước khi tạo RoomDesign.
+export const uploadRoomImage = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const userId = req.user!.id;
-    const { name, baseTreeProductId, prompt, deliveryOption, isPublic, variantId } = req.body as {
-      name?: string;
-      baseTreeProductId?: string;
-      prompt?: string;
-      deliveryOption?: string;
-      isPublic?: boolean;
-      variantId?: string;
-    };
+    if (!isCloudinaryEnabled()) {
+      sendError(
+        res,
+        ErrorCode.UPSTREAM_ERROR,
+        "Cloudinary chưa được cấu hình. Liên hệ admin."
+      );
+      return;
+    }
+    const file = (req as any).file as
+      | { buffer: Buffer; mimetype: string; size: number }
+      | undefined;
+    if (!file || !file.buffer) {
+      sendError(
+        res,
+        ErrorCode.MISSING_FIELD,
+        "Thiếu file ảnh phòng (field: `roomImage`)"
+      );
+      return;
+    }
+    if (file.size > ROOM_IMAGE_MAX_BYTES) {
+      sendError(
+        res,
+        ErrorCode.FILE_TOO_LARGE,
+        "Ảnh phòng vượt quá 8 MB"
+      );
+      return;
+    }
+    if (file.mimetype && !ALLOWED_ROOM_MIME.includes(file.mimetype)) {
+      sendError(
+        res,
+        ErrorCode.UNSUPPORTED_MEDIA_TYPE,
+        `Định dạng ảnh không hỗ trợ: ${file.mimetype}. Chỉ chấp nhận JPEG/PNG/WebP.`
+      );
+      return;
+    }
 
-    if (!baseTreeProductId) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu `baseTreeProductId`");
-      return;
-    }
-    const trimmedName = (name || "").trim();
-    if (!trimmedName) {
-      sendError(res, ErrorCode.DESIGN_NAME_REQUIRED, "Thiếu tên thiết kế");
-      return;
-    }
-    if (!Types.ObjectId.isValid(String(baseTreeProductId))) {
-      sendError(res, ErrorCode.INVALID_INPUT, "baseTreeProductId không hợp lệ", 400);
-      return;
-    }
-
-    const slug = await findUniqueSlug(trimmedName);
-    const doc = await Design.create({
-      ownerId: new Types.ObjectId(userId),
-      name: trimmedName,
-      slug,
-      year: new Date().getFullYear(),
-      baseTreeProductId: new Types.ObjectId(String(baseTreeProductId)),
-      prompt: String(prompt || ""),
-      deliveryOption: (deliveryOption as any) || "READY_TO_DISPLAY",
-      isPublic: isPublic !== false,
-      duplicatedFrom: null,
+    const uploaded = await uploadFromBuffer(file.buffer, {
+      folder: "buildyourchristmas/room-designs/uploads",
+      resourceType: "image",
     });
 
-    const resolved = await resolveDesign(doc.toObject(), { variantIdOverride: variantId });
-    if (resolved.pricingInput.variantId) {
-      doc.pricingSnapshot = {
-        treePrice: resolved.pricing.tree.unitPrice,
-        decorationFee: resolved.pricing.decorationFee,
-        shippingFee: resolved.pricing.shippingFee,
-        totalSalePrice: resolved.pricing.unitTotal,
-      };
-      await doc.save();
+    created(res, {
+      roomImageUrl: uploaded.url,
+      roomImagePublicId: uploaded.publicId,
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[designs] uploadRoomImage error");
+  }
+};
+
+// ── POST /api/designs ────────────────────────────────────────────────────────
+// Tạo 1 RoomDesign mới (status=DRAFT).
+// Body: { treeVariantId, roomImageUrl?, roomImagePublicId?, prompt?, name?, deliveryOption? }
+// Ảnh phòng là tùy chọn — nếu không upload thì dùng ảnh cây mặc định.
+export const createDesign = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const {
+      treeVariantId,
+      roomImageUrl,
+      roomImagePublicId,
+      prompt,
+      name,
+      deliveryOption,
+    } = req.body as {
+      treeVariantId?: string;
+      roomImageUrl?: string;
+      roomImagePublicId?: string;
+      prompt?: string;
+      name?: string;
+      deliveryOption?: string;
+    };
+
+    if (!treeVariantId) {
+      sendError(res, ErrorCode.MISSING_FIELD, "Thiếu `treeVariantId`");
+      return;
     }
+    if (!Types.ObjectId.isValid(String(treeVariantId))) {
+      sendError(
+        res,
+        ErrorCode.INVALID_INPUT,
+        "treeVariantId không hợp lệ",
+        400
+      );
+      return;
+    }
+
+    // Check variant tồn tại + active
+    const variant = await Tree.findById(treeVariantId)
+      .select("_id isActive")
+      .lean();
+    if (!variant || !variant.isActive) {
+      sendError(
+        res,
+        ErrorCode.TREE_NOT_FOUND,
+        "Mẫu cây không tồn tại hoặc đã ngừng bán",
+        404
+      );
+      return;
+    }
+
+    // Ảnh phòng là tùy chọn — nếu không upload thì dùng ảnh cây gốc
+    const safeRoomImageUrl = roomImageUrl?.trim() || "";
+    const safeRoomImagePublicId = roomImagePublicId?.trim() || "";
+
+    const doc = await Design.create({
+      ownerId: new Types.ObjectId(userId),
+      name: String(name || "").trim() || "My Room",
+      treeVariantId: new Types.ObjectId(String(treeVariantId)),
+      prompt: String(prompt || "").trim(),
+      roomImageUrl: safeRoomImageUrl,
+      roomImagePublicId: safeRoomImagePublicId,
+      deliveryOption: (deliveryOption as DeliveryOption) || "READY_TO_DISPLAY",
+      status: "DRAFT",
+    });
+
     const refreshed = await Design.findById(doc._id).lean();
-    const resolvedFinal = await resolveDesign(refreshed as any, { variantIdOverride: variantId });
-    created(res, { design: buildDesignResponse(resolvedFinal), shareUrl: buildDesignResponse(resolvedFinal).shareUrl });
+    const resolved = await resolveRoomDesign(refreshed as any);
+    created(res, { design: buildRoomDesignResponse(resolved) });
   } catch (err) {
     handleInternalError(res, err, "[designs] createDesign error");
   }
 };
 
 // ── GET /api/designs/mine ────────────────────────────────────────────────────
-export const getMyDesigns = async (req: Request, res: Response): Promise<void> => {
+export const getMyDesigns = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const userId = req.user!.id;
     const docs = await Design.find({ ownerId: userId })
@@ -110,43 +204,13 @@ export const getMyDesigns = async (req: Request, res: Response): Promise<void> =
 
     const out = await Promise.all(
       docs.map(async (d) => {
-        const resolved = await resolveDesign(d as any);
-        return buildDesignResponse(resolved);
+        const resolved = await resolveRoomDesign(d as any);
+        return buildRoomDesignResponse(resolved);
       })
     );
     ok(res, { designs: out, total: out.length });
   } catch (err) {
     handleInternalError(res, err, "[designs] getMyDesigns error");
-  }
-};
-
-// ── GET /api/designs/share/:slug ─────────────────────────────────────────────
-export const getSharedDesignBySlug = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { slug } = req.params;
-    const design = await Design.findOne({ slug }).lean();
-    if (!design) {
-      sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
-      return;
-    }
-    const isOwner =
-      design.ownerId && req.user?.id
-        ? String(design.ownerId) === String(req.user.id)
-        : false;
-    const isAdmin = req.user?.roles?.includes("admin") ?? false;
-
-    if (!design.isPublic && !isOwner && !isAdmin) {
-      sendError(res, ErrorCode.FORBIDDEN, "Thiết kế này ở chế độ riêng tư");
-      return;
-    }
-
-    const resolved = await resolveDesign(design as any);
-    ok(res, { design: buildDesignResponse(resolved) });
-  } catch (err) {
-    handleInternalError(res, err, "[designs] getSharedDesignBySlug error");
   }
 };
 
@@ -168,63 +232,22 @@ export const getDesignById = async (
         : false;
     const isAdmin = req.user?.roles?.includes("admin") ?? false;
     if (!isOwner && !isAdmin) {
-      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền xem thiết kế này");
+      sendError(
+        res,
+        ErrorCode.FORBIDDEN,
+        "Bạn không có quyền xem thiết kế này"
+      );
       return;
     }
-    const resolved = await resolveDesign(design as any);
-    ok(res, { design: buildDesignResponse(resolved) });
+    const resolved = await resolveRoomDesign(design as any);
+    ok(res, { design: buildRoomDesignResponse(resolved) });
   } catch (err) {
     handleInternalError(res, err, "[designs] getDesignById error");
   }
 };
 
-// ── PATCH /api/designs/:id ───────────────────────────────────────────────────
-export const updateDesign = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const design = await Design.findById(id);
-    if (!design) {
-      sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
-      return;
-    }
-    if (!design.ownerId || String(design.ownerId) !== String(req.user!.id)) {
-      sendError(res, ErrorCode.FORBIDDEN, "Bạn không phải chủ sở hữu thiết kế này");
-      return;
-    }
-
-    const { name, prompt, isPublic, deliveryOption, variantId } = req.body as {
-      name?: string;
-      prompt?: string;
-      isPublic?: boolean;
-      deliveryOption?: string;
-      variantId?: string;
-    };
-
-    if (name !== undefined) {
-      const trimmed = String(name).trim();
-      if (!trimmed) {
-        sendError(res, ErrorCode.DESIGN_NAME_REQUIRED, "Tên thiết kế không được trống");
-        return;
-      }
-      design.name = trimmed;
-    }
-    if (prompt !== undefined) design.prompt = String(prompt);
-    if (isPublic !== undefined) design.isPublic = Boolean(isPublic);
-    if (deliveryOption !== undefined) design.deliveryOption = deliveryOption as any;
-
-    await design.save();
-
-    const resolved = await resolveDesign(design.toObject() as any, { variantIdOverride: variantId });
-    ok(res, { design: buildDesignResponse(resolved) });
-  } catch (err) {
-    handleInternalError(res, err, "[designs] updateDesign error");
-  }
-};
-
 // ── DELETE /api/designs/:id ──────────────────────────────────────────────────
+// Cleanup Cloudinary (roomImage nếu còn + resultImage) + xóa DB.
 export const deleteDesign = async (
   req: Request,
   res: Response
@@ -237,9 +260,41 @@ export const deleteDesign = async (
       return;
     }
     if (!design.ownerId || String(design.ownerId) !== String(req.user!.id)) {
-      sendError(res, ErrorCode.FORBIDDEN, "Bạn không phải chủ sở hữu thiết kế này");
-      return;
+      const isAdmin = req.user?.roles?.includes("admin") ?? false;
+      if (!isAdmin) {
+        sendError(
+          res,
+          ErrorCode.FORBIDDEN,
+          "Bạn không phải chủ sở hữu thiết kế này"
+        );
+        return;
+      }
     }
+
+    // Cleanup Cloudinary — best-effort, lỗi không block xóa DB.
+    const cleanupTasks: Promise<unknown>[] = [];
+    if (design.roomImagePublicId) {
+      cleanupTasks.push(
+        deleteAsset(design.roomImagePublicId, "image").catch((err) =>
+          console.warn(
+            `[designs] Failed to delete room image ${design.roomImagePublicId}:`,
+            err
+          )
+        )
+      );
+    }
+    if (design.resultImagePublicId) {
+      cleanupTasks.push(
+        deleteAsset(design.resultImagePublicId, "image").catch((err) =>
+          console.warn(
+            `[designs] Failed to delete result image ${design.resultImagePublicId}:`,
+            err
+          )
+        )
+      );
+    }
+    await Promise.all(cleanupTasks);
+
     await Design.findByIdAndDelete(id);
     ok(res, { success: true });
   } catch (err) {
@@ -247,67 +302,29 @@ export const deleteDesign = async (
   }
 };
 
-// ── POST /api/designs/:id/duplicate ──────────────────────────────────────────
-export const duplicateDesign = async (
+// ── POST /api/designs/:id/generate-image ─────────────────────────────────────
+// Trigger AI ghép cây vào phòng. Gọi KIE → upload Cloudinary → set status.
+export const generateImage = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
-    const src = await Design.findById(id).lean();
-    if (!src) {
-      sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
-      return;
-    }
-    const isOwner =
-      src.ownerId && req.user?.id
-        ? String(src.ownerId) === String(req.user.id)
-        : false;
-    const isAdmin = req.user?.roles?.includes("admin") ?? false;
-    if (!src.isPublic && !isOwner && !isAdmin) {
-      sendError(res, ErrorCode.FORBIDDEN, "Không thể nhân bản thiết kế riêng tư");
-      return;
-    }
-
-    const newName = req.body?.name
-      ? String(req.body.name).trim()
-      : `${src.name} (copy)`;
-
-    const slug = await findUniqueSlug(newName);
-    const duplicated = await Design.create({
-      ownerId: new Types.ObjectId(req.user!.id),
-      name: newName,
-      slug,
-      year: new Date().getFullYear(),
-      baseTreeProductId: src.baseTreeProductId,
-      prompt: src.prompt,
-      deliveryOption: src.deliveryOption,
-      isPublic: true,
-      duplicatedFrom: src._id,
-      previewImage: src.previewImage || src.imageUrl || "",
-    });
-
-    const resolved = await resolveDesign(duplicated.toObject() as any);
-    created(res, {
-      design: buildDesignResponse(resolved),
-      shareUrl: buildDesignResponse(resolved).shareUrl,
-    });
-  } catch (err) {
-    handleInternalError(res, err, "[designs] duplicateDesign error");
-  }
-};
-
-// ── POST /api/designs/:id/generate-image ─────────────────────────────────────
-// Gọi KIE nano-banana-2 để render ảnh từ TreeProduct.coverImage + prompt.
-export const generateImage = async (req: Request, res: Response): Promise<void> => {
-  try {
     const id = String(req.params.id || "");
     if (!Types.ObjectId.isValid(id)) {
-      sendError(res, ErrorCode.INVALID_INPUT, "ID thiết kế không hợp lệ", 400);
+      sendError(
+        res,
+        ErrorCode.INVALID_INPUT,
+        "ID thiết kế không hợp lệ",
+        400
+      );
       return;
     }
     const isAdmin = Boolean(req.user?.roles?.includes("admin"));
-    const result = await generateDesignImage(id, String(req.user?.id || ""), isAdmin);
+    const result = await generateRoomDesignImage(
+      id,
+      String(req.user?.id || ""),
+      isAdmin
+    );
     ok(res, result);
   } catch (err: any) {
     if (err?.code && err?.status) {
@@ -318,9 +335,13 @@ export const generateImage = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-// ── POST /api/designs/:id/confirm ────────────────────────────────────────────
-// Khách chốt design → set status=CONFIRMED + lưu pricingSnapshot.
-export const confirmDesign = async (req: Request, res: Response): Promise<void> => {
+// ── Backward-compat stub: confirmDesign ──────────────────────────────────────
+// Checkout không còn yêu cầu design confirmed. Endpoint giữ để tránh 404
+// cho FE cũ, nhưng trả về no-op success.
+export const confirmDesign = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { id } = req.params;
     const design = await Design.findById(id);
@@ -329,39 +350,17 @@ export const confirmDesign = async (req: Request, res: Response): Promise<void> 
       return;
     }
     if (!design.ownerId || String(design.ownerId) !== String(req.user!.id)) {
-      sendError(res, ErrorCode.FORBIDDEN, "Bạn không phải chủ sở hữu thiết kế này");
-      return;
-    }
-    if (design.status !== "AI_COMPLETED" && design.status !== "DRAFT") {
       sendError(
         res,
-        ErrorCode.DESIGN_NOT_CONFIRMED,
-        `Không thể confirm ở trạng thái ${design.status}`,
-        400
+        ErrorCode.FORBIDDEN,
+        "Bạn không phải chủ sở hữu thiết kế này"
       );
       return;
     }
-
-    // Tính giá từ variant đầu tiên active của TreeProduct.
-    const { variantId } = req.body as { variantId?: string };
-    const resolved = await resolveDesign(design.toObject() as any, { variantIdOverride: variantId });
-    if (!resolved.pricingInput.variantId) {
-      sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy variant để tính giá", 404);
-      return;
-    }
-
-    design.status = "CONFIRMED";
-    design.pricingSnapshot = {
-      treePrice: resolved.pricing.tree.unitPrice,
-      decorationFee: resolved.pricing.decorationFee,
-      shippingFee: resolved.pricing.shippingFee,
-      totalSalePrice: resolved.pricing.unitTotal,
-    };
-    await design.save();
-
-    const refreshed = await Design.findById(design._id).lean();
-    const final = await resolveDesign(refreshed as any, { variantIdOverride: variantId });
-    ok(res, { design: buildDesignResponse(final) });
+    // No-op: trả về design hiện tại.
+    const refreshed = await Design.findById(id).lean();
+    const resolved = await resolveRoomDesign(refreshed as any);
+    ok(res, { design: buildRoomDesignResponse(resolved) });
   } catch (err) {
     handleInternalError(res, err, "[designs] confirmDesign error");
   }

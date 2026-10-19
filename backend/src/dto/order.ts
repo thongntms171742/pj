@@ -4,39 +4,33 @@ import type { IOrder } from "../models/Order";
 
 /**
  * Map an Order document (or lean object) to the FE-facing shape.
- * This is the single source of truth for what an order JSON looks like
- * — controllers, payments, admin all call this. Defined once here so
- * we don't drift across files.
+ * Single source of truth cho Order JSON shape. Controllers, payments, admin
+ * all call this. Defined once here so we don't drift across files.
  *
  * Shape contract: see docs/FE_API_REFERENCE.md
  *   GET /api/orders  →  { orders: OrderDto[] }
  *   POST /api/orders →  { order: OrderDto }
  *   GET /api/admin/orders/:id/details  →  { order: OrderDto }
  */
+export interface OrderItemVariantDto {
+  _id: string;
+  productId: string;
+  codeId: string;
+  size: string;
+  name: string;
+  unitPrice: number;
+  price: number;
+  sku: string;
+  bareImage: string;
+}
+
 export interface OrderItemDto {
-  designId: string | null;
-  designName: string;
-  previewImage: string;
-  variant: any;
-  style: any;
-  lines: OrderLineDto[];
+  variant: OrderItemVariantDto;
   deliveryOption: string;
   unitTotal: number;
   quantity: number;
   lineTotal: number;
-  hasPersonalization: boolean;
   productionDays: number;
-}
-
-export interface OrderLineDto {
-  kind: "ACCESSORY" | "SERVICE";
-  refId: string | null;
-  type: string;
-  name: string;
-  unitPrice: number;
-  quantity: number;
-  lineTotal: number;
-  personalizationText: string;
 }
 
 export interface StatusEventDto {
@@ -78,8 +72,6 @@ export interface OrderDto {
   paymentMethod: string;
   paymentId: string;
   paidAt: string | null;
-  designConfirmedAt: string | null;
-  designLockedAt: string | null;
   shippingName: string;
   shippingPhone: string;
   shippingAddress: string;
@@ -118,8 +110,6 @@ const toIsoOrNull = (v: unknown): string | null => {
 
 /**
  * Map one IOrder (or plain object from .lean()) to OrderDto.
- * Accepts anything with the right fields so this works for both Mongoose
- * documents and lean query results.
  */
 export function orderToDto(o: any): OrderDto {
   return {
@@ -127,26 +117,11 @@ export function orderToDto(o: any): OrderDto {
     orderCode: o.orderCode,
     buyerId: o.buyerId ? toStr(o.buyerId) : "",
     items: (o.items || []).map((it: any) => ({
-      designId: it.designId ? toStr(it.designId) : null,
-      designName: it.designName,
-      previewImage: it.previewImage || "",
-      variant: it.variant ?? it.tree, // tolerate legacy docs that used `tree`
-      style: it.style,
-      lines: (it.lines || []).map((l: any) => ({
-        kind: l.kind,
-        refId: l.refId ? toStr(l.refId) : null,
-        type: l.type,
-        name: l.name,
-        unitPrice: l.unitPrice,
-        quantity: l.quantity,
-        lineTotal: l.lineTotal,
-        personalizationText: l.personalizationText || "",
-      })),
+      variant: it.variant ?? it.tree,
       deliveryOption: it.deliveryOption,
       unitTotal: it.unitTotal,
       quantity: it.quantity,
       lineTotal: it.lineTotal,
-      hasPersonalization: it.hasPersonalization,
       productionDays: it.productionDays,
     })),
     subtotal: o.subtotal,
@@ -168,8 +143,6 @@ export function orderToDto(o: any): OrderDto {
     paymentMethod: o.paymentMethod || "",
     paymentId: o.paymentId || "",
     paidAt: toIsoOrNull(o.paidAt),
-    designConfirmedAt: toIsoOrNull(o.designConfirmedAt),
-    designLockedAt: toIsoOrNull(o.designLockedAt),
     shippingName: o.shippingName || "",
     shippingPhone: o.shippingPhone || "",
     shippingAddress: o.shippingAddress || "",

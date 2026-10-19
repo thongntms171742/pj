@@ -1,12 +1,12 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 
 // ── Cart item (Build Your Christmas) ─────────────────────────────────────────
-// Sau refactor: config chỉ còn variantId (Tree) + deliveryOption. Không còn
-// accessories array, không còn styleId. Phụ kiện/style giờ nằm gọn trong
-// TreeProduct.description.
+// Sau refactor RoomDesign: cart chỉ lưu variantId (Tree) + deliveryOption.
+// Không còn designId — checkout dùng variant trực tiếp, không cần reference
+// tới Design.
+
 export interface ICartItem extends Document {
   cartId: Types.ObjectId;
-  designId: Types.ObjectId | null;
   config: {
     variantId: Types.ObjectId;
     deliveryOption: "READY_TO_DISPLAY" | "DIY_KIT" | "SEPARATE";
@@ -18,11 +18,11 @@ export interface ICartItem extends Document {
 
 const CartItemSchema = new Schema<ICartItem>(
   {
-    cartId: { type: Schema.Types.ObjectId, ref: "Cart", required: true, index: true },
-    designId: {
+    cartId: {
       type: Schema.Types.ObjectId,
-      ref: "Design",
-      default: null,
+      ref: "Cart",
+      required: true,
+      index: true,
     },
     config: {
       variantId: { type: Schema.Types.ObjectId, ref: "Tree", required: true },

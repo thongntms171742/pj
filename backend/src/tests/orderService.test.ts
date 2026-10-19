@@ -20,9 +20,6 @@ function assert(cond: boolean, message: string) {
 
 function makeItem(deliveryOption: IOrderItem["deliveryOption"]): IOrderItem {
   return {
-    designId: null,
-    designName: "Test",
-    previewImage: "",
     variant: {} as any,
     deliveryOption,
     unitTotal: 100_000,

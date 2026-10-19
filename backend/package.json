@@ -14,9 +14,9 @@
     "test:upload": "ts-node --transpile-only src/tests/upload.test.ts",
     "test:ai": "ts-node --transpile-only src/tests/design.test.ts",
     "test:chat": "ts-node --transpile-only src/tests/chat.test.ts",
-    "test:ai:probe": "ts-node --transpile-only src/scripts/probe-ai-designer.ts",
     "test:sepay": "ts-node --transpile-only src/tests/sepay.test.ts",
     "test:review": "ts-node --transpile-only src/tests/review.test.ts",
+    "test:hard-delete": "ts-node --transpile-only src/tests/hardDeleteCascade.test.ts",
     "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/design.test.ts && ts-node --transpile-only src/tests/sepay.test.ts && ts-node --transpile-only src/tests/review.test.ts",
     "clean:trees": "ts-node --transpile-only src/scripts/clean-legacy-trees.ts"
   },
@@ -26,6 +26,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.7",
+    "@types/multer": "^1.4.13",
     "@types/node": "^22.10.5",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.11.0",
@@ -35,6 +36,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^7.6.0",
     "mongoose": "^8.9.5",
+    "multer": "^1.4.5-lts.2",
     "socket.io": "^4.8.1",
     "typescript": "^5.7.3"
   },

@@ -1,35 +1,46 @@
 import { Router } from "express";
+import multer from "multer";
 import { requireAuth } from "../middleware/auth";
 import {
+  quoteDesign,
+  uploadRoomImage,
   createDesign,
   getMyDesigns,
-  getSharedDesignBySlug,
   getDesignById,
-  updateDesign,
   deleteDesign,
-  duplicateDesign,
   generateImage,
   confirmDesign,
 } from "../controllers/designController";
 
+// ── Multer config cho upload ảnh phòng ─────────────────────────────────────
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
+});
+
 const router = Router();
 
-// Public share endpoint must be registered BEFORE `/:id` so /share/:slug
-// doesn't get swallowed by the wildcard.
-router.get("/share/:slug", getSharedDesignBySlug);
-router.get("/mine", requireAuth, getMyDesigns);
+// Quote (preview price) — public-style nhưng vẫn yêu cầu auth để chống spam.
+router.post("/quote", requireAuth, quoteDesign);
 
-// Authenticated CRUD.
+// Upload ảnh phòng lên Cloudinary (multipart) → trả URL + publicId.
+router.post(
+  "/upload-room",
+  requireAuth,
+  upload.single("roomImage"),
+  uploadRoomImage
+);
+
+// CRUD RoomDesign.
 router.post("/", requireAuth, createDesign);
+router.get("/mine", requireAuth, getMyDesigns);
 router.get("/:id", requireAuth, getDesignById);
-router.patch("/:id", requireAuth, updateDesign);
 router.delete("/:id", requireAuth, deleteDesign);
-router.post("/:id/duplicate", requireAuth, duplicateDesign);
 
-// AI generate image (gộp từ /api/ai-designer/:id/generate-image cũ).
+// AI render.
 router.post("/:id/generate-image", requireAuth, generateImage);
 
-// Xác nhận thiết kế → set status=CONFIRMED + cache pricingSnapshot.
+// Backward-compat: confirmDesign giờ là no-op (checkout không cần confirm).
 router.post("/:id/confirm", requireAuth, confirmDesign);
 
 export default router;

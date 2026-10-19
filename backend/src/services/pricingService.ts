@@ -1,8 +1,5 @@
 import type { TreeSize } from "../models/Tree";
-import type {
-  DeliveryOption,
-} from "../models/Design";
-import { DELIVERY_OPTIONS } from "../models/Design";
+import { DELIVERY_OPTIONS, type DeliveryOption } from "../config/business";
 import { sendError, ErrorCode, type ErrorCodeValue } from "../utils/errors";
 
 // ── Lean shapes (only the fields pricing needs) ──────────────────────────────

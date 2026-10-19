@@ -39,9 +39,10 @@ function genOrderCode(): string {
 
 // ── POST /api/orders ──────────────────────────────────────────────────────────
 // Two ways to create an order:
-//   A) Body.items = [{ config | designId, quantity }]  — direct
-//   B) Body.cartItemIds = [...] (or no body)            — checked cart items
-// designConfirmed: true is required.
+//   A) Body.items = [{ config, quantity }]  — direct
+//   B) Body.cartItemIds = [...] (or no body) — checked cart items
+// Sau refactor RoomDesign: KHÔNG cần `designConfirmed` flag, KHÔNG cần
+// `designId` trong items. Pricing resolve trực tiếp từ variantId.
 export const createOrder = async (
   req: Request,
   res: Response
@@ -61,7 +62,7 @@ export const createOrder = async (
       idempotencyKey?: string;
       designConfirmed?: boolean;
       cartItemIds?: string[];
-      items?: Array<{ config?: PricingInput; designId?: string; quantity?: number }>;
+      items?: Array<{ config?: PricingInput; quantity?: number }>;
       couponCode?: string;
       discountCode?: string;
       internalNotes?: string;
@@ -111,15 +112,7 @@ export const createOrder = async (
       }
     }
 
-    // 2) designConfirmed required
-    if (!designConfirmed) {
-      sendError(
-        res,
-        ErrorCode.DESIGN_NOT_CONFIRMED,
-        "Bạn cần xác nhận 'Tôi đồng ý với thiết kế này' trước khi đặt hàng"
-      );
-      return;
-    }
+    // (Đã bỏ check `designConfirmed` — checkout không cần design confirmed nữa.)
 
     // 3) Resolve items source (direct body or cart)
     let rawItems = Array.isArray(directItems) && directItems.length > 0
@@ -256,8 +249,6 @@ export const createOrder = async (
         },
       ],
       paymentMethod,
-      designConfirmedAt: now,
-      designLockedAt: now,
       shippingName: shippingName || "",
       shippingPhone: shippingPhone || "",
       shippingAddress: shippingAddress || "",

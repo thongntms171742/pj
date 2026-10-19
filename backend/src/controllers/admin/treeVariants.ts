@@ -1,5 +1,5 @@
-import { Request, Response } from "express";
-import { Tree, TreeCode, TreeProduct } from "../../models";
+import { Response } from "express";
+import { Tree, TreeCode, TreeProduct, Review, Design, CartItem } from "../../models";
 import { sendError, ErrorCode } from "../../utils/errors";
 import { ah } from "../../utils/asyncRoute";
 import { ok, created } from "../../utils/respond";
@@ -239,9 +239,43 @@ export const deleteTreeVariant = ah(async (req, res) => {
     sendError(res, ErrorCode.TREE_NOT_FOUND, "Không tìm thấy biến thể");
     return;
   }
-  variant.isActive = false;
-  await variant.save();
-  ok(res, { success: true, variantId: String(variant._id) });
+
+  // ── Safety check: chặn xóa nếu Review hoặc Design đang tham chiếu
+  // - Review tham chiếu trực tiếp variantId (lịch sử đánh giá, không được mất)
+  // - Design (RoomDesign AI) tham chiếu variant; xóa sẽ làm design trả về null
+  const [reviewCount, designCount] = await Promise.all([
+    Review.countDocuments({ variantId: variant._id }),
+    Design.countDocuments({ treeVariantId: variant._id }),
+  ]);
+  if (reviewCount > 0) {
+    sendError(
+      res,
+      ErrorCode.CONFLICT,
+      `Không thể xóa biến thể đã có ${reviewCount} đánh giá liên kết. ` +
+        `Vui lòng xóa các đánh giá trước.`
+    );
+    return;
+  }
+  if (designCount > 0) {
+    sendError(
+      res,
+      ErrorCode.CONFLICT,
+      `Không thể xóa biến thể đang được ${designCount} bản thiết kế phòng sử dụng. ` +
+        `Vui lòng xóa các bản thiết kế trước.`
+    );
+    return;
+  }
+
+  // ── Hard delete variant + dọn CartItem trỏ tới variant này
+  // OrderItem.variant là string snapshot nên không cần clean.
+  await CartItem.deleteMany({ "config.variantId": variant._id });
+  await Tree.deleteOne({ _id: variant._id });
+
+  ok(res, {
+    success: true,
+    variantId: String(variant._id),
+    deleted: { variant: 1, cartItems: "cascade" },
+  });
 });
 
 export const bulkUpdateTreeVariants = ah(async (req, res) => {

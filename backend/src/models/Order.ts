@@ -1,15 +1,12 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
-import type { DeliveryOption } from "./Design";
+import type { DeliveryOption } from "../config/business";
 
 // ── Order line item ──────────────────────────────────────────────────────────
-// Sau refactor phụ kiện: chỉ giữ variant (Tree SKU) + deliveryOption. Không còn
-// style, không còn lines (accessory lines). Mọi thông tin phụ kiện đã nằm
-// trong TreeProduct.description tại thời điểm khách tạo design.
+// Sau refactor RoomDesign: chỉ giữ variant (Tree SKU) + deliveryOption. Không
+// còn designId / designName / previewImage / lines. Variant đã chứa đủ thông
+// tin (size, price, sku, bareImage).
 
 export interface IOrderItem {
-  designId: Types.ObjectId | null;
-  designName: string;
-  previewImage: string;
   variant: {
     _id: string;
     productId: string;
@@ -140,10 +137,6 @@ export interface IOrder extends Document {
   paymentId: string;
   paymentTransactionId?: string;
   paidAt: Date | null;
-  // Set when buyer confirms "Tôi đồng ý với thiết kế này" at checkout.
-  designConfirmedAt: Date | null;
-  // Set when the order is created (= when the snapshot was locked).
-  designLockedAt: Date | null;
   shippingName: string;
   shippingPhone: string;
   shippingAddress: string;
@@ -167,9 +160,6 @@ export interface IOrder extends Document {
 
 const OrderItemSchema = new Schema<IOrderItem>(
   {
-    designId: { type: Schema.Types.ObjectId, ref: "TreeDesign", default: null },
-    designName: { type: String, required: true, default: "My Christmas" },
-    previewImage: { type: String, default: "" },
     variant: {
       _id: { type: String, required: true },
       productId: { type: String, required: true },
@@ -216,8 +206,6 @@ const OrderSchema = new Schema<IOrder>(
     paymentId: { type: String, default: "" },
     paymentTransactionId: { type: String, default: "" },
     paidAt: { type: Date, default: null },
-    designConfirmedAt: { type: Date, default: null },
-    designLockedAt: { type: Date, default: null },
     shippingName: { type: String, default: "" },
     shippingPhone: { type: String, default: "" },
     shippingAddress: { type: String, default: "" },

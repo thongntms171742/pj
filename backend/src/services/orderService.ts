@@ -2,25 +2,19 @@ import { Types } from "mongoose";
 import { Order, IOrder, IOrderItem } from "../models/Order";
 import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
-import { Design } from "../models/Design";
 import { Coupon } from "../models/Coupon";
 import { buildPricedDesign } from "./catalogService";
-import { resolveDesign, buildDesignResponse } from "./designService";
 import {
   reserveStock,
   type StockReservation,
 } from "./inventoryService";
-import { SHIPPING_FEE, SERVICE_PROVINCE_ID } from "../config/business";
-import type {
-  PricingInput,
-} from "./pricingService";
-import type { DeliveryOption } from "../models/Design";
+import { SHIPPING_FEE, SERVICE_PROVINCE_ID, type DeliveryOption } from "../config/business";
+import type { PricingInput } from "./pricingService";
 import { computeCouponDiscount } from "../controllers/couponController";
 
 // ── orderService ─────────────────────────────────────────────────────────────
-// Sau refactor: design chỉ còn variantId (Tree) + deliveryOption + prompt +
-// ảnh AI. Không còn style / accessories array. OrderItem giờ chỉ chứa
-// variant snapshot (không có style, không có line).
+// Sau refactor RoomDesign: cart chỉ chứa variantId + deliveryOption. Không
+// còn resolveDesign lookup. OrderItem giờ chỉ chứa variant snapshot.
 //
 // Functions exported:
 //   - resolveOrderItems       pull items from cart
@@ -32,7 +26,6 @@ import { computeCouponDiscount } from "../controllers/couponController";
 
 export interface OrderItemInput {
   pricingInput?: PricingInput;
-  designId?: string;
   quantity?: number;
 }
 
@@ -62,8 +55,12 @@ export async function resolveOrderItems(
   return cartItems.map((ci) => {
     const cfg = ci.config as any;
     return {
-      pricingInput: cfg ? { variantId: String(cfg.variantId), deliveryOption: cfg.deliveryOption } : undefined,
-      designId: ci.designId ? String(ci.designId) : undefined,
+      pricingInput: cfg
+        ? {
+            variantId: String(cfg.variantId),
+            deliveryOption: cfg.deliveryOption,
+          }
+        : undefined,
       quantity: ci.quantity,
     };
   });
@@ -81,19 +78,14 @@ export async function buildOrderItems(
   let hasPersonalization = false;
 
   for (const entry of items) {
-    let pricingInput = entry.pricingInput;
-    let designDoc: any = null;
-    if (!pricingInput && entry.designId) {
-      designDoc = await Design.findById(entry.designId).lean();
-      if (!designDoc) continue;
-      const resolved = await resolveDesign(designDoc as any);
-      if (!resolved.pricingInput.variantId) continue;
-      pricingInput = resolved.pricingInput;
-    }
+    const pricingInput = entry.pricingInput;
     if (!pricingInput) continue;
 
     const { pricing, catalog } = await buildPricedDesign(pricingInput);
-    const quantity = Math.max(1, parseInt(String(entry.quantity ?? 1), 10) || 1);
+    const quantity = Math.max(
+      1,
+      parseInt(String(entry.quantity ?? 1), 10) || 1
+    );
 
     stockToReserve.push({
       refId: new Types.ObjectId(String(catalog.tree._id)),
@@ -115,17 +107,12 @@ export async function buildOrderItems(
 
     const itemUnitTotal = pricing.unitTotal;
     const itemLineTotal = itemUnitTotal * quantity;
-    const designName = entry.designId
-      ? (designDoc?.name || (await getDesignName(entry.designId)))
-      : "My Christmas";
 
     const existingBuilt = built.find((b) => {
-      const sameDesign =
-        String(b.designId || "") === String(entry.designId || "");
       const sameVariant =
         String(b.variant._id) === String(variantSnapshot._id);
       const sameDelivery = b.deliveryOption === pricingInput.deliveryOption;
-      return sameDesign && sameVariant && sameDelivery;
+      return sameVariant && sameDelivery;
     });
 
     if (existingBuilt) {
@@ -133,9 +120,6 @@ export async function buildOrderItems(
       existingBuilt.lineTotal += itemLineTotal;
     } else {
       built.push({
-        designId: entry.designId ? new Types.ObjectId(entry.designId) : null,
-        designName,
-        previewImage: designDoc?.imageUrl || designDoc?.previewImage || "",
         variant: variantSnapshot as any,
         deliveryOption: pricingInput.deliveryOption as DeliveryOption,
         unitTotal: itemUnitTotal,
@@ -147,8 +131,6 @@ export async function buildOrderItems(
 
     subtotal += itemLineTotal;
     decorationFee += 0; // đã purge
-    if (false) productionDaysMax = Math.max(productionDaysMax, 0);
-    if (false) hasPersonalization = true;
   }
 
   return {
@@ -159,11 +141,6 @@ export async function buildOrderItems(
     productionDaysMax,
     hasPersonalization,
   };
-}
-
-async function getDesignName(id: string): Promise<string> {
-  const doc = await Design.findById(id).select("name").lean();
-  return doc?.name || "My Christmas";
 }
 
 // ── assertDeliveryArea ──────────────────────────────────────────────────────
@@ -205,7 +182,8 @@ export async function applyCoupon(
     const coupon = await Coupon.findOne({ code, isActive: true });
     if (!coupon) return { discount: 0, code: "" };
     const now = new Date();
-    if (now < coupon.startDate || now > coupon.endDate) return { discount: 0, code: "" };
+    if (now < coupon.startDate || now > coupon.endDate)
+      return { discount: 0, code: "" };
     if (coupon.usedCount >= coupon.usageLimit) return { discount: 0, code: "" };
     if (subtotal < coupon.minOrderValue) return { discount: 0, code: "" };
     const { discountAmount } = computeCouponDiscount(coupon, subtotal);
@@ -270,6 +248,3 @@ export async function cleanupCartAfterOrder(
 }
 
 export { SHIPPING_FEE };
-
-// Suppress unused export for backward compat with old callers
-export { buildDesignResponse };
