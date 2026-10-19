@@ -208,7 +208,7 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
 
 // ── Main helper: sendError ───────────────────────────────────────────────────
 // Every error response in BE MUST go through this helper for consistent
-// format: { error: { code, message } }.
+// format: { error: { code, message, requestId? } }.
 export function sendError(
   res: Response,
   code: ErrorCodeValue,
@@ -216,27 +216,85 @@ export function sendError(
   status?: number
 ): Response {
   const httpStatus = status ?? ErrorStatus[code] ?? 500;
+  // Attach requestId so FE can quote it back to dev when reporting bugs.
+  const reqId =
+    typeof res.req === "object" && res.req !== null && "id" in res.req
+      ? String((res.req as { id?: unknown }).id ?? "")
+      : "";
   return res.status(httpStatus).json({
-    error: { code, message },
+    error: { code, message, requestId: reqId || undefined },
   });
 }
 
 // ── Catch-block shorthand ────────────────────────────────────────────────────
 // Use in catch(err) to standardize log + return INTERNAL_ERROR.
+//
+// Trước đây hàm này nuốt error.message và chỉ trả "Lỗi hệ thống" — khiến
+// frontend và dev không biết lỗi gốc. Giờ: vẫn log đầy đủ server-side, và
+// TRẢ message gốc cho client để debug nhanh (chỉ leak message, không leak
+// stack). requestId đính kèm để FE quote lại cho dev.
 export function handleInternalError(
   res: Response,
   err: unknown,
   context: string
 ): Response {
-  // res.req is typed as the base Express Request; the requestId middleware
-  // augments Request with `.id` via module declaration. We cast to `any`
-  // for the lookup to keep utils/errors.ts decoupled from the middleware
-  // type. If the middleware isn't loaded, we simply log "—".
   const req = res.req as { id?: string } | undefined;
   const reqId = req?.id ?? "—";
   const errorMessage = err instanceof Error ? err.message : String(err);
   console.error(`[req=${reqId}] ${context}:`, err);
-  return sendError(res, ErrorCode.INTERNAL_ERROR, "Lỗi hệ thống", 500);
+
+  // Build a message that surfaces the real cause, but stays concise and
+  // doesn't include stack traces or internal file paths.
+  const safeMessage = buildSafeErrorMessage(err, context);
+
+  return sendError(res, ErrorCode.INTERNAL_ERROR, safeMessage, 500);
+}
+
+// ── Helper: build a safe-but-useful message for internal errors ────────────
+//
+// Trade-off: trước đây nuốt hoàn toàn → user/dev không debug được. Giờ:
+//   - Log đầy đủ server-side (giữ nguyên).
+//   - Trả client 1 message CÓ ÍCH để dev quote lại, nhưng:
+//       + Không bao giờ chứa stack trace hay file path
+//       + Không chứa keyword nhạy cảm (password, secret, token, key, mongodb://...)
+//       + Bị truncate nếu quá dài (Cloudinary đôi khi trả về JSON >1KB)
+//       + Luôn kèm `[context]` để biết lỗi từ đâu
+const MAX_LEN = 240;
+const SENSITIVE_PATTERNS: RegExp[] = [
+  /\bpassword\b/i,
+  /\bpasswd\b/i,
+  /\bsecret\b/i,
+  /\btoken\b/i,
+  /\bapikey\b/i,
+  /\bapi[_-]?key\b/i,
+  /\baccess[_-]?key\b/i,
+  /\bauth[_-]?key\b/i,
+  /\bprivate[_-]?key\b/i,
+  /mongodb(\+srv)?:\/\/[^\s]+/i,
+  /postgres(ql)?:\/\/[^\s]+/i,
+  /redis:\/\/[^\s]+/i,
+  /-----BEGIN [A-Z ]+-----/i,
+];
+
+function containsSensitive(message: string): boolean {
+  return SENSITIVE_PATTERNS.some((re) => re.test(message));
+}
+
+function buildSafeErrorMessage(err: unknown, context: string): string {
+  const rawMessage =
+    err instanceof Error ? err.message : String(err) || "Lỗi không xác định";
+
+  // Nếu message gốc có keyword nhạy cảm → fallback về generic.
+  if (containsSensitive(rawMessage)) {
+    return `[${context}] Lỗi hệ thống (đã ghi log)`;
+  }
+
+  const trimmed =
+    rawMessage.length > MAX_LEN
+      ? `${rawMessage.slice(0, MAX_LEN)}…`
+      : rawMessage;
+
+  return `[${context}] ${trimmed}`;
 }
 
 // ── Type for FE consumer ─────────────────────────────────────────────────────

@@ -9,11 +9,13 @@
 
 import { ErrorCode, ErrorStatus, sendError, handleInternalError } from "../utils/errors";
 
-// Mock Express Response
-function mockResponse() {
+// Mock Express Response (kèm `req.id` để handleInternalError có thể
+// đính kèm requestId vào response body cho FE log correlation).
+function mockResponse(requestId: string = "test-req-id") {
   let statusCode = 0;
   let body: any = {};
   const res: any = {
+    req: { id: requestId },
     status(code: number) {
       statusCode = code;
       return res;
@@ -89,17 +91,17 @@ console.error = (...args: any[]) => capturedLogs.push(args);
 
 try {
   const res = mockResponse();
-  const internalMessage = "DB password leaked: super-secret-password-123";
-  const fakeError = new Error(internalMessage);
+  // Sensitive message → phải bị che lại, không leak cho client.
+  const sensitiveMessage = "DB password leaked: super-secret-password-123";
+  const fakeError = new Error(sensitiveMessage);
 
   handleInternalError(res, fakeError, "[test] context");
 
   assert(res.statusCode === 500, `Status is 500`);
   assert(res.body?.error?.code === "INTERNAL_ERROR", `Code is INTERNAL_ERROR`);
-  assert(res.body?.error?.message === "Lỗi hệ thống", `Message is generic (got "${res.body?.error?.message}")`);
   assert(
-    !JSON.stringify(res.body).includes(internalMessage),
-    `Internal message NOT leaked to client`
+    !JSON.stringify(res.body).includes("super-secret-password"),
+    `Sensitive internal message NOT leaked to client`
   );
   const capturedString = capturedLogs
     .map(args => args.map((a: any) => (a instanceof Error ? `${a.name}: ${a.message}` : String(a))).join(" "))
@@ -107,11 +109,43 @@ try {
 
   assert(capturedLogs.length > 0, `Error WAS logged server-side (${capturedLogs.length} log entries)`);
   assert(
-    capturedString.includes(internalMessage),
+    capturedString.includes(sensitiveMessage),
     `Internal message IS in server logs for debugging`
   );
 } finally {
   console.error = originalError;
+}
+
+// ── Test 3b: handleInternalError surfaces useful messages ─────────────────────
+//
+// Sau khi đổi từ "nuốt hoàn toàn" → "trả message có ích": một error message
+// bình thường (không nhạy cảm) sẽ được đính kèm trong response kèm context,
+// giúp FE/dev thấy ngay nguyên nhân mà vẫn an toàn.
+console.log("\n── Test 3b: handleInternalError surfaces useful context ──\n");
+
+{
+  const originalError2 = console.error;
+  console.error = () => {};
+  try {
+    const res = mockResponse();
+    const benignError = new Error("Variant not found in Tree collection");
+    handleInternalError(res, benignError, "[designs] createDesign error");
+
+    assert(res.statusCode === 500, `Status is 500`);
+    assert(res.body?.error?.code === "INTERNAL_ERROR", `Code is INTERNAL_ERROR`);
+    assert(
+      typeof res.body?.error?.message === "string" &&
+        res.body.error.message.includes("createDesign") &&
+        res.body.error.message.includes("Variant not found"),
+      `Useful context (context + message) IS surfaced to client`
+    );
+    assert(
+      res.body?.error?.requestId !== undefined,
+      `requestId is included for log correlation`
+    );
+  } finally {
+    console.error = originalError2;
+  }
 }
 
 // ── Test 4: handleInternalError handles non-Error throws ────────────────────────
@@ -124,7 +158,12 @@ try {
   handleInternalError(res, "string thrown instead of Error", "[test]");
   assert(res.statusCode === 500, `Status is 500 for non-Error throw`);
   assert(res.body?.error?.code === "INTERNAL_ERROR", `Code is INTERNAL_ERROR for non-Error throw`);
-  assert(res.body?.error?.message === "Lỗi hệ thống", `Generic message for non-Error throw`);
+  // Plain string (không chứa sensitive keyword) vẫn được surface.
+  assert(
+    typeof res.body?.error?.message === "string" &&
+      res.body.error.message.includes("string thrown"),
+    `Non-Error string message is surfaced (no sensitive content)`
+  );
 } finally {
   console.error = originalError2;
 }
