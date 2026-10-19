@@ -2,7 +2,7 @@ import { uploadFromBuffer, deleteAsset } from "../cloudinaryService";
 import { Tree } from "../../models/Tree";
 
 const KIE_BASE_URL = "https://api.kie.ai/api/v1";
-const KIE_MODEL = "nano-banana-2";
+const KIE_MODEL = "nano-banana-2.1";
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const TASK_TIMEOUT_MS = 8 * 60 * 1000;
 const POLL_INTERVAL_MS = 2500;
