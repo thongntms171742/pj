@@ -29,15 +29,37 @@ export function extractCartIdentifier(req: Request): {
 
 async function getOrCreateCart(req: Request) {
   const { userId, sessionId } = extractCartIdentifier(req);
+
+  // ── User cart ───────────────────────────────────────────────────────────
   if (userId) {
     let cart = await Cart.findOne({ userId });
-    if (!cart) cart = await Cart.create({ userId });
+    if (!cart) {
+      try {
+        cart = await Cart.create({ userId });
+      } catch (err: any) {
+        // Race: another request created it first → unique-index violation.
+        if (err?.code === 11001 || err?.code === 11000) {
+          cart = await Cart.findOne({ userId });
+        } else throw err;
+      }
+    }
     return cart;
   }
+
+  // ── Guest cart ──────────────────────────────────────────────────────────
   const effectiveSessionId =
     sessionId || `guest_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   let cart = await Cart.findOne({ sessionId: effectiveSessionId });
-  if (!cart) cart = await Cart.create({ sessionId: effectiveSessionId });
+  if (!cart) {
+    try {
+      cart = await Cart.create({ sessionId: effectiveSessionId });
+    } catch (err: any) {
+      // Race: another request created it first → unique-index violation.
+      if (err?.code === 11001 || err?.code === 11000) {
+        cart = await Cart.findOne({ sessionId: effectiveSessionId });
+      } else throw err;
+    }
+  }
   return cart;
 }
 
