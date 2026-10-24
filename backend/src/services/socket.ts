@@ -267,7 +267,10 @@ export function initSocket(httpServer: HttpServer): Server {
           if (peerId) {
             const peerSockets = userSockets.get(peerId);
             if (peerSockets) {
-              const unread = await countUnreadForUser(peerId, peerId === "admin");
+              // `peerId` giờ là ObjectId thật của admin (không còn literal
+              // "admin") nên phải so sánh với getAdminTeamId().
+              const adminId = await getAdminTeamId();
+              const unread = await countUnreadForUser(peerId, peerId === adminId);
               for (const sid of peerSockets) {
                 io!.to(sid).emit("chat:unread", { unread });
               }
@@ -288,14 +291,18 @@ export function initSocket(httpServer: HttpServer): Server {
 
           // Persist a notification row for admin (so it appears in their
           // admin notification list, not just chat unread badge)
-          if (role === "user" && peerId === "admin") {
-            // best-effort: log a notification, don't block
-            Notification.create({
-              userId: new Types.ObjectId(),
-              type: "chat",
-              title: `Tin nhắn mới từ ${userName}`,
-              message: content.length > 80 ? content.slice(0, 80) + "…" : content,
-            }).catch(() => {});
+          const adminTeamId = await getAdminTeamId();
+          if (role === "user" && peerId === adminTeamId) {
+            // Dùng ObjectId admin THẬT — trước đây `new Types.ObjectId()`
+            // tạo id ngẫu nhiên nên admin không bao giờ thấy thông báo chat.
+            if (Types.ObjectId.isValid(adminTeamId)) {
+              Notification.create({
+                userId: new Types.ObjectId(adminTeamId),
+                type: "chat",
+                title: `Tin nhắn mới từ ${userName}`,
+                message: content.length > 80 ? content.slice(0, 80) + "…" : content,
+              }).catch(() => {});
+            }
           }
         } catch (err) {
           console.error("[socket] send error:", err);
@@ -423,7 +430,9 @@ export async function broadcastMessageFromRest(
   if (peerUserId) {
     const peerSockets = userSockets.get(peerUserId);
     if (peerSockets && peerSockets.size > 0) {
-      const isPeerAdmin = peerUserId === "admin";
+      // So sánh với admin id THẬT (không phải literal "admin").
+      const adminId = await getAdminTeamId();
+      const isPeerAdmin = peerUserId === adminId;
       const unread = await countUnreadForUser(peerUserId, isPeerAdmin);
       for (const sid of peerSockets) {
         io.to(sid).emit("chat:unread", { unread });

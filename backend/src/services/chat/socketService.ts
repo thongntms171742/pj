@@ -6,6 +6,7 @@ import { Message, MessageSenderType } from "../../models/Message";
 import { User } from "../../models/User";
 import { JwtPayload } from "../../middleware/auth";
 import { processAiChatMessage } from "../ai/chatbotService";
+import { canAccessAiConversation } from "../../utils/chatAccess";
 
 const JWT_SECRET = process.env.JWT_SECRET || "thriftit_super_secret_key_change_me";
 
@@ -80,6 +81,19 @@ export function initSocketServer(httpServer: HttpServer, existingIo?: SocketIOSe
           return;
         }
 
+        // IDOR guard: chỉ chủ conversation (user đăng nhập / guest session)
+        // hoặc admin mới được vào room — nếu không, bất kỳ ai cũng đọc được
+        // tin nhắn của khách khác và reset unread của họ.
+        const allowed = canAccessAiConversation(conv, {
+          userId: socketUser.userId,
+          sessionId: socketUser.sessionId,
+          isAdmin: socketUser.isAdmin,
+        });
+        if (!allowed) {
+          socket.emit("error", { message: "Bạn không có quyền truy cập phiên trò chuyện này" });
+          return;
+        }
+
         const roomName = `conversation_${conversationId}`;
         socket.join(roomName);
 
@@ -124,6 +138,20 @@ export function initSocketServer(httpServer: HttpServer, existingIo?: SocketIOSe
 
         const currentUser = socketUsers.get(socket.id);
         const isAdmin = Boolean(currentUser?.isAdmin);
+
+        // IDOR guard: chỉ chủ conversation hoặc admin mới được gửi tin nhắn.
+        if (
+          !canAccessAiConversation(conv, {
+            userId: currentUser?.userId,
+            sessionId: currentUser?.sessionId,
+            isAdmin,
+          })
+        ) {
+          socket.emit("error", {
+            message: "Bạn không có quyền gửi tin nhắn vào phiên trò chuyện này",
+          });
+          return;
+        }
 
         let senderType: MessageSenderType = isAdmin ? "ADMIN" : "USER";
         let senderName = isAdmin ? "Admin Support" : "Khách hàng";
@@ -178,7 +206,10 @@ export function initSocketServer(httpServer: HttpServer, existingIo?: SocketIOSe
 
         // If conversation is in BOT_ACTIVE mode and sender is USER, process AI response
         if (conv.status === "BOT_ACTIVE" && senderType === "USER") {
-          processAiChatMessage(String(conv._id), content.trim()).catch((err) => {
+          processAiChatMessage(String(conv._id), content.trim(), {
+            userId: currentUser?.userId,
+            sessionId: currentUser?.sessionId,
+          }).catch((err) => {
             console.error("[Socket] processAiChatMessage error:", err);
           });
         }
@@ -194,6 +225,18 @@ export function initSocketServer(httpServer: HttpServer, existingIo?: SocketIOSe
         const { conversationId, reason } = data;
         const conv = await Conversation.findById(conversationId);
         if (!conv) return;
+
+        const currentUser = socketUsers.get(socket.id);
+        if (
+          !canAccessAiConversation(conv, {
+            userId: currentUser?.userId,
+            sessionId: currentUser?.sessionId,
+            isAdmin: Boolean(currentUser?.isAdmin),
+          })
+        ) {
+          socket.emit("error", { message: "Bạn không có quyền thao tác trên phiên trò chuyện này" });
+          return;
+        }
 
         conv.status = "WAITING_ADMIN";
         conv.summary = reason || "Khách hàng yêu cầu hỗ trợ từ tư vấn viên";

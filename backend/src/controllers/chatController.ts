@@ -6,6 +6,35 @@ import { User } from "../models/User";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { getSocketIO } from "../services/chat/socketService";
 import { processAiChatMessage } from "../services/ai/chatbotService";
+import {
+  canAccessAiConversation,
+  canAccessPeerConversation,
+  type ChatActor,
+} from "../utils/chatAccess";
+
+/**
+ * Build the "who is asking" descriptor used by the chat access helpers.
+ *
+ * - `userId`  → from the verified JWT (optionalAuth / requireAuth)
+ * - `sessionId` → guest credential, accepted from body / query / header
+ * - `isAdmin` → role check against the JWT payload
+ */
+export function getChatActor(req: Request): ChatActor {
+  const headerSession =
+    req.headers["x-chat-session-id"] ||
+    req.headers["x-guest-session-id"] ||
+    req.headers["x-session-id"];
+  const sessionId =
+    (typeof req.body?.sessionId === "string" ? req.body.sessionId : undefined) ||
+    (typeof req.query?.sessionId === "string" ? req.query.sessionId : undefined) ||
+    (typeof headerSession === "string" ? headerSession : undefined);
+
+  return {
+    userId: req.user?.id,
+    sessionId: sessionId || undefined,
+    isAdmin: Boolean(req.user?.roles?.includes("admin")),
+  };
+}
 
 /**
  * Get or create an active conversation for a user or guest sessionId.
@@ -27,7 +56,13 @@ export async function getOrCreateConversation(req: Request, res: Response): Prom
     };
 
     if (userId) {
-      query.$or = [{ userId }, { sessionId: sessionId || "" }];
+      // Người dùng đã đăng nhập: lấy conversation của chính họ, HOẶC
+      // conversation guest đang mở (userId = null) để "nhận quyền sở hữu"
+      // conversation cũ khi họ vừa đăng nhập.
+      query.$or = [{ userId }];
+      if (sessionId) {
+        query.$or.push({ sessionId, userId: null });
+      }
     } else {
       query.sessionId = sessionId;
     }
@@ -35,6 +70,12 @@ export async function getOrCreateConversation(req: Request, res: Response): Prom
     let conversation = await Conversation.findOne(query)
       .sort({ updatedAt: -1 })
       .populate("assignedAdminId", "name email avatarUrl");
+
+    // Claim conversation của guest khi khách đã đăng nhập.
+    if (conversation && userId && !conversation.userId && conversation.sessionId === sessionId) {
+      conversation.userId = userId;
+      await conversation.save();
+    }
 
     if (!conversation) {
       // Create new conversation
@@ -58,11 +99,13 @@ export async function getOrCreateConversation(req: Request, res: Response): Prom
       });
 
       // Send welcome message from Bot
+      const welcomeContent =
+        "Xin chào! 🎄 Em là trợ lý ảo của Build Your Christmas. Em có thể giúp gì cho anh/chị hôm nay ạ? Anh/chị có thể hỏi về tư vấn cây thông, giá cả, hoặc tra cứu đơn hàng nhé!";
       await Message.create({
         conversationId: conversation._id,
         senderType: "BOT",
         senderName: "Trợ lý AI",
-        content: "Xin chào! 🎄 Em là trợ lý ảo của Build Your Christmas. Em có thể giúp gì cho anh/chị hôm nay ạ? Anh/chị có thể hỏi về tư vấn cây thông, giá cả, hoặc tra cứu đơn hàng nhé!",
+        content: welcomeContent,
         metadata: {
           quickReplies: [
             "Tư vấn cây thông Noel",
@@ -71,16 +114,22 @@ export async function getOrCreateConversation(req: Request, res: Response): Prom
           ],
         },
       });
+
+      // Đồng bộ lastMessage/lastMessageAt để sidebar admin hiển thị
+      // đúng nội dung mới nhất và sort theo hoạt động gần nhất.
+      conversation.lastMessage = welcomeContent;
+      conversation.lastMessageAt = new Date();
+      await conversation.save();
     }
 
-    // Fetch initial messages (latest 50)
+    // Fetch initial messages (50 tin MỚI NHẤT, trả về theo thứ tự cũ → mới)
     const messages = await Message.find({ conversationId: conversation._id })
-      .sort({ createdAt: 1 })
+      .sort({ createdAt: -1 })
       .limit(50);
 
     res.json({
       conversation,
-      messages,
+      messages: messages.reverse(),
     });
   } catch (err) {
     handleInternalError(res, err, "getOrCreateConversation");
@@ -105,24 +154,38 @@ export async function getConversationMessages(req: Request, res: Response): Prom
       return;
     }
 
+    // IDOR guard: chỉ chủ conversation (user đã đăng nhập / guest session)
+    // hoặc admin mới được đọc lịch sử.
+    if (!canAccessAiConversation(conversation, getChatActor(req))) {
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền xem cuộc trò chuyện này", 403);
+      return;
+    }
+
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
     const before = req.query.before as string | undefined;
 
     const query: any = { conversationId: conversation._id };
     if (before && Types.ObjectId.isValid(before)) {
-      const refMsg = await Message.findById(before);
+      const refMsg = await Message.findById(before).select("createdAt").lean();
       if (refMsg) {
-        query.createdAt = { $lt: refMsg.createdAt };
+        // Sort theo `createdAt` ⇒ lọc theo createdAt (+ _id tie-break).
+        const refCreatedAt = refMsg.createdAt as Date;
+        query.$or = [
+          { createdAt: { $lt: refCreatedAt } },
+          { createdAt: refCreatedAt, _id: { $lt: new Types.ObjectId(before) } },
+        ];
       }
     }
 
+    // Lấy N tin MỚI NHẤT rồi đảo lại để FE nhận đúng thứ tự cũ → mới.
+    // (Trước đây sort tăng dần + limit ⇒ luôn trả 50 tin đầu tiên.)
     const messages = await Message.find(query)
-      .sort({ createdAt: 1 })
+      .sort({ createdAt: -1 })
       .limit(limit);
 
     res.json({
       conversationId: conversation._id,
-      messages,
+      messages: messages.reverse(),
     });
   } catch (err) {
     handleInternalError(res, err, "getConversationMessages");
@@ -151,6 +214,12 @@ export async function sendAiChatMessage(req: Request, res: Response): Promise<vo
     const conversation = await Conversation.findById(id);
     if (!conversation) {
       sendError(res, ErrorCode.CONVERSATION_NOT_FOUND, "Không tìm thấy cuộc trò chuyện", 404);
+      return;
+    }
+
+    // IDOR guard: không cho ghi vào hội thoại của người khác.
+    if (!canAccessAiConversation(conversation, getChatActor(req))) {
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền gửi tin nhắn vào cuộc trò chuyện này", 403);
       return;
     }
 
@@ -202,12 +271,17 @@ export async function sendAiChatMessage(req: Request, res: Response): Promise<vo
         unreadAdminCount: conversation.unreadAdminCount,
         customerInfo: conversation.customerInfo,
       });
+    }
 
-      if (conversation.status === "BOT_ACTIVE" && senderType === "USER") {
-        processAiChatMessage(String(conversation._id), content.trim()).catch((err) => {
-          console.error("[chatController] processAiChatMessage error:", err);
-        });
-      }
+    // Bot phải trả lời kể cả khi Socket.io chưa được init (REST-only client,
+    // test, script) — trước đây lệnh này nằm trong `if (io)` nên bot im lặng.
+    if (conversation.status === "BOT_ACTIVE" && senderType === "USER") {
+      processAiChatMessage(String(conversation._id), content.trim(), {
+        userId: req.user?.id,
+        sessionId: getChatActor(req).sessionId,
+      }).catch((err) => {
+        console.error("[chatController] processAiChatMessage error:", err);
+      });
     }
 
     res.status(201).json({ message });
@@ -233,6 +307,12 @@ export async function requestEscalation(req: Request, res: Response): Promise<vo
     const conversation = await Conversation.findById(id);
     if (!conversation) {
       sendError(res, ErrorCode.CONVERSATION_NOT_FOUND, "Không tìm thấy cuộc trò chuyện", 404);
+      return;
+    }
+
+    // IDOR guard: chỉ chủ conversation hoặc admin mới escalate được.
+    if (!canAccessAiConversation(conversation, getChatActor(req))) {
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền thao tác trên cuộc trò chuyện này", 403);
       return;
     }
 
@@ -626,18 +706,44 @@ export const getMessages = async (
     const before = (req.query.before as string) ?? "";
     const skip = (page - 1) * limit;
 
+    // Defense-in-depth: chỉ participant (hoặc admin) được đọc conversation 1-1.
+    if (
+      !canAccessPeerConversation(conversationId, {
+        userId: me.id,
+        isAdmin: isAdmin(me),
+      })
+    ) {
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền xem cuộc trò chuyện này", 403);
+      return;
+    }
+
     const filter: Record<string, unknown> = { conversationId };
     if (before) {
-      try {
-        filter._id = { $lt: new Types.ObjectId(before) };
-      } catch {
-        // invalid ObjectId — ignore
+      // `before` là messageId của tin CŨ NHẤT đang có. Lịch sử được sort
+      // theo `createdAt` nên phải lấy createdAt của tin đó rồi lọc:
+      //   createdAt < ref.createdAt  OR  (createdAt == ref.createdAt AND _id < ref._id)
+      // ⇒ nhất quán kể cả khi nhiều tin tạo trong cùng millisecond.
+      if (Types.ObjectId.isValid(before)) {
+        const ref = await Message.findById(before)
+          .select("createdAt")
+          .lean();
+        if (ref) {
+          const refCreatedAt = ref.createdAt as Date;
+          filter.$or = [
+            { createdAt: { $lt: refCreatedAt } },
+            {
+              createdAt: refCreatedAt,
+              _id: { $lt: new Types.ObjectId(before) },
+            },
+          ];
+          delete filter._id;
+        }
       }
     }
 
     const [messages, total] = await Promise.all([
       Message.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip(before ? 0 : skip)
         .limit(limit)
         .lean(),
@@ -708,6 +814,18 @@ export const sendMessage = async (
       sendError(res, ErrorCode.INVALID_INPUT, "Tin nhắn không được để trống");
       return;
     }
+
+    // Defense-in-depth: chỉ participant (hoặc admin) được ghi vào conversation 1-1.
+    if (
+      !canAccessPeerConversation(conversationId, {
+        userId: me.id,
+        isAdmin: isAdmin(me),
+      })
+    ) {
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền gửi tin nhắn vào cuộc trò chuyện này", 403);
+      return;
+    }
+
     const trimmed = content.toString().trim();
     if (trimmed.length > 2000) {
       sendError(res, ErrorCode.INVALID_INPUT, "Tin nhắn tối đa 2000 ký tự");

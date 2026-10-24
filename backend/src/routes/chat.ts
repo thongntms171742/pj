@@ -35,13 +35,11 @@ router.put("/ai/admin/conversations/:id/status", requireAuth, requireAdmin, upda
 router.get("/unread", requireAuth, getUnreadCount);
 router.get("/conversations", requireAuth, listConversations);
 router.get("/conversations/:peerId/messages", requireAuth, getMessages);
-router.post("/conversations/:peerId/messages", requireAuth, (req, res, next) => {
-  // If request has no auth token or body format is AI chat format, route to sendAiChatMessage
-  if (!req.headers.authorization && req.body?.content) {
-    return sendAiChatMessage(req, res);
-  }
-  return sendMessage(req, res);
-});
+// Ghi tin nhắn 1-1 buyer↔admin. Route AI (guest / chatbot) nằm ở
+// `/ai/conversations/:id/messages` với `optionalAuth`.
+// Nhánh `if (!req.headers.authorization && ...)` trước đây là dead code:
+// `requireAuth` đã chặn 401 mọi request không có token ⇒ nhánh không bao giờ chạy.
+router.post("/conversations/:peerId/messages", requireAuth, sendMessage);
 router.get("/conversations/:peerId/unread", requireAuth, getUnreadForPeer);
 router.post("/conversations/:peerId/markRead", requireAuth, markRead);
 

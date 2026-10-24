@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { Types } from "mongoose";
-import { Cart } from "../models/Cart";
+import { Types, HydratedDocument } from "mongoose";
+import { Cart, ICart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { safelyBuildPricedDesign, buildPricedDesign } from "../services/catalogService";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
@@ -27,7 +27,7 @@ export function extractCartIdentifier(req: Request): {
   return {};
 }
 
-async function getOrCreateCart(req: Request) {
+async function getOrCreateCart(req: Request): Promise<HydratedDocument<ICart>> {
   const { userId, sessionId } = extractCartIdentifier(req);
 
   // ── User cart ───────────────────────────────────────────────────────────
@@ -43,6 +43,7 @@ async function getOrCreateCart(req: Request) {
         } else throw err;
       }
     }
+    if (!cart) throw new Error("CART_NOT_FOUND");
     return cart;
   }
 
@@ -60,6 +61,7 @@ async function getOrCreateCart(req: Request) {
       } else throw err;
     }
   }
+  if (!cart) throw new Error("CART_NOT_FOUND");
   return cart;
 }
 

@@ -285,7 +285,109 @@ Test polling manually in browser:
 
 ---
 
-## 9. What changed from v1 (global room)
+## 9. AI Chatbot (Gemini) endpoints — the model the FE actually uses
+
+> The 1-1 `c_<a>__<b>` endpoints above are the **legacy** model. The
+> current customer-facing chat widget (`ChatWidget.tsx`) and the admin
+> console (`AdminLiveChatTab.tsx`) use the **AI chatbot** model below.
+
+The AI chatbot stores conversations in the `Conversation` collection and
+addresses them by Mongo `ObjectId` (NOT `c_<a>__<b>`).
+
+### 9.1 `POST /ai/conversations` — get or create the conversation
+
+**Auth:** optional (`optionalAuth`). Guests MUST send a `sessionId`.
+
+**Body:**
+```json
+{
+  "sessionId": "guest_abc123",      // required for guests
+  "customerInfo": { "name": "", "phone": "", "email": "" }   // optional
+}
+```
+
+**Response 200:**
+```json
+{
+  "conversation": {
+    "_id": "66f0…",                 // ObjectId — dùng cho mọi endpoint sau
+    "status": "BOT_ACTIVE",         // BOT_ACTIVE | WAITING_ADMIN | ADMIN_ACTIVE | RESOLVED
+    "sessionId": "guest_abc123",
+    "userId": null,
+    "lastMessage": "…",
+    "lastMessageAt": "2026-10-24T…"
+  },
+  "messages": [ /* 50 tin MỚI NHẤT, đã đảo về thứ tự cũ → mới */ ]
+}
+```
+
+> A logged-in user sending the same `sessionId` **claims** the guest
+> conversation (`userId` gets set), so the history follows the account.
+
+### 9.2 `GET /ai/conversations/:id/messages` — history
+
+**Auth:** optional. **Access:** owner (`userId` or `sessionId`) or admin —
+otherwise `403 FORBIDDEN`.
+
+| Query | Type | Default | Notes |
+|-------|------|---------|-------|
+| `limit` | number | 50 | max 100 |
+| `before` | string | — | ObjectId của tin CŨ NHẤT đang có → trả tin CŨ HƠN |
+
+**Response 200:** `{ "conversationId": "…", "messages": [ /* cũ → mới */ ] }`
+
+### 9.3 `POST /ai/conversations/:id/messages` — send (REST fallback)
+
+**Body:** `{ "content": "string", "sessionId": "guest_…" }`
+
+**Response 201:** `{ "message": Message }`
+
+> The bot replies asynchronously — the reply arrives over the socket
+> (`new_message`). It works even when Socket.io is not initialised.
+
+### 9.4 `POST /ai/conversations/:id/escalate` — ask for a human
+
+Sets `status = "WAITING_ADMIN"` and notifies the admin lobby.
+
+### 9.5 Admin endpoints
+
+| Endpoint | Auth | Notes |
+|----------|------|-------|
+| `GET /ai/admin/conversations?status=&page=&limit=` | admin | List all AI conversations |
+| `PUT /ai/admin/conversations/:id/status` | admin | Body `{ "status": "ADMIN_ACTIVE" \| "RESOLVED" \| "BOT_ACTIVE" }` |
+
+### 9.6 AI-chat socket events
+
+| Direction | Event | Payload | Notes |
+|-----------|-------|---------|-------|
+| C → S | `join_conversation` | `{ conversationId }` | 403-style `error` nếu không phải chủ |
+| C → S | `send_message` | `{ conversationId, content }` | Kiểm tra quyền trước khi ghi |
+| C → S | `request_human_support` | `{ conversationId, reason }` | Chuyển sang `WAITING_ADMIN` |
+| C → S | `join_admin_lobby` | — | Chỉ admin |
+| S → C | `new_message` | `{ message, conversation: { id, status, lastMessageAt } }` | |
+| S → C | `status_changed` | `{ conversationId, status }` | |
+| S → C | `new_support_ticket` | `{ conversationId, customerInfo, summary, … }` | Tới admin lobby |
+| S → C | `conversation_updated` | `{ conversationId, lastMessage, status, … }` | Tới admin lobby |
+
+> `conversation.status` in `new_message` is re-read from the DB right
+> before the emit, so an `escalate_to_admin` during the same turn is
+> never overwritten by a stale `BOT_ACTIVE`.
+
+### 9.7 `metadata.orderInfo` shape
+
+```json
+{
+  "orderId": "BYC-12345678",
+  "orderCode": "BYC-12345678",   // ← khoá FE đọc
+  "orderNumber": "BYC-12345678",  // khoá cũ, giữ để tương thích
+  "status": "Đã xác nhận",
+  "totalAmount": 1500000
+}
+```
+
+---
+
+## 10. What changed from v1 (global room)
 
 | v1 (global) | v2 (1-1) |
 |-------------|----------|
@@ -299,7 +401,7 @@ Test polling manually in browser:
 
 ---
 
-## 10. Quick smoke test
+## 11. Quick smoke test
 
 1. Login as buyer A in tab 1, admin in tab 2.
 2. Buyer A calls `GET /conversations` → `[]` (never messaged).

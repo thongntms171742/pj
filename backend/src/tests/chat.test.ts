@@ -52,6 +52,108 @@ const { processAiChatMessage } = require("../services/ai/chatbotService");
 assert.strictEqual(typeof processAiChatMessage, "function");
 console.log("PASS: AI Chatbot Service initialized with Gemini tools & fallback processor");
 
+// 5. IDOR guards — canAccessAiConversation
+const {
+  canAccessAiConversation,
+  canAccessPeerConversation,
+} = require("../utils/chatAccess");
+
+const ownerId = new mongoose.Types.ObjectId();
+const otherUserId = new mongoose.Types.ObjectId();
+
+// Conversation của user đã đăng nhập
+const ownedConv = {
+  sessionId: "session_owner",
+  userId: ownerId,
+} as any;
+// Conversation của guest (chỉ có sessionId)
+const guestConv = { sessionId: "session_guest_xyz" } as any;
+
+assert.strictEqual(
+  canAccessAiConversation(ownedConv, { userId: String(ownerId) }),
+  true,
+  "Chủ conversation được phép truy cập"
+);
+assert.strictEqual(
+  canAccessAiConversation(ownedConv, { userId: String(otherUserId) }),
+  false,
+  "User KHÁC bị chặn (IDOR)"
+);
+assert.strictEqual(
+  canAccessAiConversation(ownedConv, { sessionId: "session_owner" }),
+  false,
+  "Guest session KHÔNG được đọc conversation của user đã đăng nhập"
+);
+assert.strictEqual(
+  canAccessAiConversation(ownedConv, { userId: String(ownerId), isAdmin: true }),
+  true,
+  "Admin được phép truy cập mọi conversation"
+);
+
+assert.strictEqual(
+  canAccessAiConversation(guestConv, { sessionId: "session_guest_xyz" }),
+  true,
+  "Guest đúng session được phép truy cập"
+);
+assert.strictEqual(
+  canAccessAiConversation(guestConv, { sessionId: "session_khác" }),
+  false,
+  "Guest sai session bị chặn"
+);
+assert.strictEqual(
+  canAccessAiConversation(guestConv, { userId: String(otherUserId) }),
+  false,
+  "User đăng nhập KHÔNG được đọc conversation guest"
+);
+assert.strictEqual(
+  canAccessAiConversation(null, { userId: String(ownerId) }),
+  false,
+  "Conversation không tồn tại ⇒ không cho truy cập"
+);
+console.log("PASS: IDOR guards (canAccessAiConversation) block cross-user access");
+
+// 6. IDOR guards — canAccessPeerConversation (1-1 buyer ↔ admin)
+const peerConvId = `c_${[String(ownerId), String(otherUserId)].sort().join("__")}`;
+assert.strictEqual(
+  canAccessPeerConversation(peerConvId, { userId: String(ownerId) }),
+  true,
+  "Participant được phép truy cập conversation 1-1"
+);
+assert.strictEqual(
+  canAccessPeerConversation(peerConvId, { userId: "someone_else" }),
+  false,
+  "Người không phải participant bị chặn"
+);
+assert.strictEqual(
+  canAccessPeerConversation(peerConvId, { userId: String(ownerId), isAdmin: true }),
+  true,
+  "Admin được phép truy cập conversation 1-1"
+);
+assert.strictEqual(
+  canAccessPeerConversation("not-a-valid-conv-id", { userId: String(ownerId) }),
+  false,
+  "Conversation id không hợp lệ bị chặn"
+);
+console.log("PASS: IDOR guards (canAccessPeerConversation) block non-participants");
+
+// 7. escapeRegExp — user input không được làm throw SyntaxError
+const { escapeRegExp } = require("../utils/regex");
+assert.doesNotThrow(
+  () => new RegExp(escapeRegExp("cây thông ("), "i"),
+  "Escape regex không được throw"
+);
+assert.strictEqual(
+  new RegExp(escapeRegExp("a+b"), "i").test("xa+by"),
+  true,
+  "Regex escaped vẫn match đúng chuỗi"
+);
+assert.strictEqual(
+  new RegExp(escapeRegExp("a+b"), "i").test("xaab"),
+  false,
+  "Regex escaped không match sai (a+b phải là literal)"
+);
+console.log("PASS: escapeRegExp prevents Regex SyntaxError on user input");
+
 console.log("\n========================================");
 console.log("Chat Subsystem Tests: All passed!");
 console.log("========================================\n");

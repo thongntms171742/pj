@@ -5,6 +5,15 @@ import { Message, IMessageMetadata } from "../../models/Message";
 import { Tree } from "../../models/Tree";
 import { Order } from "../../models/Order";
 import { getSocketIO } from "../chat/socketService";
+import { escapeRegExp } from "../../utils/regex";
+
+/** Ngữ cảnh người gọi — dùng để giới hạn tool lookup_order. */
+export interface ChatCallerContext {
+  /** Mongo user id của người gọi (nếu đã đăng nhập). */
+  userId?: string;
+  /** Guest session id (nếu là khách vãng lai). */
+  sessionId?: string;
+}
 
 const SYSTEM_INSTRUCTION = `
 Bạn là "Trợ lý Noel 🎄" - nhân viên tư vấn ảo của thương hiệu "Build Your Christmas".
@@ -38,6 +47,7 @@ const toolsDeclarations: FunctionDeclaration[] = [
           description: "Ngân sách tối đa của khách hàng (VNĐ)",
         },
       },
+      required: ["query"],
     },
   },
   {
@@ -55,6 +65,7 @@ const toolsDeclarations: FunctionDeclaration[] = [
           description: "Số điện thoại đặt hàng",
         },
       },
+      required: ["orderCode"],
     },
   },
   {
@@ -80,7 +91,8 @@ const toolsDeclarations: FunctionDeclaration[] = [
  */
 async function executeSearchProducts(args: { query?: string; type?: string; maxPrice?: number }) {
   const { query = "", type = "all", maxPrice } = args;
-  const regex = new RegExp(query.trim(), "i");
+  // Escape input: `new RegExp("(")` ⇒ SyntaxError ⇒ bot sập về fallback.
+  const regex = new RegExp(escapeRegExp(query.trim()), "i");
   const results: any = { trees: [] };
 
   if (type === "all" || type === "tree") {
@@ -112,8 +124,17 @@ async function executeSearchProducts(args: { query?: string; type?: string; maxP
 
 /**
  * Tool 2: Lookup order status by code or phone.
+ *
+ * Bảo mật: trước đây bất kỳ ai biết mã đơn / SĐT người nhận đều tra được
+ * tên + địa chỉ + SĐT của đơn (IDOR). Nay:
+ *  - Khách đã đăng nhập ⇒ chỉ tra được đơn của chính họ (`buyerId`).
+ *  - Khách vãng lai (guest) ⇒ chỉ nhận thông tin tối thiểu (mã + trạng thái),
+ *    KHÔNG lộ tên/địa chỉ/SĐT.
  */
-async function executeLookupOrder(args: { orderCode?: string; phoneNumber?: string }) {
+async function executeLookupOrder(
+  args: { orderCode?: string; phoneNumber?: string },
+  caller?: ChatCallerContext
+) {
   const { orderCode, phoneNumber } = args;
   if (!orderCode && !phoneNumber) {
     return { found: false, message: "Cần cung cấp mã đơn hoặc số điện thoại để tra cứu." };
@@ -121,16 +142,30 @@ async function executeLookupOrder(args: { orderCode?: string; phoneNumber?: stri
 
   const query: any = {};
   if (orderCode) {
-    query.$or = [{ orderCode: orderCode.trim() }];
-    if (Types.ObjectId.isValid(orderCode.trim())) {
-      query.$or.push({ _id: new Types.ObjectId(orderCode.trim()) });
+    const code = orderCode.trim();
+    query.$or = [{ orderCode: code }];
+    if (Types.ObjectId.isValid(code)) {
+      query.$or.push({ _id: new Types.ObjectId(code) });
     }
   } else if (phoneNumber) {
-    query.shippingPhone = new RegExp(phoneNumber.trim());
+    // Escape: `new RegExp("(")` ⇒ SyntaxError ⇒ bot sập về fallback.
+    query.shippingPhone = new RegExp(escapeRegExp(phoneNumber.trim()));
+  }
+
+  // Khách đã đăng nhập chỉ được tra đơn của chính họ.
+  if (caller?.userId) {
+    query.buyerId = new Types.ObjectId(caller.userId);
   }
 
   const order = await Order.findOne(query).sort({ createdAt: -1 });
   if (!order) {
+    if (caller?.userId) {
+      return {
+        found: false,
+        message:
+          "Không tìm thấy đơn hàng nào thuộc tài khoản của bạn với thông tin đã cung cấp. Vui lòng kiểm tra lại mã đơn.",
+      };
+    }
     return { found: false, message: "Không tìm thấy đơn hàng phù hợp với thông tin đã cung cấp." };
   }
 
@@ -143,8 +178,14 @@ async function executeLookupOrder(args: { orderCode?: string; phoneNumber?: stri
     DELIVERING: "Đang trên đường giao tới bạn",
     DELIVERED: "Đã giao hàng thành công",
     COMPLETED: "Hoàn tất đơn hàng",
+    CANCEL_REQUESTED: "Đã gửi yêu cầu hủy đơn",
     CANCELLED: "Đã hủy",
+    DISPUTED: "Đang trong quá trình khiếu nại",
+    REFUNDED: "Đã hoàn tiền",
   };
+
+  // Guest (chưa đăng nhập) chỉ được thấy thông tin tối thiểu.
+  const isGuest = !caller?.userId;
 
   return {
     found: true,
@@ -152,11 +193,23 @@ async function executeLookupOrder(args: { orderCode?: string; phoneNumber?: stri
     status: statusTranslations[order.status] || order.status,
     rawStatus: order.status,
     totalAmount: order.totalAmount,
-    recipient: order.shippingName,
-    shippingAddress: order.shippingAddress,
     itemCount: order.items?.length || 0,
     trackingNumber: order.trackingNumber || "Chưa có",
     createdAt: (order as any).createdAt || new Date(),
+    // PII — chỉ trả cho chủ đơn (đã đăng nhập) hoặc admin.
+    ...(isGuest
+      ? {
+          recipient: undefined,
+          shippingAddress: undefined,
+          maskedPhone: order.shippingPhone
+            ? `${String(order.shippingPhone).slice(0, 3)}***${String(order.shippingPhone).slice(-2)}`
+            : undefined,
+        }
+      : {
+          recipient: order.shippingName,
+          shippingAddress: order.shippingAddress,
+          shippingPhone: order.shippingPhone,
+        }),
   };
 }
 
@@ -209,7 +262,8 @@ async function executeEscalateToAdmin(conversationId: string, reason: string) {
  */
 export async function processAiChatMessage(
   conversationId: string,
-  latestUserText: string
+  latestUserText: string,
+  caller?: ChatCallerContext
 ): Promise<void> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   const modelName = process.env.GEMINI_CHAT_MODEL?.trim() || "gemini-2.5-flash";
@@ -237,15 +291,32 @@ export async function processAiChatMessage(
 
     const history = historyDocs.reverse();
 
-    // Map history to Gemini content parts
-    const contents: Array<{ role: "user" | "model"; parts: any[] }> = [];
+    // Map history to Gemini content parts.
+    // Gemini yêu cầu `contents[0].role === "user"` — nếu lịch sử bắt đầu bằng
+    // tin BOT/SYSTEM thì API trả 400 và mọi lượt trả lời rơi vào fallback.
+    const rawContents: Array<{ role: "user" | "model"; parts: any[] }> = [];
 
     for (const msg of history) {
       if (msg.senderType === "USER") {
-        contents.push({ role: "user", parts: [{ text: msg.content }] });
+        rawContents.push({ role: "user", parts: [{ text: msg.content }] });
       } else if (msg.senderType === "BOT") {
-        contents.push({ role: "model", parts: [{ text: msg.content }] });
+        rawContents.push({ role: "model", parts: [{ text: msg.content }] });
       }
+    }
+
+    // Bỏ các tin BOT/SYSTEM ở đầu lịch sử cho tới khi gặp message "user" đầu tiên.
+    let startIdx = rawContents.findIndex((c) => c.role === "user");
+    if (startIdx === -1) {
+      // Không có message user nào trong lịch sử → chỉ gửi câu hỏi hiện tại.
+      startIdx = rawContents.length;
+    }
+    const contents = rawContents.slice(startIdx);
+
+    // Đảm bảo lượt cuối là "user" (Gemini cần user turn cuối để trả lời).
+    if (contents.length === 0) {
+      contents.push({ role: "user", parts: [{ text: latestUserText }] });
+    } else if (contents[contents.length - 1].role !== "user") {
+      contents.push({ role: "user", parts: [{ text: latestUserText }] });
     }
 
     // Call Gemini with tools
@@ -281,10 +352,13 @@ export async function processAiChatMessage(
           }));
         }
       } else if (call.name === "lookup_order") {
-        toolResult = await executeLookupOrder(call.args as any);
+        toolResult = await executeLookupOrder(call.args as any, caller);
         if (toolResult.found) {
           botMetadata.orderInfo = {
             orderId: toolResult.orderCode,
+            // FE (AdminLiveChatTab) đọc `orderCode` — chuẩn hóa khoá này.
+            orderCode: toolResult.orderCode,
+            // Giữ `orderNumber` để tương thích ngược.
             orderNumber: toolResult.orderCode,
             status: toolResult.status,
             totalAmount: toolResult.totalAmount,
@@ -350,20 +424,32 @@ export async function processAiChatMessage(
       metadata: botMetadata,
     });
 
+    // Nạp lại status từ DB: tool `escalate_to_admin` đã đổi status thành
+    // WAITING_ADMIN ở một document khác ⇒ nếu đọc `conv.status` cũ (BOT_ACTIVE)
+    // thì FE sẽ ghi đè badge về "AI tự động".
+    const freshConv = await Conversation.findById(conv._id);
+    const currentStatus = freshConv?.status || conv.status;
+
     conv.lastMessage = botReplyText.trim();
     conv.lastMessageAt = new Date();
-    conv.unreadUserCount += 1;
+    conv.status = currentStatus;
+    // Chỉ tăng unread khi khách KHÔNG đang mở khung chat (room còn người
+    // xem) — nếu không badge tích tụ vô hạn.
+    const io = getSocketIO();
+    const room = `conversation_${conv._id}`;
+    const roomSize = io ? io.sockets.adapter.rooms.get(room)?.size ?? 0 : 0;
+    if (roomSize === 0) {
+      conv.unreadUserCount += 1;
+    }
     await conv.save();
 
     // Broadcast Bot reply via Socket.io
-    const io = getSocketIO();
     if (io) {
-      const room = `conversation_${conv._id}`;
       io.to(room).emit("new_message", {
         message: botMsg,
         conversation: {
           id: conv._id,
-          status: conv.status,
+          status: currentStatus,
           lastMessageAt: conv.lastMessageAt,
         },
       });
@@ -403,7 +489,8 @@ function formatToolFallbackText(toolName?: string, result?: any): string {
     if (!result?.found) {
       return "Dạ, em đã kiểm tra nhưng không tìm thấy đơn hàng theo thông tin trên. Anh/chị vui lòng kiểm tra lại mã đơn hoặc số điện thoại giúp em nhé!";
     }
-    return `Đơn hàng **${result.orderCode}** của anh/chị hiện có trạng thái: **${result.status}**.\nTổng tiền: ${result.totalAmount?.toLocaleString()}đ.\nNgười nhận: ${result.recipient}.`;
+    const recipientLine = result.recipient ? `\nNgười nhận: ${result.recipient}.` : "";
+    return `Đơn hàng **${result.orderCode}** của anh/chị hiện có trạng thái: **${result.status}**.\nTổng tiền: ${result.totalAmount?.toLocaleString()}đ.${recipientLine}`;
   }
 
   if (toolName === "escalate_to_admin") {
@@ -441,14 +528,29 @@ async function handleFallbackBotResponse(conv: any, userText: string): Promise<v
     metadata: { quickReplies },
   });
 
+  // Nạp lại status (fallback cũng có thể đã escalate).
+  const freshConv = await Conversation.findById(conv._id);
+  const currentStatus = freshConv?.status || conv.status;
+
   conv.lastMessage = replyText;
   conv.lastMessageAt = new Date();
-  conv.unreadUserCount += 1;
+  conv.status = currentStatus;
+  const io = getSocketIO();
+  const room = `conversation_${conv._id}`;
+  const roomSize = io ? io.sockets.adapter.rooms.get(room)?.size ?? 0 : 0;
+  if (roomSize === 0) {
+    conv.unreadUserCount += 1;
+  }
   await conv.save();
 
-  const io = getSocketIO();
   if (io) {
-    const room = `conversation_${conv._id}`;
-    io.to(room).emit("new_message", { message: botMsg });
+    io.to(room).emit("new_message", {
+      message: botMsg,
+      conversation: {
+        id: conv._id,
+        status: currentStatus,
+        lastMessageAt: conv.lastMessageAt,
+      },
+    });
   }
 }

@@ -15,6 +15,9 @@ export interface IMessageMetadata {
   }>;
   orderInfo?: {
     orderId: string;
+    /** Mã đơn chuẩn — FE admin đọc khoá này (mới). */
+    orderCode?: string;
+    /** Khoá cũ — giữ lại để tương thích ngược. */
     orderNumber?: string;
     status: string;
     totalAmount: number;
