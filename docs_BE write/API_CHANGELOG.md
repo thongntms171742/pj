@@ -5,6 +5,33 @@ Track changes to the API contract over time to ensure synchronization between Ba
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Christmas entries (2026-10-07+) là contract hiện tại. Entries cũ (2026-10-06 trở về trước) là **lịch sử marketplace** - chỉ tham khảo context, KHÔNG áp dụng cho code Christmas. Source of truth cho FE = `backend/src/`.
 
 ---
+## 2026-10-30 🎬 MEDIA ASSETS (VIDEO HERO / STORY FEED / NHẠC NỀN)
+
+> **Feature added**: Nền tảng media để tăng cảm xúc người dùng — video nền Hero, story dọc kiểu Reels, nhạc nền toàn app. BE đã hoàn tất; FE (web) và Mobile cần triển khai theo hướng dẫn trong `docs_BE write/FE_MEDIA_INTEGRATION_GUIDE.md`.
+
+### Added endpoints
+- `GET /api/media` — Danh sách media active (query: `placement`, `limit`). Public.
+- `GET /api/media/hero` — Media hero (video/ảnh nền). Public.
+- `GET /api/media/background-music` — Nhạc nền active đầu tiên. Public.
+- `GET /api/admin/media` — List toàn bộ (kể cả `isActive: false`). Admin.
+- `POST /api/admin/media` — Tạo `MediaAsset`. Admin.
+- `PATCH /api/admin/media/:id` — Cập nhật `MediaAsset`. Admin.
+- `DELETE /api/admin/media/:id` — Xóa `MediaAsset`. Admin.
+
+### Changed
+- `POST /api/uploads` — Mở rộng hỗ trợ **audio** (mp3/mp4/m4a/aac/wav/ogg), giới hạn 15MB (ảnh 5MB, video 30MB). Response có thêm trường `kind: "audio"` và `duration`. Audio upload lên Cloudinary dùng `resourceType: "video"` (Cloudinary xử lý audio như video).
+- `POST /api/admin/banners` & `PATCH /api/admin/banners/:id` — **Fix bug**: trước đây các field `subtitle`, `aspectRatio`, `placement`, `ctaLabel`, `ctaLink`, `overlayColor` bị bỏ qua khi lưu. Giờ đã persist đầy đủ.
+
+### New model
+- `MediaAsset` — `kind` (VIDEO/AUDIO/IMAGE), `placement` (HERO_BACKGROUND/STORY_FEED/MUSIC_TRACK/PROMO), `title`, `caption`, `url`, `publicId`, `posterUrl`, `format`, `size`, `duration`, `ctaLabel`, `ctaLink`, `linkType` (PRODUCT/CATEGORY/NONE), `linkId`, `musicArtist`, `isLoop`, `volume`, `isActive`, `sortOrder`.
+
+### Notes for FE / Mobile
+- Tất cả endpoint `/api/media/*` là **public**, không cần token.
+- Placement không hợp lệ → trả `{ "assets": [] }` chứ không lỗi 500.
+- `GET /api/media/hero` fallback sang `PROMO` nếu không có `HERO_BACKGROUND`.
+- Nhạc nền: dùng `volume` (0–100) từ BE, FE tự nhân với `Audio.volume` / `Sound.setVolumeAsync`.
+
+---
 ## 2026-10-15 — 🌟 IMPLEMENT PRODUCT REVIEW FLOW (ĐÁNH GIÁ SẢN PHẨM)
 
 > **Feature added**: Xây dựng hoàn chỉnh luồng Đánh giá sản phẩm (Product Review) cho dự án Christmas e-commerce.

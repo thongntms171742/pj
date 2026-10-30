@@ -573,6 +573,161 @@ paths:
                         sortOrder: { type: integer }
 
   # ============================================================
+  # MEDIA (Hero video / Story feed / Background music)
+  # ============================================================
+  /api/media:
+    get:
+      tags: [Media]
+      summary: Lấy danh sách media đang hoạt động (Public)
+      operationId: listMedia
+      parameters:
+        - name: placement
+          in: query
+          schema:
+            type: string
+            enum: [HERO_BACKGROUND, STORY_FEED, MUSIC_TRACK, PROMO]
+          description: Lọc theo vị trí sử dụng
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 50 }
+      responses:
+        '200':
+          description: Danh sách media asset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MediaAsset'
+
+  /api/media/hero:
+    get:
+      tags: [Media]
+      summary: Lấy media hero (HERO_BACKGROUND, fallback PROMO) (Public)
+      operationId: getHeroMedia
+      responses:
+        '200':
+          description: Media hero hoặc null
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  asset:
+                    nullable: true
+                    allOf:
+                      - $ref: '#/components/schemas/MediaAsset'
+
+  /api/media/background-music:
+    get:
+      tags: [Media]
+      summary: Lấy nhạc nền active đầu tiên (Public)
+      operationId: getBackgroundMusic
+      responses:
+        '200':
+          description: Nhạc nền hoặc null
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  asset:
+                    nullable: true
+                    allOf:
+                      - $ref: '#/components/schemas/MediaAsset'
+
+  /api/admin/media:
+    get:
+      tags: [Admin, Media]
+      summary: List toàn bộ media assets (kể cả isActive=false)
+      operationId: adminListMedia
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Danh sách media asset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MediaAsset'
+    post:
+      tags: [Admin, Media]
+      summary: Tạo media asset
+      operationId: adminCreateMedia
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaAssetInput'
+      responses:
+        '201':
+          description: Media asset đã tạo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  asset:
+                    $ref: '#/components/schemas/MediaAsset'
+
+  /api/admin/media/{id}:
+    patch:
+      tags: [Admin, Media]
+      summary: Cập nhật media asset
+      operationId: adminUpdateMedia
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaAssetInput'
+      responses:
+        '200':
+          description: Media asset đã cập nhật
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  asset:
+                    $ref: '#/components/schemas/MediaAsset'
+    delete:
+      tags: [Admin, Media]
+      summary: Xóa media asset
+      operationId: adminDeleteMedia
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Đã xóa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  assetId: { type: string }
+
+  # ============================================================
   # DESIGNS
   # ============================================================
   /api/designs/quote:
@@ -1922,6 +2077,56 @@ components:
           schema: { $ref: '#/components/schemas/ApiError' }
 
   schemas:
+    MediaAsset:
+      type: object
+      properties:
+        _id: { type: string }
+        kind: { type: string, enum: [VIDEO, AUDIO, IMAGE] }
+        placement: { type: string, enum: [HERO_BACKGROUND, STORY_FEED, MUSIC_TRACK, PROMO] }
+        title: { type: string }
+        caption: { type: string }
+        url: { type: string }
+        publicId: { type: string }
+        posterUrl: { type: string }
+        format: { type: string }
+        size: { type: integer }
+        duration: { type: number }
+        ctaLabel: { type: string }
+        ctaLink: { type: string }
+        linkType: { type: string, enum: [PRODUCT, CATEGORY, NONE] }
+        linkId: { type: string }
+        musicArtist: { type: string }
+        isLoop: { type: boolean }
+        volume: { type: integer, minimum: 0, maximum: 100 }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    MediaAssetInput:
+      type: object
+      required: [title, url]
+      properties:
+        kind: { type: string, enum: [VIDEO, AUDIO, IMAGE], default: VIDEO }
+        placement: { type: string, enum: [HERO_BACKGROUND, STORY_FEED, MUSIC_TRACK, PROMO], default: STORY_FEED }
+        title: { type: string }
+        caption: { type: string }
+        url: { type: string }
+        publicId: { type: string }
+        posterUrl: { type: string }
+        format: { type: string }
+        size: { type: integer }
+        duration: { type: number }
+        ctaLabel: { type: string }
+        ctaLink: { type: string }
+        linkType: { type: string, enum: [PRODUCT, CATEGORY, NONE], default: NONE }
+        linkId: { type: string }
+        musicArtist: { type: string }
+        isLoop: { type: boolean, default: true }
+        volume: { type: integer, minimum: 0, maximum: 100, default: 40 }
+        isActive: { type: boolean, default: true }
+        sortOrder: { type: integer, default: 0 }
+
     ApiError:
       type: object
       properties:

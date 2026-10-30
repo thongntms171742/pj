@@ -1097,6 +1097,155 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
   - **Response (200 OK)**: `{ "success": true, "bannerId": ":id" }`
 
 ---
+## 🌟 PHẦN 10B: MEDIA (VIDEO NỀN HERO, STORY FEED, NHẠC NỀN)
+
+> **Ngày thêm**: 2026-10-30 · **Nhánh BE**: `christmas`
+> Dùng cho tính năng "gia tăng cảm xúc": video nền hero, story dọc kiểu Reels, nhạc nền toàn app.
+
+### 0. Model `MediaAsset`
+
+| Field | Type | Ghi chú |
+|---|---|---|
+| `_id` | string | Mongo ObjectId |
+| `kind` | `VIDEO` \| `AUDIO` \| `IMAGE` | Loại media |
+| `placement` | `HERO_BACKGROUND` \| `STORY_FEED` \| `MUSIC_TRACK` \| `PROMO` | Vị trí sử dụng |
+| `title` | string | Bắt buộc, dùng làm alt/caption |
+| `caption` | string | Mô tả ngắn hiển thị dưới story |
+| `url` | string | **Bắt buộc** — URL Cloudinary (https) |
+| `publicId` | string | Cloudinary publicId để xóa/thay file sau này |
+| `posterUrl` | string | Ảnh poster (thumbnail) cho video |
+| `format` | string | `mp4`, `mp3`, `m4a`... |
+| `size` | number | Byte |
+| `duration` | number | Giây |
+| `ctaLabel` | string | Nhãn nút CTA (vd: "Mua ngay") |
+| `ctaLink` | string | URL nội bộ FE (vd: `/tree/xxx`) hoặc ngoài |
+| `linkType` | `PRODUCT` \| `CATEGORY` \| `NONE` | Đích đến khi bấm CTA |
+| `linkId` | string | Id đối tượng đích (productId / categoryId) |
+| `musicArtist` | string | Nghệ sĩ/nguồn nhạc (hiển thị cho FE) |
+| `isLoop` | boolean | Nhạc có lặp hay không (mặc định `true`) |
+| `volume` | number | 0–100 (mặc định 40) |
+| `isActive` | boolean | Bật/tắt hiển thị (mặc định `true`) |
+| `sortOrder` | number | Thứ tự hiển thị (nhỏ trước) |
+
+### 1. Lấy danh sách media (Public)
+- **URL**: `GET /api/media`
+- **Query Params**:
+  - `placement` (string, tùy chọn): `HERO_BACKGROUND` \| `STORY_FEED` \| `MUSIC_TRACK` \| `PROMO`
+  - `limit` (number, default: 20, max: 50)
+- **Auth**: Public (không cần token)
+- **Ghi chú**: Chỉ trả asset có `isActive: true`. Placement không hợp lệ → trả `{ "assets": [] }` (không lỗi 500).
+- **Response (200 OK)**:
+```json
+{
+  "assets": [
+    {
+      "_id": "670d1e2f3a4b5c6d7e8f9012",
+      "kind": "VIDEO",
+      "placement": "STORY_FEED",
+      "title": "Cây thông 2m trong phòng khách",
+      "caption": "Không gian ấm áp mùa Giáng Sinh",
+      "url": "https://res.cloudinary.com/xxx/video/upload/v1/buildyourchristmas/story1.mp4",
+      "publicId": "buildyourchristmas/story1",
+      "posterUrl": "https://res.cloudinary.com/xxx/video/upload/so_0/buildyourchristmas/story1.jpg",
+      "format": "mp4",
+      "size": 8421376,
+      "duration": 12,
+      "ctaLabel": "Mua ngay",
+      "ctaLink": "/tree/670a...",
+      "linkType": "PRODUCT",
+      "linkId": "670a...",
+      "musicArtist": "",
+      "isLoop": true,
+      "volume": 40,
+      "isActive": true,
+      "sortOrder": 0
+    }
+  ]
+}
+```
+
+### 2. Lấy media hero (Public)
+- **URL**: `GET /api/media/hero`
+- **Auth**: Public
+- **Ghi chú**: Trả asset `HERO_BACKGROUND` active đầu tiên (sortOrder nhỏ nhất). Nếu không có → fallback sang `PROMO`. Nếu không có nữa → `{ "asset": null }`.
+- **Response (200 OK)**: `{ "asset": { ...MediaAsset } | null }`
+
+### 3. Lấy nhạc nền (Public)
+- **URL**: `GET /api/media/background-music`
+- **Auth**: Public
+- **Ghi chú**: Trả asset `placement=MUSIC_TRACK` **và** `kind=AUDIO` active đầu tiên. Không có → `{ "asset": null }`.
+- **Response (200 OK)**: `{ "asset": { ...MediaAsset } | null }`
+
+### 4. Upload file media (dùng chung cho admin)
+- **URL**: `POST /api/uploads`
+- **Auth**: `optionalAuth` (không bắt buộc, nhưng nên gửi token admin)
+- **Content-Type**: `multipart/form-data` (field: `file`) — **không** dùng base64 cho file lớn
+- **Giới hạn**:
+  - Ảnh: 5MB (png/jpg/jpeg/webp/svg)
+  - Video: 30MB (mp4)
+  - Audio: 15MB (mp3/mp4/m4a/aac/wav/ogg)
+- **Response (201 Created)**:
+```json
+{
+  "url": "https://res.cloudinary.com/xxx/video/upload/v1/buildyourchristmas/story1.mp4",
+  "publicId": "buildyourchristmas/story1",
+  "format": "mp4",
+  "size": 8421376,
+  "kind": "video",
+  "duration": 12
+}
+```
+- **Lỗi**:
+  - `400 MISSING_FIELD` — thiếu file
+  - `400 UNSUPPORTED_MEDIA_TYPE` — sai định dạng
+  - `413 FILE_TOO_LARGE` — vượt giới hạn dung lượng
+
+### 5. Admin CRUD MediaAsset
+> Tất cả yêu cầu cần header `Authorization: Bearer <admin_token>`.
+
+#### 5.1 Xem tất cả (kể cả đã tắt)
+- `GET /api/admin/media` → `{ "assets": [...] }`
+
+#### 5.2 Tạo media asset
+- `POST /api/admin/media`
+- **Body**:
+```json
+{
+  "kind": "VIDEO",
+  "placement": "STORY_FEED",
+  "title": "Cây thông 2m trong phòng khách",
+  "caption": "Không gian ấm áp mùa Giáng Sinh",
+  "url": "https://res.cloudinary.com/xxx/.../story1.mp4",
+  "publicId": "buildyourchristmas/story1",
+  "posterUrl": "https://res.cloudinary.com/xxx/.../story1.jpg",
+  "format": "mp4",
+  "size": 8421376,
+  "duration": 12,
+  "ctaLabel": "Mua ngay",
+  "ctaLink": "/tree/670a...",
+  "linkType": "PRODUCT",
+  "linkId": "670a...",
+  "musicArtist": "",
+  "isLoop": true,
+  "volume": 40,
+  "isActive": true,
+  "sortOrder": 0
+}
+```
+- `title` và `url` là **bắt buộc**. Các field còn lại có default.
+- **Response (201 Created)**: `{ "asset": { ...MediaAsset } }`
+
+#### 5.3 Chỉnh sửa
+- `PATCH /api/admin/media/:id`
+- **Body**: bất kỳ tập nào field ở trên (chỉ cập nhật field có mặt).
+- **Response (200 OK)**: `{ "asset": { ...MediaAsset } }`
+- **Lỗi**: `404 NOT_FOUND` nếu id không tồn tại.
+
+#### 5.4 Xóa
+- `DELETE /api/admin/media/:id`
+- **Response (200 OK)**: `{ "success": true, "assetId": ":id" }`
+
+---
 
 ## 🌟 PHẦN 11: ĐÁNH GIÁ SẢN PHẨM (PRODUCT REVIEWS)
 

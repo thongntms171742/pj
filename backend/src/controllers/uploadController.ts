@@ -12,7 +12,20 @@ import {
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB for images
 const MAX_VIDEO_SIZE = 30 * 1024 * 1024; // 30MB for MP4 videos
-const ALLOWED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".svg", ".mp4"];
+const MAX_AUDIO_SIZE = 15 * 1024 * 1024; // 15MB for background music tracks
+const ALLOWED_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".svg",
+  ".mp4",
+  ".mp3",
+  ".m4a",
+  ".aac",
+  ".wav",
+  ".ogg",
+];
 const ALLOWED_MIME_TYPES = [
   "image/png",
   "image/jpeg",
@@ -20,7 +33,42 @@ const ALLOWED_MIME_TYPES = [
   "image/webp",
   "image/svg+xml",
   "video/mp4",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+  "audio/ogg",
 ];
+
+/**
+ * Phân loại media theo MIME type.
+ * Cloudinary xử lý audio dưới resource_type "video" (raw chỉ dành cho file
+ * không cần transform), nên audio cũng đi qua resourceType "video".
+ */
+export function classifyMedia(mime: string): "image" | "video" | "audio" {
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("audio/")) return "audio";
+  return "video";
+}
+
+function maxSizeFor(kind: "image" | "video" | "audio"): number {
+  if (kind === "audio") return MAX_AUDIO_SIZE;
+  if (kind === "video") return MAX_VIDEO_SIZE;
+  return MAX_IMAGE_SIZE;
+}
+
+function sizeErrorMessage(kind: "image" | "video" | "audio"): string {
+  if (kind === "audio") return "Dung lượng audio vượt quá giới hạn 15MB";
+  if (kind === "video") return "Dung lượng video vượt quá giới hạn 30MB";
+  return "Dung lượng ảnh vượt quá giới hạn 5MB";
+}
+
+const UNSUPPORTED_MEDIA_MESSAGE =
+  "Định dạng tệp không được hỗ trợ (chỉ nhận ảnh PNG, JPG, WebP, SVG, video MP4 hoặc audio MP3/M4A/AAC/WAV/OGG)";
 
 // Ensure uploads directory exists for local development fallback
 const UPLOADS_DIR = path.resolve(__dirname, "../../uploads");
@@ -42,7 +90,7 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
       const raw = file || image || dataUrl;
 
       if (!raw || typeof raw !== "string") {
-        sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng đính kèm file ảnh/video hoặc base64 string");
+        sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng đính kèm file ảnh/video/audio hoặc base64 string");
         return;
       }
 
@@ -53,15 +101,15 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
         const base64Data = match[2];
 
         if (!ALLOWED_MIME_TYPES.includes(mime)) {
-          sendError(res, ErrorCode.UNSUPPORTED_MEDIA_TYPE, "Định dạng tệp không được hỗ trợ (chỉ nhận ảnh PNG, JPG, WebP, SVG hoặc video MP4)");
+          sendError(res, ErrorCode.UNSUPPORTED_MEDIA_TYPE, UNSUPPORTED_MEDIA_MESSAGE);
           return;
         }
 
-        const isVideo = mime === "video/mp4";
-        const maxLimit = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+        const kind = classifyMedia(mime);
+        const maxLimit = maxSizeFor(kind);
         const buffer = Buffer.from(base64Data, "base64");
         if (buffer.length > maxLimit) {
-          sendError(res, ErrorCode.FILE_TOO_LARGE, isVideo ? "Dung lượng video vượt quá giới hạn 30MB" : "Dung lượng ảnh vượt quá giới hạn 5MB");
+          sendError(res, ErrorCode.FILE_TOO_LARGE, sizeErrorMessage(kind));
           return;
         }
 
@@ -69,7 +117,7 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
         if (isCloudinaryEnabled()) {
           const uploaded = await uploadFromDataUrl(raw, {
             folder: process.env.CLOUDINARY_FOLDER || "buildyourchristmas",
-            resourceType: isVideo ? "video" : "image",
+            resourceType: kind === "image" ? "image" : "video",
           });
 
           created(res, {
@@ -78,6 +126,8 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
             publicId: uploaded.publicId,
             format: uploaded.format,
             size: uploaded.size,
+            kind,
+            duration: uploaded.duration,
           });
           return;
         }
@@ -89,8 +139,23 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
         }
 
         // Ưu tiên 2: Fallback lưu local disk khi chạy môi trường dev chưa có key Cloudinary
-        const ext = isVideo ? ".mp4" : mime === "image/jpeg" ? ".jpg" : `.${mime.split("/")[1]}`;
-        const prefix = isVideo ? "vid_" : "img_";
+        const ext =
+          kind === "video"
+            ? ".mp4"
+            : kind === "audio"
+              ? mime === "audio/mp4" || mime === "audio/x-m4a"
+                ? ".m4a"
+                : mime === "audio/aac"
+                  ? ".aac"
+                  : mime === "audio/wav" || mime === "audio/x-wav" || mime === "audio/wave"
+                    ? ".wav"
+                    : mime === "audio/ogg"
+                      ? ".ogg"
+                      : ".mp3"
+              : mime === "image/jpeg"
+                ? ".jpg"
+                : `.${mime.split("/")[1]}`;
+        const prefix = kind === "video" ? "vid_" : kind === "audio" ? "aud_" : "img_";
         const filename = `${prefix}${Date.now()}_${crypto.randomBytes(6).toString("hex")}${ext}`;
         const filePath = path.join(UPLOADS_DIR, filename);
 
@@ -106,6 +171,7 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
           publicId: `uploads/${filename.replace(/\.[^/.]+$/, "")}`,
           format: ext.replace(".", ""),
           size: buffer.length,
+          kind,
         });
         return;
       } else {
@@ -148,7 +214,15 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
       const boundaryBuffer = Buffer.from(`--${boundary}`);
       const parts = splitBuffer(fullBuffer, boundaryBuffer);
 
-      let savedFile: { url: string; path: string; publicId: string; format: string; size: number } | null = null;
+      let savedFile: {
+        url: string;
+        path: string;
+        publicId: string;
+        format: string;
+        size: number;
+        kind: "image" | "video" | "audio";
+        duration?: number;
+      } | null = null;
 
       for (const part of parts) {
         const headerEndIndex = part.indexOf("\r\n\r\n");
@@ -166,14 +240,19 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
           const ext = path.extname(originalName).toLowerCase();
 
           if (!ALLOWED_EXTENSIONS.includes(ext)) {
-            sendError(res, ErrorCode.UNSUPPORTED_MEDIA_TYPE, "Định dạng tệp không được hỗ trợ (chỉ nhận ảnh PNG, JPG, WebP, SVG hoặc video MP4)");
+            sendError(res, ErrorCode.UNSUPPORTED_MEDIA_TYPE, UNSUPPORTED_MEDIA_MESSAGE);
             return;
           }
 
-          const isVideo = ext === ".mp4";
-          const maxLimit = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+          const kind =
+            ext === ".mp4"
+              ? "video"
+              : [".mp3", ".m4a", ".aac", ".wav", ".ogg"].includes(ext)
+                ? "audio"
+                : "image";
+          const maxLimit = maxSizeFor(kind);
           if (cleanContent.length > maxLimit) {
-            sendError(res, ErrorCode.FILE_TOO_LARGE, isVideo ? "Dung lượng video vượt quá giới hạn 30MB" : "Dung lượng ảnh vượt quá giới hạn 5MB");
+            sendError(res, ErrorCode.FILE_TOO_LARGE, sizeErrorMessage(kind));
             return;
           }
 
@@ -181,7 +260,7 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
           if (isCloudinaryEnabled()) {
             const uploaded = await uploadFromBuffer(cleanContent, {
               folder: process.env.CLOUDINARY_FOLDER || "buildyourchristmas",
-              resourceType: isVideo ? "video" : "image",
+              resourceType: kind === "image" ? "image" : "video",
             });
 
             savedFile = {
@@ -190,6 +269,8 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
               publicId: uploaded.publicId,
               format: uploaded.format,
               size: uploaded.size,
+              kind,
+              duration: uploaded.duration,
             };
             break;
           }
@@ -201,7 +282,7 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
           }
 
           // Ưu tiên 2: Fallback lưu local disk khi chạy môi trường dev chưa có key Cloudinary
-          const prefix = isVideo ? "vid_" : "upload_";
+          const prefix = kind === "video" ? "vid_" : kind === "audio" ? "aud_" : "upload_";
           const filename = `${prefix}${Date.now()}_${crypto.randomBytes(6).toString("hex")}${ext}`;
           const filePath = path.join(UPLOADS_DIR, filename);
 
@@ -217,6 +298,7 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
             publicId: `uploads/${filename.replace(/\.[^/.]+$/, "")}`,
             format: ext.replace(".", ""),
             size: cleanContent.length,
+            kind,
           };
           break;
         }

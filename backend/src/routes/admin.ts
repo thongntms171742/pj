@@ -28,6 +28,11 @@ import {
   createBanner,
   updateBanner,
   deleteBanner,
+  // media assets (hero video / story feed / background music)
+  listMediaAssets,
+  createMediaAsset,
+  updateMediaAsset,
+  deleteMediaAsset,
   adminListReviews,
   adminReplyReview,
   adminUpdateReviewStatus,
@@ -79,6 +84,12 @@ router.get("/banners", listBanners);
 router.post("/banners", createBanner);
 router.patch("/banners/:id", updateBanner);
 router.delete("/banners/:id", deleteBanner);
+
+// ── Media Assets (Hero video / Story feed / Background music) ──────────────
+router.get("/media", listMediaAssets);
+router.post("/media", createMediaAsset);
+router.patch("/media/:id", updateMediaAsset);
+router.delete("/media/:id", deleteMediaAsset);
 
 // ── Reviews ──────────────────────────────────────────────────────────────────
 router.get("/reviews", adminListReviews);
