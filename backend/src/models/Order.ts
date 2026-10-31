@@ -156,6 +156,8 @@ export interface IOrder extends Document {
   idempotencyKey: string;
   cancelReason?: string;
   cancelRequestedAt?: Date | null;
+  isAnonymized?: boolean;
+  userDeletedAt?: Date | null;
 }
 
 const OrderItemSchema = new Schema<IOrderItem>(
@@ -225,6 +227,8 @@ const OrderSchema = new Schema<IOrder>(
     idempotencyKey: { type: String, default: undefined },
     cancelReason: { type: String, default: "" },
     cancelRequestedAt: { type: Date, default: null },
+    isAnonymized: { type: Boolean, default: false },
+    userDeletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

@@ -9,9 +9,10 @@ import {
   deleteDesign,
   generateImage,
   confirmDesign,
+  uploadCompositeResult,
 } from "../controllers/designController";
 
-// ── Multer config cho upload ảnh phòng ─────────────────────────────────────
+// ── Multer config cho upload ảnh phòng & ảnh ghép ──────────────────────────
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
@@ -33,7 +34,15 @@ router.get("/mine", requireAuth, getMyDesigns);
 router.get("/:id", requireAuth, getDesignById);
 router.delete("/:id", requireAuth, deleteDesign);
 
-// AI render.
+// Composite upload: Client tự tách nền + ghép cây vào phòng rồi gửi ảnh kết quả.
+router.post(
+  "/:id/result",
+  requireAuth,
+  upload.single("compositeImage"),
+  uploadCompositeResult
+);
+
+// Legacy AI render (feature flag AI_ROOM_DESIGN_ENABLED).
 router.post("/:id/generate-image", requireAuth, generateImage);
 
 // Backward-compat: confirmDesign giờ là no-op (checkout không cần confirm).

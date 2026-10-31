@@ -13,13 +13,15 @@
     "test:pricing": "ts-node --transpile-only src/tests/pricing.test.ts",
     "test:upload": "ts-node --transpile-only src/tests/upload.test.ts",
     "test:ai": "ts-node --transpile-only src/tests/design.test.ts",
-    "test:chat": "ts-node --transpile-only src/tests/chat.test.ts",
+    "test:chat": "ts-node --transpile-only src/tests/chat.test.ts && ts-node --transpile-only src/tests/chatUnified.test.ts",
     "test:sepay": "ts-node --transpile-only src/tests/sepay.test.ts",
     "test:review": "ts-node --transpile-only src/tests/review.test.ts",
     "test:media": "ts-node --transpile-only src/tests/media.test.ts",
     "test:hard-delete": "ts-node --transpile-only src/tests/hardDeleteCascade.test.ts",
-    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/design.test.ts && ts-node --transpile-only src/tests/sepay.test.ts && ts-node --transpile-only src/tests/review.test.ts && ts-node --transpile-only src/tests/media.test.ts",
-    "clean:trees": "ts-node --transpile-only src/scripts/clean-legacy-trees.ts"
+    "test:account-deletion": "ts-node --transpile-only src/tests/accountDeletion.test.ts",
+    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/design.test.ts && ts-node --transpile-only src/tests/sepay.test.ts && ts-node --transpile-only src/tests/review.test.ts && ts-node --transpile-only src/tests/media.test.ts && ts-node --transpile-only src/tests/chat.test.ts && ts-node --transpile-only src/tests/chatUnified.test.ts && ts-node --transpile-only src/tests/accountDeletion.test.ts",
+    "clean:trees": "ts-node --transpile-only src/scripts/clean-legacy-trees.ts",
+    "reset:chat": "ts-node --transpile-only src/scripts/reset-chat.ts"
   },
   "dependencies": {
     "@google/genai": "^2.30.0",

@@ -24,6 +24,8 @@ export interface IRoomDesign extends Document {
   status: RoomDesignStatus;
   lastError: string | null;
   deliveryOption: DeliveryOption;
+  compositeSource?: "CLIENT" | "AI";
+  clientPrompt?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -69,6 +71,12 @@ const RoomDesignSchema = new Schema<IRoomDesign>(
       required: true,
       default: "READY_TO_DISPLAY",
     },
+    compositeSource: {
+      type: String,
+      enum: ["CLIENT", "AI"],
+      default: "CLIENT",
+    },
+    clientPrompt: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
 );

@@ -37,6 +37,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // Verify user in DB to check accountStatus
     const user = await User.findById(decoded.id).select("accountStatus");
     if (!user) {
+      const fullPath = (req.baseUrl || "") + (req.path || "");
+      if (req.method === "DELETE" && fullPath.endsWith("/users/me")) {
+        sendError(res, ErrorCode.NOT_FOUND, "Tài khoản không tồn tại", 404);
+        return;
+      }
       sendError(res, ErrorCode.UNAUTHORIZED, "Tài khoản không tồn tại");
       return;
     }

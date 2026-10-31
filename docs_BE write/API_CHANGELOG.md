@@ -5,6 +5,69 @@ Track changes to the API contract over time to ensure synchronization between Ba
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Christmas entries (2026-10-07+) là contract hiện tại. Entries cũ (2026-10-06 trở về trước) là **lịch sử marketplace** - chỉ tham khảo context, KHÔNG áp dụng cho code Christmas. Source of truth cho FE = `backend/src/`.
 
 ---
+## 2026-10-31 👤 ACCOUNT DELETION (`DELETE /api/users/me`) — GOOGLE PLAY DATA SAFETY
+
+> **Feature added**: API Xoá tài khoản người dùng vĩnh viễn, làm sạch dữ liệu cá nhân (PII) trong đơn hàng, cascade xoá toàn bộ giỏ hàng, thiết kế phòng, đánh giá và thông báo. Giải quyết blocker phát hành ứng dụng lên Google Play.
+> Chi tiết kỹ thuật: `docs_BE write/BE_HANDOFF_ACCOUNT_DELETION.md`.
+
+### Added Endpoints
+- `DELETE /api/users/me` — Yêu cầu Bearer token của chính user. Trả về `204 No Content`. Rate limit: 1 request / 60 giây / user.
+
+### Business Rules & Data Cascade
+- **Chặn xoá khi có đơn đang xử lý**: Kiểm tra các trạng thái `PENDING_PAYMENT`, `PAID`, `CONFIRMED`, `PACKING`. Nếu còn đơn, trả về `409 ORDER_IN_PROGRESS` kèm danh sách đơn bị chặn.
+- **Scrub PII trong Order**: Giữ lại các trường đối soát tài chính (`orderCode`, `totalAmount`, `status`), nhưng xoá sạch thông tin nhận hàng (`shippingName`, `shippingPhone`, `shippingAddress`, `pickupInfo`), gán `isAnonymized: true`, `userDeletedAt`.
+- **Cascade xoá dữ liệu cá nhân**: Xoá vĩnh viễn `Cart`, `CartItem`, `Design` (kèm ảnh Cloudinary), `Review`, `Notification`, và `User` (kèm embedded `addresses[]`).
+- **Anonymize Chat**: Rút user khỏi danh sách `participants` trong hội thoại, xóa hội thoại AI rỗng.
+- **Idempotent**: Gọi lại endpoint khi tài khoản đã bị xoá sẽ trả `404 NOT_FOUND`.
+
+### Added Error Codes
+- `ORDER_IN_PROGRESS` (409) — User còn đơn hàng đang xử lý, không thể xoá tài khoản.
+
+---
+## 2026-10-31 💬 CHAT V3 UNIFIED (SINGLE MODEL) & 🎨 ROOM DESIGN CLIENT COMPOSITING
+
+> **🚨 BREAKING CHANGES**: 
+> 1. Hợp nhất hoàn toàn hệ thống Chat (Chatbot AI + Hỗ trợ Khách hàng 1-1) thành 1 model duy nhất (Single Source of Truth), chuyển toàn bộ Socket sang namespace `/chat`. Chi tiết di chuyển xem tại `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md`.
+> 2. Chuyển đổi phối cảnh phòng từ cơ chế AI render chậm (KIE/SDXL trên server) sang **Client-side Compositing (Ghép ảnh tức thì)** qua endpoint `POST /api/designs/:id/result`. Chi tiết xem tại `docs_BE write/FE_ROOM_DESIGN_COMPOSITE_GUIDE.md`.
+
+### 🚨 Breaking Changes & Deprecations
+- **Chat Endpoints Bãi Bỏ:**
+  - `POST /api/chat/ai/conversations`, `GET /api/chat/ai/conversations`, `GET /api/chat/ai/conversations/:id/messages`, `POST /api/chat/ai/conversations/:id/messages`, `POST /api/chat/ai/conversations/:id/escalate` ➔ **ĐÃ BỎ**.
+  - `GET /api/chat/conversations/:peerId/messages`, `POST /api/chat/conversations/:peerId/messages`, `POST /api/chat/conversations/:peerId/markRead` ➔ **ĐÃ BỎ**.
+  - Không còn sử dụng chuỗi ghép định danh hội thoại `c_<a>__<b>`. Mọi hội thoại giờ định danh bằng ObjectId chuẩn trong collection `conversations`.
+- **Chat Socket Namespaces & Events:**
+  - Gỡ bỏ socket chat trên root namespace `/`. Chuyển toàn bộ sang namespace **`/chat`**.
+  - Thay thế hệ event phân mảnh cũ (`join_conversation`, `new_message`, `send_message`) bằng chuẩn mới: `chat:join`, `chat:send`, `chat:read`, `chat:typing`, `chat:leave` (C → S) và `chat:message`, `chat:conversation`, `chat:unread`, `chat:status`, `chat:typing`, `chat:error` (S → C).
+- **Chat Message Schema:**
+  - Bỏ `role: "buyer" | "admin"` (khắc phục triệt để lỗi admin bị map nhầm thành buyer). Thay bằng `senderType: "USER" | "BOT" | "ADMIN" | "SYSTEM"` và trường boolean `isOwn`.
+  - Bỏ cờ `isRead` phẳng trên Message. Trạng thái đọc tin được tính toán theo mốc thời gian `participants[].lastReadAt` của từng người dùng.
+- **Room Design AI Render:**
+  - `POST /api/designs/:id/generate-image` bị deprecate (trả mã lỗi 410 `ENDPOINT_GONE` khi feature flag tắt). FE chuyển sang ghép ảnh trên Canvas và upload kết quả qua `POST /api/designs/:id/result`.
+
+### Added Endpoints
+- `POST /api/chat/conversations` — Mở hoặc tạo hội thoại (`channel: "AI" | "SUPPORT"`, hỗ trợ khách vãng lai qua `sessionId`).
+- `GET /api/chat/conversations` — Danh sách hội thoại của user hiện tại.
+- `GET /api/chat/conversations/:id/messages` — Cursor pagination lấy lịch sử tin nhắn (`before=<messageId>`, `limit=`).
+- `POST /api/chat/conversations/:id/messages` — Gửi tin nhắn qua REST (dự phòng khi socket gián đoạn).
+- `POST /api/chat/conversations/:id/read` — Đánh dấu đã đọc tin nhắn hội thoại.
+- `POST /api/chat/conversations/:id/escalate` — Chuyển giao hội thoại sang nhân viên tư vấn trực ca.
+- `GET /api/chat/unread` — Lấy tổng số tin nhắn chưa đọc của người dùng.
+- `GET /api/chat/admin/conversations` — Admin: Danh sách hội thoại toàn sàn (`channel`, `status`, phân trang).
+- `PUT /api/chat/admin/conversations/:id/status` — Admin: Cập nhật trạng thái hội thoại (`BOT_ACTIVE`, `WAITING_ADMIN`, `ADMIN_ACTIVE`, `RESOLVED`).
+- `POST /api/chat/admin/conversations/:id/assign` — Admin: Tiếp nhận ca trực hỗ trợ hội thoại.
+- `POST /api/designs/:id/result` — Upload ảnh ghép hoàn chỉnh từ Client lên Cloudinary, đồng bộ trạng thái `AI_COMPLETED` lập tức.
+
+### Added Error Codes
+- `CHAT_CONVERSATION_NOT_FOUND` (404)
+- `CHAT_STATUS_INVALID` (400)
+- `CHAT_FORBIDDEN` (403)
+- `CHAT_INVALID_ID` (400)
+- `CHAT_EMPTY_CONTENT` (400)
+- `CHAT_MESSAGE_TOO_LONG` (400)
+- `COMPOSITE_IMAGE_REQUIRED` (400)
+- `ENDPOINT_GONE` (410)
+
+---
 ## 2026-10-30 🎬 MEDIA ASSETS (VIDEO HERO / STORY FEED / NHẠC NỀN)
 
 > **Feature added**: Nền tảng media để tăng cảm xúc người dùng — video nền Hero, story dọc kiểu Reels, nhạc nền toàn app. BE đã hoàn tất; FE (web) và Mobile cần triển khai theo hướng dẫn trong `docs_BE write/FE_MEDIA_INTEGRATION_GUIDE.md`.

@@ -10,7 +10,7 @@ import {
 import { resolveRoomDesign, buildRoomDesignResponse } from "../services/designService";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { ok, created } from "../utils/respond";
-import { generateRoomDesignImage } from "../services/ai/googleImageService";
+
 import type { DeliveryOption } from "../config/business";
 
 const ROOM_IMAGE_MAX_BYTES = 8 * 1024 * 1024; // 8 MB
@@ -271,13 +271,131 @@ export const deleteDesign = async (
   }
 };
 
+// ── POST /api/designs/:id/result ─────────────────────────────────────────────
+// Client-side composite upload (field: `compositeImage`) → upload Cloudinary → set status = AI_COMPLETED.
+export const uploadCompositeResult = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const id = String(req.params.id || "");
+    if (!Types.ObjectId.isValid(id)) {
+      sendError(res, ErrorCode.INVALID_INPUT, "ID thiết kế không hợp lệ", 400);
+      return;
+    }
+
+    if (!isCloudinaryEnabled()) {
+      sendError(
+        res,
+        ErrorCode.UPSTREAM_ERROR,
+        "Cloudinary chưa được cấu hình. Liên hệ admin."
+      );
+      return;
+    }
+
+    const design = await Design.findById(id);
+    if (!design) {
+      sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
+      return;
+    }
+
+    const isOwner =
+      design.ownerId && req.user?.id
+        ? String(design.ownerId) === String(req.user.id)
+        : false;
+    const isAdmin = req.user?.roles?.includes("admin") ?? false;
+    if (!isOwner && !isAdmin) {
+      sendError(
+        res,
+        ErrorCode.FORBIDDEN,
+        "Bạn không có quyền cập nhật thiết kế này"
+      );
+      return;
+    }
+
+    const file = (req as any).file as
+      | { buffer: Buffer; mimetype: string; size: number }
+      | undefined;
+    if (!file || !file.buffer) {
+      sendError(
+        res,
+        ErrorCode.COMPOSITE_IMAGE_REQUIRED,
+        "Thiếu file ảnh đã ghép (field: `compositeImage`)"
+      );
+      return;
+    }
+
+    if (file.size > ROOM_IMAGE_MAX_BYTES) {
+      sendError(
+        res,
+        ErrorCode.FILE_TOO_LARGE,
+        "Ảnh đã ghép vượt quá 8 MB"
+      );
+      return;
+    }
+
+    if (file.mimetype && !ALLOWED_ROOM_MIME.includes(file.mimetype)) {
+      sendError(
+        res,
+        ErrorCode.UNSUPPORTED_MEDIA_TYPE,
+        `Định dạng ảnh không hỗ trợ: ${file.mimetype}. Chỉ chấp nhận JPEG/PNG/WebP.`
+      );
+      return;
+    }
+
+    if (design.resultImagePublicId) {
+      deleteAsset(design.resultImagePublicId, "image").catch((err) =>
+        console.warn(`[designs] Failed to cleanup old result image:`, err)
+      );
+    }
+
+    const uploaded = await uploadFromBuffer(file.buffer, {
+      folder: "buildyourchristmas/room-designs/results",
+      resourceType: "image",
+    });
+
+    const clientPrompt = typeof req.body?.clientPrompt === "string" ? req.body.clientPrompt.trim() : "";
+
+    design.status = "AI_COMPLETED";
+    design.resultImageUrl = uploaded.url;
+    design.resultImagePublicId = uploaded.publicId;
+    design.compositeSource = "CLIENT";
+    if (clientPrompt) {
+      design.clientPrompt = clientPrompt;
+    }
+    design.lastError = null;
+    await design.save();
+
+    ok(res, {
+      designId: String(design._id),
+      status: "AI_COMPLETED",
+      imageUrl: uploaded.url,
+      imagePublicId: uploaded.publicId,
+      compositeSource: "CLIENT",
+    });
+  } catch (err) {
+    handleInternalError(res, err, "[designs] uploadCompositeResult error");
+  }
+};
+
 // ── POST /api/designs/:id/generate-image ─────────────────────────────────────
-// Trigger AI ghép cây vào phòng. Gọi KIE → upload Cloudinary → set status.
+// Legacy AI ghép cây vào phòng (feature flag AI_ROOM_DESIGN_ENABLED).
 export const generateImage = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
+    const isLegacyDisabled = process.env.AI_ROOM_DESIGN_ENABLED === "true";
+    if (isLegacyDisabled) {
+      sendError(
+        res,
+        ErrorCode.ENDPOINT_GONE,
+        "Endpoint /generate-image đã ngừng hoạt động. Hãy chuyển sang client-side composite và gửi ảnh qua POST /api/designs/:id/result.",
+        410
+      );
+      return;
+    }
+
     const id = String(req.params.id || "");
     if (!Types.ObjectId.isValid(id)) {
       sendError(
@@ -289,6 +407,7 @@ export const generateImage = async (
       return;
     }
     const isAdmin = Boolean(req.user?.roles?.includes("admin"));
+    const { generateRoomDesignImage } = await import("../services/ai/legacyRoomDesignService");
     const result = await generateRoomDesignImage(
       id,
       String(req.user?.id || ""),

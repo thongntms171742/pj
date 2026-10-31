@@ -211,7 +211,33 @@
 
 ---
 
-## Users (Saved addresses)
+## Users (Profile & Saved addresses)
+
+### DELETE `/api/users/me`
+
+**Mục đích**: Xoá vĩnh viễn tài khoản người dùng và cascade làm sạch dữ liệu cá nhân (Google Play Data Safety compliance).
+
+**Auth**: Required (Bearer token của chính user).
+
+**Rate Limit**: 1 request / 60 giây / user.
+
+**Request body**: Không có.
+
+**Success (204)**: `204 No Content` (không body).
+
+**Ràng buộc & Hành vi**:
+- **Chặn xoá khi có đơn hàng đang xử lý**: Nếu còn đơn ở trạng thái `PENDING_PAYMENT`, `PAID`, `CONFIRMED`, `PACKING`, API trả `409 ORDER_IN_PROGRESS` kèm danh sách đơn bị chặn trong `details.blockingOrders`.
+- **Scrub PII trong Order**: Giữ lại các trường đối soát tài chính (`orderCode`, `totalAmount`, `status`), nhưng làm sạch thông tin cá nhân (`shippingName`, `shippingPhone`, `shippingAddress`, `pickupInfo`, gán `isAnonymized: true`, `userDeletedAt`).
+- **Cascade xoá**: Xoá `Cart`, `CartItem`, `Design`, `Review`, `Notification`, và document `User` (kèm embedded `addresses[]`).
+- **Idempotency**: Gọi lần thứ hai khi user đã bị xoá sẽ trả `404 NOT_FOUND`.
+
+**Errors**:
+- `401 UNAUTHORIZED` / `TOKEN_INVALID`
+- `404 NOT_FOUND` — User không tồn tại hoặc đã bị xoá (idempotent)
+- `409 ORDER_IN_PROGRESS` — Còn đơn hàng đang xử lý
+- `429 CONFLICT` — Gọi quá nhanh (< 60s)
+
+---
 
 > Embedded trong `User.addresses[]`. Không tách collection riêng.
 
@@ -806,6 +832,72 @@ Same as `POST /api/catalog/quote`. Alias cho editor UX.
 - `404 DESIGN_NOT_FOUND`
 - `403 FORBIDDEN` — src private + không phải owner/admin
 - `400 DESIGN_CONFIG_INVALID`
+
+---
+
+### POST `/api/designs/upload-room`
+
+**Auth**: Required.
+
+**Description**: Upload ảnh phòng chụp thật của khách lên Cloudinary để làm ảnh nền căn phòng cho bản thiết kế.
+
+**Request**: `multipart/form-data`
+- Field `roomImage`: File ảnh (JPEG, PNG, WebP — tối đa 8 MB).
+
+**Success (200)**:
+```json
+{
+  "success": true,
+  "data": {
+    "roomImageUrl": "https://res.cloudinary.com/.../rooms/room_123.jpg",
+    "roomImagePublicId": "buildyourchristmas/room-designs/rooms/room_123"
+  }
+}
+```
+
+**Errors**:
+- `400 MISSING_FIELD` (Thiếu file `roomImage`)
+- `400 FILE_TOO_LARGE` (Ảnh vượt quá 8 MB)
+- `415 UNSUPPORTED_MEDIA_TYPE` (Chỉ chấp nhận JPEG, PNG, WebP)
+
+---
+
+### POST `/api/designs/:id/result`
+
+**Auth**: Required (owner/admin).
+
+**Description**: Client-side composite upload. Client tự ghép cây thông vào ảnh nền căn phòng trên Canvas/Skia rồi upload ảnh kết quả lên Cloudinary. Server cập nhật thiết kế sang trạng thái `AI_COMPLETED` tức thì.
+
+**Request**: `multipart/form-data`
+- Field `compositeImage` *(bắt buộc)*: File ảnh đã ghép (JPEG, PNG, WebP — tối đa 8 MB).
+- Field `clientPrompt` *(tùy chọn)*: Ghi chú vị trí hoặc mô tả phối cảnh của khách.
+
+**Success (200)**:
+```json
+{
+  "success": true,
+  "data": {
+    "designId": "string",
+    "status": "AI_COMPLETED",
+    "imageUrl": "https://res.cloudinary.com/.../results/result_123.png",
+    "imagePublicId": "buildyourchristmas/room-designs/results/result_123",
+    "compositeSource": "CLIENT"
+  }
+}
+```
+
+**Errors**:
+- `400 COMPOSITE_IMAGE_REQUIRED` (Thiếu file `compositeImage`)
+- `400 FILE_TOO_LARGE`
+- `403 FORBIDDEN`
+- `404 DESIGN_NOT_FOUND`
+- `415 UNSUPPORTED_MEDIA_TYPE`
+
+---
+
+### POST `/api/designs/:id/generate-image`
+
+> ⚠️ **DEPRECATED**: Endpoint server-side render cũ. Mặc định trả về mã lỗi 410 `ENDPOINT_GONE`. Hãy chuyển sang ghép ảnh tại Client và gửi kết quả qua `POST /api/designs/:id/result`.
 
 ---
 
@@ -1778,6 +1870,200 @@ hoặc
 - `400 MISSING_FIELD` (Thiếu file trong request)
 - `400 FILE_TOO_LARGE` (Ảnh > 5MB hoặc Video > 30MB)
 - `415 UNSUPPORTED_MEDIA_TYPE` (Chỉ chấp nhận PNG, JPG, WebP, SVG hoặc MP4)
+
+---
+
+## Chat (Unified Model v3)
+
+> **Namespace Socket.IO**: `/chat`
+> **Kiến trúc**: 1 Model duy nhất (Single Source of Truth). Bỏ convention `c_<a>__<b>` và routes `/api/chat/ai/*`.
+> **DTO chính**: `ChatMessageDto`, `ChatConversationDto`.
+
+### POST `/api/chat/conversations`
+
+**Auth**: Optional (Hỗ trợ khách vãng lai qua `sessionId` và user đăng nhập qua Bearer token).
+
+**Request**:
+```json
+{
+  "channel": "AI | SUPPORT",
+  "sessionId": "string (optional — bắt buộc đối với khách vãng lai)",
+  "customerInfo": {
+    "name": "string (optional)",
+    "phone": "string (optional)",
+    "email": "string (optional)"
+  }
+}
+```
+
+**Success (200)**:
+```json
+{
+  "conversation": {
+    "id": "string (ObjectId)",
+    "channel": "AI | SUPPORT",
+    "status": "BOT_ACTIVE | WAITING_ADMIN | ADMIN_ACTIVE | RESOLVED",
+    "peer": {
+      "id": "string",
+      "name": "string",
+      "avatarUrl": "string (optional)",
+      "role": "string"
+    },
+    "lastMessage": {
+      "content": "string",
+      "sentAt": "string (ISO)",
+      "senderType": "USER | BOT | ADMIN | SYSTEM"
+    },
+    "unread": 0,
+    "updatedAt": "string (ISO)",
+    "assignedAdmin": null
+  },
+  "messages": [
+    /* Array ChatMessageDto */
+  ]
+}
+```
+
+---
+
+### GET `/api/chat/conversations`
+
+**Auth**: Required.
+
+**Query**: `page=1&limit=20`
+
+**Success (200)**:
+```json
+{
+  "conversations": [ /* ChatConversationDto[] */ ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+}
+```
+
+---
+
+### GET `/api/chat/conversations/:id/messages`
+
+**Auth**: Optional (phải là chủ sở hữu hội thoại hoặc Admin).
+
+**Query**:
+- `limit`: Số tin nhắn (mặc định 50, tối đa 100).
+- `before`: ID của tin nhắn cũ nhất trên giao diện để cuộn ngược lên tải thêm tin (Cursor pagination).
+
+**Success (200)**:
+```json
+{
+  "messages": [
+    {
+      "id": "string (ObjectId)",
+      "conversationId": "string",
+      "senderType": "USER | BOT | ADMIN | SYSTEM",
+      "senderId": "string | null",
+      "senderName": "string",
+      "content": "string",
+      "metadata": {
+        "quickReplies": ["string"],
+        "suggestedProducts": [],
+        "orderInfo": null
+      },
+      "sentAt": "string (ISO)",
+      "isOwn": true
+    }
+  ],
+  "hasMore": false,
+  "total": 12,
+  "conversationId": "string"
+}
+```
+
+**Errors**:
+- `400 CHAT_INVALID_ID`
+- `403 CHAT_FORBIDDEN`
+- `404 CHAT_CONVERSATION_NOT_FOUND`
+
+---
+
+### POST `/api/chat/conversations/:id/messages`
+
+**Auth**: Optional. Gửi tin nhắn qua REST (dự phòng khi Socket mất kết nối).
+
+**Request**:
+```json
+{
+  "content": "string (1 - 2000 ký tự)",
+  "metadata": {}
+}
+```
+
+**Success (201)**:
+```json
+{
+  "message": { /* ChatMessageDto */ }
+}
+```
+
+**Errors**:
+- `400 CHAT_EMPTY_CONTENT`
+- `400 CHAT_MESSAGE_TOO_LONG`
+- `403 CHAT_FORBIDDEN`
+- `404 CHAT_CONVERSATION_NOT_FOUND`
+
+---
+
+### POST `/api/chat/conversations/:id/read`
+
+**Auth**: Optional. Đánh dấu đã đọc tin nhắn trong hội thoại.
+
+**Success (200)**:
+```json
+{ "success": true, "conversationId": "string" }
+```
+
+---
+
+### POST `/api/chat/conversations/:id/escalate`
+
+**Auth**: Optional. Yêu cầu chuyển sang nhân viên tư vấn hỗ trợ.
+
+**Request**:
+```json
+{ "reason": "string (optional)" }
+```
+
+**Success (200)**:
+```json
+{ "success": true, "conversation": { /* ChatConversationDto */ } }
+```
+
+---
+
+### GET `/api/chat/unread`
+
+**Auth**: Required. Lấy tổng số tin nhắn chưa đọc của user.
+
+**Success (200)**:
+```json
+{ "unread": 3 }
+```
+
+---
+
+### Admin Chat Endpoints
+
+#### GET `/api/chat/admin/conversations`
+- **Auth**: Admin required.
+- **Query**: `channel=AI|SUPPORT`, `status=BOT_ACTIVE|WAITING_ADMIN|ADMIN_ACTIVE|RESOLVED`, `page=1`, `limit=20`
+- **Success (200)**: `{ "conversations": [...], "pagination": {...} }`
+
+#### PUT `/api/chat/admin/conversations/:id/status`
+- **Auth**: Admin required.
+- **Body**: `{ "status": "BOT_ACTIVE | WAITING_ADMIN | ADMIN_ACTIVE | RESOLVED" }`
+- **Success (200)**: `{ "conversation": { /* ChatConversationDto */ } }`
+
+#### POST `/api/chat/admin/conversations/:id/assign`
+- **Auth**: Admin required.
+- **Description**: Tiếp nhận ca trực hỗ trợ hội thoại (chuyển sang `ADMIN_ACTIVE` và gán `assignedAdminId`).
+- **Success (200)**: `{ "conversation": { /* ChatConversationDto */ } }`
 
 ---
 

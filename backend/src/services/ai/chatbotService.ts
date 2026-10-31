@@ -4,8 +4,8 @@ import { Conversation } from "../../models/Conversation";
 import { Message, IMessageMetadata } from "../../models/Message";
 import { Tree } from "../../models/Tree";
 import { Order } from "../../models/Order";
-import { getSocketIO } from "../chat/socketService";
 import { escapeRegExp } from "../../utils/regex";
+import { broadcastNewMessage, broadcastStatusChange } from "../../modules/chat/socket/chatSocket";
 
 /** Ngữ cảnh người gọi — dùng để giới hạn tool lookup_order. */
 export interface ChatCallerContext {
@@ -91,7 +91,6 @@ const toolsDeclarations: FunctionDeclaration[] = [
  */
 async function executeSearchProducts(args: { query?: string; type?: string; maxPrice?: number }) {
   const { query = "", type = "all", maxPrice } = args;
-  // Escape input: `new RegExp("(")` ⇒ SyntaxError ⇒ bot sập về fallback.
   const regex = new RegExp(escapeRegExp(query.trim()), "i");
   const results: any = { trees: [] };
 
@@ -124,12 +123,6 @@ async function executeSearchProducts(args: { query?: string; type?: string; maxP
 
 /**
  * Tool 2: Lookup order status by code or phone.
- *
- * Bảo mật: trước đây bất kỳ ai biết mã đơn / SĐT người nhận đều tra được
- * tên + địa chỉ + SĐT của đơn (IDOR). Nay:
- *  - Khách đã đăng nhập ⇒ chỉ tra được đơn của chính họ (`buyerId`).
- *  - Khách vãng lai (guest) ⇒ chỉ nhận thông tin tối thiểu (mã + trạng thái),
- *    KHÔNG lộ tên/địa chỉ/SĐT.
  */
 async function executeLookupOrder(
   args: { orderCode?: string; phoneNumber?: string },
@@ -148,11 +141,9 @@ async function executeLookupOrder(
       query.$or.push({ _id: new Types.ObjectId(code) });
     }
   } else if (phoneNumber) {
-    // Escape: `new RegExp("(")` ⇒ SyntaxError ⇒ bot sập về fallback.
     query.shippingPhone = new RegExp(escapeRegExp(phoneNumber.trim()));
   }
 
-  // Khách đã đăng nhập chỉ được tra đơn của chính họ.
   if (caller?.userId) {
     query.buyerId = new Types.ObjectId(caller.userId);
   }
@@ -184,7 +175,6 @@ async function executeLookupOrder(
     REFUNDED: "Đã hoàn tiền",
   };
 
-  // Guest (chưa đăng nhập) chỉ được thấy thông tin tối thiểu.
   const isGuest = !caller?.userId;
 
   return {
@@ -196,7 +186,6 @@ async function executeLookupOrder(
     itemCount: order.items?.length || 0,
     trackingNumber: order.trackingNumber || "Chưa có",
     createdAt: (order as any).createdAt || new Date(),
-    // PII — chỉ trả cho chủ đơn (đã đăng nhập) hoặc admin.
     ...(isGuest
       ? {
           recipient: undefined,
@@ -227,26 +216,16 @@ async function executeEscalateToAdmin(conversationId: string, reason: string) {
   // Create system notice message
   const sysMsg = await Message.create({
     conversationId: conv._id,
-    senderType: "SYSTEM",
-    senderName: "Hệ thống",
+    sender: {
+      type: "SYSTEM",
+      name: "Hệ thống",
+    },
     content: "Đã gửi yêu cầu kết nối với tư vấn viên. Vui lòng chờ trong giây lát...",
     metadata: { action: "ESCALATION_BY_AI", reason },
   });
 
-  const io = getSocketIO();
-  if (io) {
-    const room = `conversation_${conversationId}`;
-    io.to(room).emit("new_message", { message: sysMsg, status: conv.status });
-    io.to(room).emit("status_changed", { conversationId: conv._id, status: conv.status });
-
-    io.to("admin_channel").emit("new_support_ticket", {
-      conversationId: conv._id,
-      customerInfo: conv.customerInfo,
-      summary: reason,
-      lastMessageAt: conv.lastMessageAt,
-      unreadAdminCount: conv.unreadAdminCount,
-    });
-  }
+  await broadcastNewMessage(conv._id, sysMsg, conv);
+  broadcastStatusChange(conv._id, "WAITING_ADMIN");
 
   return {
     success: true,
@@ -258,7 +237,6 @@ async function executeEscalateToAdmin(conversationId: string, reason: string) {
 
 /**
  * Processes incoming user message with Gemini AI and optional Function Calling.
- * Called whenever a user sends a message in a BOT_ACTIVE conversation.
  */
 export async function processAiChatMessage(
   conversationId: string,
@@ -268,7 +246,6 @@ export async function processAiChatMessage(
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   const modelName = process.env.GEMINI_CHAT_MODEL?.trim() || "gemini-2.5-flash";
 
-  // Check if conversation is still in BOT_ACTIVE mode
   const conv = await Conversation.findById(conversationId);
   if (!conv || conv.status !== "BOT_ACTIVE") {
     return;
@@ -291,28 +268,23 @@ export async function processAiChatMessage(
 
     const history = historyDocs.reverse();
 
-    // Map history to Gemini content parts.
-    // Gemini yêu cầu `contents[0].role === "user"` — nếu lịch sử bắt đầu bằng
-    // tin BOT/SYSTEM thì API trả 400 và mọi lượt trả lời rơi vào fallback.
     const rawContents: Array<{ role: "user" | "model"; parts: any[] }> = [];
 
     for (const msg of history) {
-      if (msg.senderType === "USER") {
+      const type = msg.sender?.type;
+      if (type === "USER") {
         rawContents.push({ role: "user", parts: [{ text: msg.content }] });
-      } else if (msg.senderType === "BOT") {
+      } else if (type === "BOT") {
         rawContents.push({ role: "model", parts: [{ text: msg.content }] });
       }
     }
 
-    // Bỏ các tin BOT/SYSTEM ở đầu lịch sử cho tới khi gặp message "user" đầu tiên.
     let startIdx = rawContents.findIndex((c) => c.role === "user");
     if (startIdx === -1) {
-      // Không có message user nào trong lịch sử → chỉ gửi câu hỏi hiện tại.
       startIdx = rawContents.length;
     }
     const contents = rawContents.slice(startIdx);
 
-    // Đảm bảo lượt cuối là "user" (Gemini cần user turn cuối để trả lời).
     if (contents.length === 0) {
       contents.push({ role: "user", parts: [{ text: latestUserText }] });
     } else if (contents[contents.length - 1].role !== "user") {
@@ -333,7 +305,6 @@ export async function processAiChatMessage(
     let botReplyText = response.text || "";
     let botMetadata: IMessageMetadata = {};
 
-    // If Gemini decided to call a Tool
     if (functionCalls && functionCalls.length > 0) {
       const call = functionCalls[0];
       console.log(`[Chatbot] Gemini gọi Tool: ${call.name} với args:`, call.args);
@@ -356,9 +327,7 @@ export async function processAiChatMessage(
         if (toolResult.found) {
           botMetadata.orderInfo = {
             orderId: toolResult.orderCode,
-            // FE (AdminLiveChatTab) đọc `orderCode` — chuẩn hóa khoá này.
             orderCode: toolResult.orderCode,
-            // Giữ `orderNumber` để tương thích ngược.
             orderNumber: toolResult.orderCode,
             status: toolResult.status,
             totalAmount: toolResult.totalAmount,
@@ -370,7 +339,6 @@ export async function processAiChatMessage(
         botMetadata.escalationReason = reason;
       }
 
-      // Turn 2: Feed tool result back to Gemini for natural final answer
       try {
         const followUpContents = [
           ...contents,
@@ -410,68 +378,36 @@ export async function processAiChatMessage(
       }
     }
 
-    // If still no reply text, provide friendly fallback
     if (!botReplyText.trim()) {
       botReplyText = "Em có thể giúp gì thêm cho anh/chị về các mẫu cây thông hay đơn hàng không ạ? 🎄";
     }
 
-    // Save Bot message into database
     const botMsg = await Message.create({
       conversationId: conv._id,
-      senderType: "BOT",
-      senderName: "Trợ lý AI",
+      sender: {
+        type: "BOT",
+        name: "Trợ lý AI",
+      },
       content: botReplyText.trim(),
       metadata: botMetadata,
     });
 
-    // Nạp lại status từ DB: tool `escalate_to_admin` đã đổi status thành
-    // WAITING_ADMIN ở một document khác ⇒ nếu đọc `conv.status` cũ (BOT_ACTIVE)
-    // thì FE sẽ ghi đè badge về "AI tự động".
     const freshConv = await Conversation.findById(conv._id);
     const currentStatus = freshConv?.status || conv.status;
 
     conv.lastMessage = botReplyText.trim();
     conv.lastMessageAt = new Date();
+    conv.lastMessageSenderType = "BOT";
     conv.status = currentStatus;
-    // Chỉ tăng unread khi khách KHÔNG đang mở khung chat (room còn người
-    // xem) — nếu không badge tích tụ vô hạn.
-    const io = getSocketIO();
-    const room = `conversation_${conv._id}`;
-    const roomSize = io ? io.sockets.adapter.rooms.get(room)?.size ?? 0 : 0;
-    if (roomSize === 0) {
-      conv.unreadUserCount += 1;
-    }
     await conv.save();
 
-    // Broadcast Bot reply via Socket.io
-    if (io) {
-      io.to(room).emit("new_message", {
-        message: botMsg,
-        conversation: {
-          id: conv._id,
-          status: currentStatus,
-          lastMessageAt: conv.lastMessageAt,
-        },
-      });
-
-      io.to("admin_channel").emit("conversation_updated", {
-        conversationId: conv._id,
-        lastMessage: conv.lastMessage,
-        lastMessageAt: conv.lastMessageAt,
-        status: conv.status,
-        unreadAdminCount: conv.unreadAdminCount,
-        customerInfo: conv.customerInfo,
-      });
-    }
+    await broadcastNewMessage(conv._id, botMsg, conv);
   } catch (err: any) {
     console.error("[Chatbot] Lỗi xử lý Gemini AI Chat:", err);
     await handleFallbackBotResponse(conv, latestUserText);
   }
 }
 
-/**
- * Formats tool results into friendly Vietnamese text if follow-up turn fails.
- */
 function formatToolFallbackText(toolName?: string, result?: any): string {
   if (toolName === "search_products") {
     const trees = result?.trees || [];
@@ -500,15 +436,17 @@ function formatToolFallbackText(toolName?: string, result?: any): string {
   return "Dạ em đã ghi nhận thông tin, em có thể hỗ trợ gì thêm cho anh/chị không ạ?";
 }
 
-/**
- * Intelligent Fallback when Gemini API Key is not set or network fails.
- */
 async function handleFallbackBotResponse(conv: any, userText: string): Promise<void> {
   const lower = userText.toLowerCase().trim();
   let replyText = "";
   let quickReplies: string[] = ["Tư vấn cây thông Noel", "Tra cứu đơn hàng", "Gặp nhân viên hỗ trợ"];
 
-  if (lower.includes("gặp admin") || lower.includes("tư vấn viên") || lower.includes("người thật") || lower.includes("nhân viên")) {
+  if (
+    lower.includes("gặp admin") ||
+    lower.includes("tư vấn viên") ||
+    lower.includes("người thật") ||
+    lower.includes("nhân viên")
+  ) {
     await executeEscalateToAdmin(String(conv._id), "Khách hàng yêu cầu gặp tư vấn viên trực tiếp");
     replyText = "Dạ vâng, em đã chuyển cuộc trò chuyện sang cho chuyên viên tư vấn rồi ạ. Bạn đợi trong giây lát nhé! 👩‍💼";
     quickReplies = [];
@@ -522,35 +460,22 @@ async function handleFallbackBotResponse(conv: any, userText: string): Promise<v
 
   const botMsg = await Message.create({
     conversationId: conv._id,
-    senderType: "BOT",
-    senderName: "Trợ lý AI",
+    sender: {
+      type: "BOT",
+      name: "Trợ lý AI",
+    },
     content: replyText,
     metadata: { quickReplies },
   });
 
-  // Nạp lại status (fallback cũng có thể đã escalate).
   const freshConv = await Conversation.findById(conv._id);
   const currentStatus = freshConv?.status || conv.status;
 
   conv.lastMessage = replyText;
   conv.lastMessageAt = new Date();
+  conv.lastMessageSenderType = "BOT";
   conv.status = currentStatus;
-  const io = getSocketIO();
-  const room = `conversation_${conv._id}`;
-  const roomSize = io ? io.sockets.adapter.rooms.get(room)?.size ?? 0 : 0;
-  if (roomSize === 0) {
-    conv.unreadUserCount += 1;
-  }
   await conv.save();
 
-  if (io) {
-    io.to(room).emit("new_message", {
-      message: botMsg,
-      conversation: {
-        id: conv._id,
-        status: currentStatus,
-        lastMessageAt: conv.lastMessageAt,
-      },
-    });
-  }
+  await broadcastNewMessage(conv._id, botMsg, conv);
 }

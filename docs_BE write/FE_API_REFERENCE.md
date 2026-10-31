@@ -1431,4 +1431,113 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
 #### Xóa đánh giá
 - `DELETE /api/admin/reviews/:id`
 
+---
 
+## 💬 PHẦN 11: HỆ THỐNG CHAT V3 HỢP NHẤT (UNIFIED MODEL)
+
+> 📘 **Tài liệu chi tiết đầy đủ**: `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md` và `backend/docs/CHAT_API.md`.
+
+### 11.1 Kiến trúc & URL kết nối
+- **Socket.IO Namespace**: `/chat` (BẮT BUỘC, ví dụ: `https://christmas-8ca4.onrender.com/chat`).
+- **Cấu hình Socket Client**:
+  ```typescript
+  import { io } from "socket.io-client";
+  const socket = io("https://christmas-8ca4.onrender.com/chat", {
+    auth: {
+      token: localStorage.getItem("token") || undefined,
+      sessionId: localStorage.getItem("chat_session_id") || undefined,
+    },
+    transports: ["websocket", "polling"],
+    tryAllTransports: true,
+  });
+  ```
+
+### 11.2 Bảng tra cứu Socket Events
+
+| Hướng | Tên Event | Payload | Mô tả |
+| :--- | :--- | :--- | :--- |
+| **C → S** | `chat:join` | `{ conversationId }` | Vào phòng chat để nhận tin realtime |
+| **C → S** | `chat:send` | `{ conversationId, content, metadata? }` | Gửi tin nhắn mới |
+| **C → S** | `chat:read` | `{ conversationId, lastMessageId? }` | Đánh dấu đã đọc tin nhắn |
+| **C → S** | `chat:typing`| `{ conversationId }` | Báo đang gõ văn bản |
+| **C → S** | `chat:leave`| `{ conversationId }` | Rời phòng chat |
+| **S → C** | `chat:message`| `ChatMessageDto` | Nhận tin nhắn mới từ Bot/Admin/User |
+| **S → C** | `chat:conversation` | `ChatConversationDto` | Cập nhật thông tin hội thoại |
+| **S → C** | `chat:unread` | `{ total, byConversation }` | Cập nhật số tin nhắn chưa đọc |
+| **S → C** | `chat:status` | `{ conversationId, status }` | Trạng thái chuyển đổi (vd: WAITING_ADMIN) |
+| **S → C** | `chat:typing` | `{ conversationId, userId, userName }` | Đối phương đang gõ |
+| **S → C** | `chat:error` | `{ code, message }` | Lỗi thao tác socket |
+
+### 11.3 Tóm tắt REST Endpoints
+- `POST /api/chat/conversations` (Optional Auth) — Tạo hoặc lấy hội thoại (`channel: "AI" | "SUPPORT"`).
+- `GET /api/chat/conversations` (Require Auth) — Danh sách hội thoại của tôi.
+- `GET /api/chat/conversations/:id/messages?before=&limit=` (Optional Auth) — Lấy lịch sử tin nhắn (Cursor pagination).
+- `POST /api/chat/conversations/:id/messages` (Optional Auth) — Gửi tin qua REST (fallback khi socket mất mạng).
+- `POST /api/chat/conversations/:id/read` (Optional Auth) — Đánh dấu đã đọc.
+- `POST /api/chat/conversations/:id/escalate` (Optional Auth) — Yêu cầu gặp nhân viên hỗ trợ.
+- `GET /api/chat/unread` (Require Auth) — Đếm tổng số tin chưa đọc.
+
+---
+
+## 🎨 PHẦN 12: PHỐI CẢNH PHÒNG TỰ GHÉP (CLIENT-SIDE COMPOSITING)
+
+> 📘 **Tài liệu chi tiết & Code mẫu Canvas / React Native Skia**: `docs_BE write/FE_ROOM_DESIGN_COMPOSITE_GUIDE.md`.
+
+### 12.1 Thay đổi luồng từ AI Render sang Ghép ảnh Client
+- **Trước đây**: Gọi `POST /api/designs/:id/generate-image` và chờ server render 40s (hay bị timeout 504).
+- **Hiện tại**:
+  1. Client upload ảnh căn phòng: `POST /api/designs/upload-room` (nhận `roomImageUrl`).
+  2. Tạo thiết kế: `POST /api/designs`.
+  3. Client dùng Canvas (Web) hoặc Skia (Mobile) để cho khách hàng tự kéo thả, phóng to, xoay cây thông vào góc phòng.
+  4. Client xuất ảnh đã ghép và upload trực tiếp lên Cloudinary: `POST /api/designs/:id/result`.
+  5. Backend phản hồi `200 OK` đồng bộ với `status: "AI_COMPLETED"`. **Không cần polling kiểm tra trạng thái nữa**.
+
+### 12.2 Chi tiết Endpoint `POST /api/designs/:id/result`
+- **Auth**: `Bearer <token>` (Chủ sở hữu hoặc Admin).
+- **Content-Type**: `multipart/form-data`
+- **Fields**:
+  - `compositeImage` *(bắt buộc)*: File ảnh kết quả (JPEG, PNG, WebP — tối đa 8 MB).
+  - `clientPrompt` *(tùy chọn)*: Ghi chú vị trí hoặc mô tả phối cảnh của khách.
+- **Response mẫu (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "designId": "6724b1029102...",
+      "status": "AI_COMPLETED",
+      "imageUrl": "https://res.cloudinary.com/byc/image/upload/v1/.../result_123.jpg",
+      "imagePublicId": "buildyourchristmas/room-designs/results/result_123",
+      "compositeSource": "CLIENT"
+    }
+  }
+  ```
+
+---
+
+## 👤 PHẦN 13: XOÁ TÀI KHOẢN (ACCOUNT DELETION — GOOGLE PLAY COMPLIANCE)
+
+> 📘 **Tài liệu bàn giao chi tiết**: `docs_BE write/BE_HANDOFF_ACCOUNT_DELETION.md`.
+> **Mục tiêu**: Đáp ứng chính sách Google Play Data Safety và quyền riêng tư người dùng.
+
+### 13.1 Đặc tả `DELETE /api/users/me`
+- **Method**: `DELETE`
+- **Path**: `/api/users/me`
+- **Auth**: `Bearer <token>` (Token của chính user cần xoá)
+- **Request Body**: Không có
+- **Rate Limit**: 1 request / 60 giây / user
+- **Response Thành Công**: `204 No Content` (không có body)
+
+### 13.2 Cơ chế xử lý & Mã lỗi
+
+| HTTP Status | `error.code` | Ý nghĩa | Hành động của Mobile / Web |
+| :--- | :--- | :--- | :--- |
+| **204** | *(None)* | Xoá thành công | Xoá token local, clear state, điều hướng về màn hình đăng nhập hoặc trang chủ. |
+| **401** | `UNAUTHORIZED` | Token thiếu / không hợp lệ | Đăng xuất người dùng. |
+| **404** | `NOT_FOUND` | User đã bị xoá (idempotent) | Coi như đã xoá thành công, clear token local. |
+| **409** | `ORDER_IN_PROGRESS` | User còn đơn hàng đang xử lý | Hiển thị thông báo: "Bạn còn đơn hàng đang xử lý. Vui lòng hoàn tất hoặc huỷ đơn trước khi xoá tài khoản" (kèm danh sách đơn trong `error.details.blockingOrders`). |
+| **429** | `CONFLICT` | Gửi request quá nhanh (< 60s) | Báo người dùng thử lại sau 1 phút. |
+
+### 13.3 Cascade dữ liệu tự động
+- **Xoá vĩnh viễn**: Document `User` (kèm `addresses[]`), `Cart` & `CartItem`, `Design`, `Review`, `Notification`.
+- **Làm sạch PII trong Order**: Giữ lại `orderCode`, `totalAmount`, `status` để đối soát tài chính nhưng xoá sạch tên, số điện thoại, địa chỉ nhận hàng (`shippingName`, `shippingPhone`, `shippingAddress`), đánh dấu `isAnonymized: true`.
+- **Token**: Ngay sau khi xoá, JWT cũ lập tức mất hiệu lực vì user không còn trong hệ thống.

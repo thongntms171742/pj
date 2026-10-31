@@ -1,416 +1,299 @@
-# Chat API — FE Integration Guide (1-1 Model)
+# Chat API Specification — Unified Model (v3)
 
-> **Version:** 2.0 · **Last updated:** 2026-10-13 · **Backend status:** ✅ Deployed
+> **Version:** 3.0 · **Backend Status:** ✅ Deployed · **Architecture:** 1 Model Duy Nhất (Single Source of Truth)
 >
-> **Breaking change from v1:** chat is now **1-1 (buyer ↔ admin)**.
-> Each buyer has exactly one conversation with the admin team. Admin
-> sees one conversation per buyer. The old "global room" endpoint
-> `GET /api/chat/messages` is GONE.
-
-This doc is the single source of truth for FE devs integrating chat.
-
----
-
-## 1. Environment variables
-
-| Var | Value (dev) | Value (prod) |
-|-----|-------------|--------------|
-| `VITE_API_URL` | `http://localhost:4000` | `https://<render-app>.onrender.com` |
-
-> **One URL is enough.** Socket.io connects to the same host as REST.
-
-The JWT is read from `localStorage["token"]`. The `api` instance from
-`@/lib/api` already attaches it as `Authorization: Bearer <token>`.
+> **Tóm tắt thay đổi cốt lõi từ v2:**
+> 1. **Bãi bỏ hoàn toàn convention định danh chuỗi `c_<a>__<b>` và collection messages trôi nổi.** Mọi hội thoại (Chatbot AI và Hỗ trợ Tư vấn viên) đều lưu dưới dạng 1 document chuẩn trong collection `conversations`.
+> 2. **Hợp nhất Socket.IO về namespace duy nhất `/chat`:** Bỏ hoàn toàn 2 hệ socket rời rạc, chuẩn hóa hệ event C → S và S → C.
+> 3. **Cơ chế Read-state theo participant:** Đọc tin nhắn dựa trên mốc `participants[].lastReadAt` so với `Message.createdAt`. Xoá bỏ cờ `isRead: false` phẳng gây tràn badge unread.
+> 4. **Tách biệt sender rõ ràng:** Phân loại `senderType: "USER" | "BOT" | "ADMIN" | "SYSTEM"`, khắc phục lỗi admin bị gán role "buyer".
 
 ---
 
-## 2. TypeScript types
+## 1. Bảng tra cứu chuyển đổi nhanh (Mapping v2 → v3)
 
-```ts
-export type ChatRole = "buyer" | "admin" | "system";
+### 1.1 REST Endpoints
 
-export interface Message {
-  _id: string;
-  conversationId: string;       // e.g. "c_<userA>__<userB>" (sorted)
-  role: ChatRole;               // "buyer" for users, "admin" for staff
-  senderId: string;
+| Mục đích | v2 Legacy | v3 Unified (Mới) | Auth |
+| :--- | :--- | :--- | :--- |
+| **Mở/Tạo hội thoại** | `POST /api/chat/conversations`<br>`POST /api/chat/ai/conversations` | `POST /api/chat/conversations`<br>`Body: { channel: "AI" \| "SUPPORT", sessionId? }` | Optional |
+| **Danh sách hội thoại của tôi** | `GET /api/chat/conversations` (1-1 peer)<br>`GET /api/chat/ai/conversations` | `GET /api/chat/conversations` | Require |
+| **Lấy tin nhắn hội thoại** | `GET /api/chat/conversations/:peerId/messages`<br>`GET /api/chat/ai/conversations/:id/messages` | `GET /api/chat/conversations/:id/messages?limit=&before=` | Optional |
+| **Gửi tin nhắn** | `POST /api/chat/conversations/:peerId/messages`<br>`POST /api/chat/ai/conversations/:id/messages` | `POST /api/chat/conversations/:id/messages`<br>`Body: { content, metadata? }` | Optional |
+| **Đánh dấu đã đọc** | `POST /api/chat/conversations/:peerId/markRead` | `POST /api/chat/conversations/:id/read` | Optional |
+| **Yêu cầu gặp Admin (Escalate)** | `POST /api/chat/conversations/:id/escalate`<br>`POST /api/chat/ai/conversations/:id/escalate` | `POST /api/chat/conversations/:id/escalate`<br>`Body: { reason? }` | Optional |
+| **Tổng số tin chưa đọc** | `GET /api/chat/unread` | `GET /api/chat/unread` | Require |
+| **Admin: Danh sách hội thoại** | `GET /api/chat/admin/conversations`<br>`GET /api/chat/ai/admin/conversations` | `GET /api/chat/admin/conversations?channel=&status=&page=&limit=` | Admin |
+| **Admin: Đổi trạng thái** | `PUT /api/chat/admin/conversations/:id/status` | `PUT /api/chat/admin/conversations/:id/status`<br>`Body: { status }` | Admin |
+| **Admin: Tiếp nhận ca trực** | *(chưa có endpoint riêng)* | `POST /api/chat/admin/conversations/:id/assign` | Admin |
+
+### 1.2 Socket Events (Namespace `/chat`)
+
+| Event C → S | v2 AI | v2 1-1 | v3 Unified (Namespace `/chat`) | Payload |
+| :--- | :--- | :--- | :--- | :--- |
+| **Vào phòng chat** | `join_conversation` | `chat:join` | `chat:join` | `{ conversationId }` |
+| **Gửi tin nhắn** | `send_message` | `chat:send` | `chat:send` | `{ conversationId, content, metadata? }` |
+| **Đánh dấu đã đọc** | *(không có)* | `chat:markRead` | `chat:read` | `{ conversationId, lastMessageId? }` |
+| **Đang nhập văn bản** | `typing` / `stop_typing`| `chat:typing` | `chat:typing` | `{ conversationId }` |
+| **Rời phòng chat** | `leave_conversation` | `chat:leave` | `chat:leave` | `{ conversationId }` |
+
+| Event S → C | v2 AI | v2 1-1 | v3 Unified (Namespace `/chat`) | Payload |
+| :--- | :--- | :--- | :--- | :--- |
+| **Tin nhắn mới** | `new_message` | `chat:message` | `chat:message` | `ChatMessageDto` |
+| **Cập nhật hội thoại** | `conversation_updated`| *(không có)* | `chat:conversation` | `ChatConversationDto` |
+| **Số tin chưa đọc** | *(không có)* | `chat:unread` | `chat:unread` | `{ total: number, byConversation: Record<string, number> }` |
+| **Đổi trạng thái** | `status_changed` | *(không có)* | `chat:status` | `{ conversationId, status, assignedAdmin? }` |
+| **Báo đang nhập** | `user_typing` | `chat:typing` | `chat:typing` | `{ conversationId, userId, userName }` |
+| **Lỗi thao tác** | `error` | `chat:error` | `chat:error` | `{ code: string, message: string }` |
+
+### 1.3 Trường dữ liệu DTO
+
+| DTO | Trường cũ (v2) | Trường mới (v3) | Ghi chú thay đổi |
+| :--- | :--- | :--- | :--- |
+| **Message** | `_id` | `id` | Chuẩn hoá string hex không có gạch dưới |
+| **Message** | `role: "buyer" \| "admin"` | `senderType: "USER" \| "BOT" \| "ADMIN" \| "SYSTEM"` | Phân loại chính xác người phát ngôn |
+| **Message** | `isRead: boolean` | *(bỏ trên Message)* | Tính tự động từ `Conversation.participants[].lastReadAt` |
+| **Conversation**| `conversationId` | `id` | ObjectId hex duy nhất của Conversation document |
+| **Conversation**| *(không có)* | `channel: "AI" \| "SUPPORT"` | Phân biệt trợ lý AI và nhân viên hỗ trợ |
+
+---
+
+## 2. TypeScript Data Transfer Objects (DTO)
+
+```typescript
+export type ChatChannel = "AI" | "SUPPORT";
+export type ChatStatus = "BOT_ACTIVE" | "WAITING_ADMIN" | "ADMIN_ACTIVE" | "RESOLVED";
+export type MessageSenderType = "USER" | "BOT" | "ADMIN" | "SYSTEM";
+
+export interface ChatMessageDto {
+  id: string;
+  conversationId: string;
+  senderType: MessageSenderType;
+  senderId: string | null;
   senderName: string;
-  content: string;              // max 2000 chars
-  isRead: boolean;
-  readAt: string | null;
-  sentAt: string;
-  isOwn: boolean;               // computed by BE
+  content: string;
+  metadata: {
+    quickReplies?: string[];
+    suggestedProducts?: Array<{
+      id: string;
+      type: "tree" | "accessory";
+      name: string;
+      price: number;
+      imageUrl?: string;
+    }>;
+    orderInfo?: {
+      orderId: string;
+      orderCode?: string;
+      status: string;
+      totalAmount: number;
+    };
+    [key: string]: unknown;
+  };
+  sentAt: string; // ISO 8601
+  isOwn: boolean; // True nếu tin nhắn do chính người đang xem gửi
 }
 
-export interface Conversation {
-  conversationId: string;
-  peerId: string;               // the OTHER participant
-  peerName: string;
-  peerAvatar?: string;
+export interface ChatConversationDto {
+  id: string;
+  channel: ChatChannel;
+  status: ChatStatus;
+  peer: {
+    id: string;
+    name: string;
+    avatarUrl?: string;
+    role: string;
+  };
   lastMessage: {
     content: string;
     sentAt: string;
-    senderId: string;
-    role: ChatRole;
+    senderType: string;
   } | null;
-  unread: number;               // unread from peer
-  updatedAt: string;
+  unread: number;
+  updatedAt: string; // ISO 8601
+  assignedAdmin?: {
+    id: string;
+    name: string;
+  } | null;
 }
-```
-
-> The DB stores `role: "user" | "admin" | "system"`. The BE DTO maps
-> `"user" → "buyer"`. FE should never see `"user"`.
-
----
-
-## 3. The "admin" pseudo-id
-
-Buyers don't have an ObjectId for "the admin team". The BE uses the
-literal string **`"admin"`** as the peerId for all buyer ↔ admin chats.
-
-| User type | `peerId` for the other side |
-|-----------|------------------------------|
-| Buyer | always `"admin"` |
-| Admin | the buyer's real `_id` (24-char ObjectId) |
-
-This means:
-
-```ts
-// In your buyer-side chat store
-const ADMIN_PEER_ID = "admin";
-const peerId = user.role === "admin" ? otherUserId : ADMIN_PEER_ID;
 ```
 
 ---
 
-## 4. REST endpoints
+## 3. Đặc tả REST API Chi tiết
 
-Base: `${VITE_API_URL}/api/chat`. All require `Authorization: Bearer <token>`.
+### 3.1 Mở hoặc tạo phiên chat
+- **Endpoint:** `POST /api/chat/conversations`
+- **Auth:** Optional (Khách vãng lai gửi `sessionId` qua body hoặc header `x-chat-session-id`, user đăng nhập gửi token `Authorization: Bearer <token>`).
+- **Body:**
+  ```json
+  {
+    "channel": "AI", // "AI" (mặc định) hoặc "SUPPORT"
+    "sessionId": "guest_179343...",
+    "customerInfo": {
+      "name": "Nguyễn Văn A",
+      "phone": "0901234567",
+      "email": "vana@example.com"
+    }
+  }
+  ```
+- **Response 200 OK:**
+  ```json
+  {
+    "conversation": {
+      "id": "6724a...",
+      "channel": "AI",
+      "status": "BOT_ACTIVE",
+      "peer": { "id": "ai_bot", "name": "Trợ lý AI", "role": "bot" },
+      "lastMessage": { "content": "Xin chào! 🎄...", "sentAt": "2026-10-31T07:00:00.000Z", "senderType": "BOT" },
+      "unread": 0,
+      "updatedAt": "2026-10-31T07:00:00.000Z"
+    },
+    "messages": [
+      {
+        "id": "6724b...",
+        "conversationId": "6724a...",
+        "senderType": "BOT",
+        "senderId": null,
+        "senderName": "Trợ lý AI",
+        "content": "Xin chào! 🎄 Em là trợ lý ảo của Build Your Christmas...",
+        "metadata": {
+          "quickReplies": ["Tư vấn cây thông Noel", "Tra cứu đơn hàng", "Gặp nhân viên hỗ trợ"]
+        },
+        "sentAt": "2026-10-31T07:00:00.000Z",
+        "isOwn": false
+      }
+    ]
+  }
+  ```
 
-### 4.1 `GET /conversations` — list my conversations
+### 3.2 Lấy danh sách hội thoại của người dùng
+- **Endpoint:** `GET /api/chat/conversations`
+- **Auth:** Require (`Authorization: Bearer <token>`)
+- **Query Params:** `?page=1&limit=20`
+- **Response 200 OK:**
+  ```json
+  {
+    "conversations": [ /* danh sách ChatConversationDto */ ],
+    "pagination": { "page": 1, "limit": 20, "total": 2, "totalPages": 1 }
+  }
+  ```
 
-| User | Returns |
-|------|---------|
-| Buyer | 0 or 1 conversation (with admin) — empty if they never messaged |
-| Admin | One entry per buyer who has chatted, newest first |
+### 3.3 Xem lịch sử tin nhắn (Pagination Cursor)
+- **Endpoint:** `GET /api/chat/conversations/:id/messages`
+- **Auth:** Optional (Phải là chủ sở hữu hoặc admin)
+- **Query Params:**
+  - `limit`: Số tin muốn lấy (mặc định 50, tối đa 100).
+  - `before`: ID của tin nhắn **cũ nhất** hiện tại trên giao diện. Server sẽ trả về các tin có `createdAt` cũ hơn tin này.
+- **Response 200 OK:**
+  ```json
+  {
+    "messages": [ /* mảng ChatMessageDto sắp xếp từ CŨ ĐẾN MỚI */ ],
+    "hasMore": false,
+    "total": 12,
+    "conversationId": "6724a..."
+  }
+  ```
 
-**Response 200:**
-```json
-{
-  "conversations": [Conversation, ...]
-}
-```
+### 3.4 Gửi tin nhắn qua REST (Fallback khi socket gián đoạn)
+- **Endpoint:** `POST /api/chat/conversations/:id/messages`
+- **Auth:** Optional
+- **Body:**
+  ```json
+  {
+    "content": "Cây 1m8 giá bao nhiêu em?",
+    "metadata": {} // Tùy chọn, tối đa 2000 ký tự JSON
+  }
+  ```
+- **Response 201 Created:** `{ "message": ChatMessageDto }`
 
-### 4.2 `GET /conversations/:peerId/messages` — history with peer
+### 3.5 Đánh dấu đã đọc
+- **Endpoint:** `POST /api/chat/conversations/:id/read`
+- **Auth:** Optional
+- **Response 200 OK:** `{ "success": true, "conversationId": "6724a..." }`
 
-| Query | Type | Default | Notes |
-|-------|------|---------|-------|
-| `limit` | number | 50 | max 100 |
-| `before` | string | — | ObjectId of the oldest you have; returns STRICTLY OLDER messages |
-| `page` | number | 1 | alternative cursor |
+### 3.6 Chuyển tiếp sang nhân viên hỗ trợ (Escalate)
+- **Endpoint:** `POST /api/chat/conversations/:id/escalate`
+- **Auth:** Optional
+- **Body:** `{ "reason": "Cần giải quyết khiếu nại giao hàng" }`
+- **Response 200 OK:** `{ "success": true, "conversation": ChatConversationDto }`
 
-> `:peerId` is `"admin"` for buyers, buyer's `_id` for admin.
-
-**Response 200:**
-```json
-{
-  "messages": [Message, ...],     // oldest → newest
-  "total": 123,
-  "hasMore": true,
-  "conversationId": "c_...",
-  "peerId": "admin"
-}
-```
-
-> The BE also marks unread messages from the peer as read when you
-> fetch history.
-
-### 4.3 `POST /conversations/:peerId/messages` — send (REST fallback)
-
-**Body:** `{ "content": "string" }`
-
-**Response 201:**
-```json
-{
-  "message": Message,
-  "conversationId": "c_..."
-}
-```
-
-> Prefer socket. This REST endpoint is a fallback when `socket.connected === false`.
-
-### 4.4 `GET /conversations/:peerId/unread` — unread in this conv
-
-**Response 200:** `{ "unread": number, "conversationId": "c_..." }`
-
-### 4.5 `POST /conversations/:peerId/markRead` — mark as read
-
-**Body:** `{ "lastMessageId": "string (ObjectId)" }` (optional)
-
-**Response 200:** `{ "success": true, "conversationId": "c_..." }`
-
-### 4.6 `GET /unread` — TOTAL unread across all my convs
-
-**Response 200:** `{ "unread": number }`
-
-> Use this for the global badge on the chat FAB. Per-conversation
-> unread comes from the conversation list.
-
-### 4.7 Security errors (all chat endpoints)
-
-| HTTP | `error.code` | When |
-|------|--------------|------|
-| 400 | `INVALID_INPUT` | bad `peerId` for admin, etc. |
-| 403 | `FORBIDDEN` | buyer tried to chat with another buyer |
-| 404 | `NOT_FOUND` | no such endpoint (e.g. you called the old `/messages`) |
+### 3.7 Lấy tổng số tin chưa đọc
+- **Endpoint:** `GET /api/chat/unread`
+- **Auth:** Require
+- **Response 200 OK:** `{ "unread": 3 }`
 
 ---
 
-## 5. Socket events
+## 4. Kết nối Realtime Socket.IO (Namespace `/chat`)
 
-### 5.1 Connect
+### 4.1 Cấu hình kết nối Client
 
-```ts
-import { io } from "socket.io-client";
+```typescript
+import { io, Socket } from "socket.io-client";
 
-const socket = io(import.meta.env.VITE_API_URL, {
-  auth: { token: localStorage.getItem("token") ?? "" },
+const SOCKET_SERVER_URL = "https://your-backend.onrender.com/chat"; // BẮT BUỘC có namespace /chat
+
+export const chatSocket: Socket = io(SOCKET_SERVER_URL, {
+  auth: {
+    token: localStorage.getItem("token") || undefined,
+    sessionId: localStorage.getItem("chat_session_id") || undefined,
+  },
+  // BẮT BUỘC trên môi trường Render / Cloud proxy để tránh lỗi websocket handshake
   transports: ["websocket", "polling"],
+  tryAllTransports: true,
   reconnection: true,
-  reconnectionAttempts: Infinity,
+  reconnectionAttempts: 10,
   reconnectionDelay: 1000,
-  reconnectionDelayMax: 10_000,
-  timeout: 30_000,
 });
 ```
 
-On connect, the server **auto-joins** the socket to all conversations
-the user is a participant in (queried from `Message.participants`).
-No `chat:join` needed.
+### 4.2 Các luồng sự kiện chính
 
-> If the user is a brand-new buyer with no messages, the auto-join is
-> a no-op. They emit `chat:join` with the admin conversationId
-> after they send their first message.
-
-### 5.2 Client → Server
-
-| Event | Payload | Notes |
-|-------|---------|-------|
-| `chat:join` | `{ conversationId }` | Idempotent; safe to call after first message |
-| `chat:send` | `{ conversationId, content }` | Validates sender is a participant |
-| `chat:markRead` | `{ conversationId, lastMessageId? }` | |
-| `chat:typing` | `{ conversationId }` | Not persisted, just a UI hint |
-| `chat:leave` | `{ conversationId }` | Optional — disconnect also handles |
-
-> If you send a `conversationId` you're not in, the server replies with
-> `chat:error { code: "FORBIDDEN_NOT_PARTICIPANT" }`.
-
-### 5.3 Server → Client
-
-| Event | Payload | When |
-|-------|---------|------|
-| `chat:message` | `Message` | New message in any joined conversation (also your own — use `isOwn`) |
-| `chat:joined` | `{ conversationId }` | After successful `chat:join` |
-| `chat:unread` | `{ unread }` | On connect, after each `chat:send`/`chat:markRead` (total across all convs) |
-| `chat:typing` | `{ conversationId, userId, userName }` | Peer is typing |
-| `chat:error` | `{ code, message }` | Validation / permission / internal error |
-
-### 5.4 Lifecycle (1-1)
-
-```
-client (buyer)                      server
-  │ ── connect (auth: token) ─────→ │
-  │ ←─ connected ────────────────── │  (auto-join any existing conv)
-  │ ←─ chat:unread { n } ────────── │  (initial total)
-  │                                  │
-  │ ── chat:send ──────────────────→ │
-  │   { conversationId, content }   │
-  │ ←─ chat:message ─────────────── │  (you, isOwn=true)
-  │ ←─ chat:unread { n } ────────── │  (still 0 for you)
-  │                                  │
-  │ ←─ chat:message ─────────────── │  (from admin/peer, isOwn=false)
-  │ ←─ chat:unread { n+1 } ──────── │
-  │                                  │
-  │ ── chat:markRead ──────────────→ │
-  │ ←─ chat:unread { 0 } ────────── │
-```
+1. **Khi mở khung chat:**
+   ```typescript
+   chatSocket.emit("chat:join", { conversationId: activeConvId });
+   ```
+2. **Khi gửi tin nhắn:**
+   ```typescript
+   chatSocket.emit("chat:send", {
+     conversationId: activeConvId,
+     content: "Tôi muốn đặt thêm phụ kiện",
+   });
+   ```
+3. **Lắng nghe tin nhắn mới:**
+   ```typescript
+   chatSocket.on("chat:message", (msg: ChatMessageDto) => {
+     if (msg.conversationId === activeConvId) {
+       appendMessageToChatBox(msg);
+       // Đánh dấu đã đọc ngay nếu đang mở
+       chatSocket.emit("chat:read", { conversationId: activeConvId });
+     }
+   });
+   ```
+4. **Lắng nghe cập nhật unread badge:**
+   ```typescript
+   chatSocket.on("chat:unread", ({ total, byConversation }) => {
+     updateHeaderBadge(total);
+     updateSidebarBadges(byConversation);
+   });
+   ```
+5. **Lắng nghe chuyển đổi trạng thái hỗ trợ:**
+   ```typescript
+   chatSocket.on("chat:status", ({ conversationId, status, assignedAdmin }) => {
+     updateStatusIndicator(conversationId, status, assignedAdmin);
+   });
+   ```
 
 ---
 
-## 6. UI behaviors to implement
+## 5. Quy tắc Read-State & Unread Badges
 
-| Behavior | How |
-|----------|-----|
-| Unread badge on FAB | Bind to `chat:unread.unread` (total) |
-| Inbox list (admin) | Call `GET /conversations`, render with `unread` per row |
-| Open a conversation | `GET /conversations/:peerId/messages?limit=30` |
-| Load older on scroll-top | `GET /conversations/:peerId/messages?before={oldestId}&limit=30` |
-| Send | `socket.emit("chat:send", { conversationId, content })`, fallback to REST |
-| Toast on incoming | `socket.on("chat:message")` → if `!isOwn && !panelOpen` → toast |
-| Mark read on panel open | `socket.emit("chat:markRead", { conversationId, lastMessageId })` |
-| Typing indicator | Throttled `socket.emit("chat:typing", { conversationId })` every 3s while typing |
-
----
-
-## 7. Admin-only flows
-
-- `GET /conversations` returns one entry per **buyer** (not per admin).
-- For each, `peerId` is the buyer's `_id` — pass it to subsequent calls.
-- Admin chat page URL: `/admin/chat?peerId=...` (or whatever your router uses).
-- The server auto-detects admin from `JWT.roles[]` — buyers can't impersonate.
-
----
-
-## 8. Render deployment notes
-
-Render free tier sits behind a proxy that:
-
-- **Closes idle WS after ~55s** — mitigated with `pingInterval: 20s,
-  pingTimeout: 25s, upgradeTimeout: 30s`.
-- **Sleeps after 15 min no traffic** — first connection takes 30-50s.
-  Client MUST use `reconnection: true` + `reconnectionAttempts: Infinity`
-  and show a "Đang kết nối..." banner.
-
-### If you see "WebSocket is closed before the connection is established"
-
-Force polling-only as a workaround:
-
-```ts
-const socket = io(url, { auth: { token }, transports: ["polling"] });
-```
-
-Test polling manually in browser:
-`https://<your-app>.onrender.com/socket.io/?EIO=4&transport=polling`
-→ expect `{"sid":"...","upgrades":["websocket"],"pingInterval":20000,...}`.
-
----
-
-## 9. AI Chatbot (Gemini) endpoints — the model the FE actually uses
-
-> The 1-1 `c_<a>__<b>` endpoints above are the **legacy** model. The
-> current customer-facing chat widget (`ChatWidget.tsx`) and the admin
-> console (`AdminLiveChatTab.tsx`) use the **AI chatbot** model below.
-
-The AI chatbot stores conversations in the `Conversation` collection and
-addresses them by Mongo `ObjectId` (NOT `c_<a>__<b>`).
-
-### 9.1 `POST /ai/conversations` — get or create the conversation
-
-**Auth:** optional (`optionalAuth`). Guests MUST send a `sessionId`.
-
-**Body:**
-```json
-{
-  "sessionId": "guest_abc123",      // required for guests
-  "customerInfo": { "name": "", "phone": "", "email": "" }   // optional
-}
-```
-
-**Response 200:**
-```json
-{
-  "conversation": {
-    "_id": "66f0…",                 // ObjectId — dùng cho mọi endpoint sau
-    "status": "BOT_ACTIVE",         // BOT_ACTIVE | WAITING_ADMIN | ADMIN_ACTIVE | RESOLVED
-    "sessionId": "guest_abc123",
-    "userId": null,
-    "lastMessage": "…",
-    "lastMessageAt": "2026-10-24T…"
-  },
-  "messages": [ /* 50 tin MỚI NHẤT, đã đảo về thứ tự cũ → mới */ ]
-}
-```
-
-> A logged-in user sending the same `sessionId` **claims** the guest
-> conversation (`userId` gets set), so the history follows the account.
-
-### 9.2 `GET /ai/conversations/:id/messages` — history
-
-**Auth:** optional. **Access:** owner (`userId` or `sessionId`) or admin —
-otherwise `403 FORBIDDEN`.
-
-| Query | Type | Default | Notes |
-|-------|------|---------|-------|
-| `limit` | number | 50 | max 100 |
-| `before` | string | — | ObjectId của tin CŨ NHẤT đang có → trả tin CŨ HƠN |
-
-**Response 200:** `{ "conversationId": "…", "messages": [ /* cũ → mới */ ] }`
-
-### 9.3 `POST /ai/conversations/:id/messages` — send (REST fallback)
-
-**Body:** `{ "content": "string", "sessionId": "guest_…" }`
-
-**Response 201:** `{ "message": Message }`
-
-> The bot replies asynchronously — the reply arrives over the socket
-> (`new_message`). It works even when Socket.io is not initialised.
-
-### 9.4 `POST /ai/conversations/:id/escalate` — ask for a human
-
-Sets `status = "WAITING_ADMIN"` and notifies the admin lobby.
-
-### 9.5 Admin endpoints
-
-| Endpoint | Auth | Notes |
-|----------|------|-------|
-| `GET /ai/admin/conversations?status=&page=&limit=` | admin | List all AI conversations |
-| `PUT /ai/admin/conversations/:id/status` | admin | Body `{ "status": "ADMIN_ACTIVE" \| "RESOLVED" \| "BOT_ACTIVE" }` |
-
-### 9.6 AI-chat socket events
-
-| Direction | Event | Payload | Notes |
-|-----------|-------|---------|-------|
-| C → S | `join_conversation` | `{ conversationId }` | 403-style `error` nếu không phải chủ |
-| C → S | `send_message` | `{ conversationId, content }` | Kiểm tra quyền trước khi ghi |
-| C → S | `request_human_support` | `{ conversationId, reason }` | Chuyển sang `WAITING_ADMIN` |
-| C → S | `join_admin_lobby` | — | Chỉ admin |
-| S → C | `new_message` | `{ message, conversation: { id, status, lastMessageAt } }` | |
-| S → C | `status_changed` | `{ conversationId, status }` | |
-| S → C | `new_support_ticket` | `{ conversationId, customerInfo, summary, … }` | Tới admin lobby |
-| S → C | `conversation_updated` | `{ conversationId, lastMessage, status, … }` | Tới admin lobby |
-
-> `conversation.status` in `new_message` is re-read from the DB right
-> before the emit, so an `escalate_to_admin` during the same turn is
-> never overwritten by a stale `BOT_ACTIVE`.
-
-### 9.7 `metadata.orderInfo` shape
-
-```json
-{
-  "orderId": "BYC-12345678",
-  "orderCode": "BYC-12345678",   // ← khoá FE đọc
-  "orderNumber": "BYC-12345678",  // khoá cũ, giữ để tương thích
-  "status": "Đã xác nhận",
-  "totalAmount": 1500000
-}
-```
-
----
-
-## 10. What changed from v1 (global room)
-
-| v1 (global) | v2 (1-1) |
-|-------------|----------|
-| `GET /api/chat/messages` | `GET /api/chat/conversations/:peerId/messages` |
-| `POST /api/chat/messages` | `POST /api/chat/conversations/:peerId/messages` |
-| `POST /api/chat/markRead` | `POST /api/chat/conversations/:peerId/markRead` |
-| `conversationId = "global"` | `conversationId = "c_<userA>__<userB>"` (sorted) |
-| One room, everyone hears everything | Per-conversation room, only 2 participants |
-| `chat:join` required | Auto-joined on connect |
-| No conversation list | `GET /api/chat/conversations` |
-
----
-
-## 11. Quick smoke test
-
-1. Login as buyer A in tab 1, admin in tab 2.
-2. Buyer A calls `GET /conversations` → `[]` (never messaged).
-3. Buyer A sends a message via socket (or POST to
-   `/conversations/admin/messages`).
-4. Admin's `GET /conversations` now shows 1 entry (buyer A) with `unread: 1`.
-5. Admin opens it → `GET /conversations/<buyerA id>/messages` → admin's
-   `unread` becomes 0, admin's `chat:unread` event fires.
-6. Admin replies via socket → buyer A receives `chat:message` (isOwn=false).
-7. Buyer A opens panel → marks read → `chat:unread { unread: 0 }`.
-
-If any step fails, check the browser console + Render logs.
+1. **Không còn cờ `isRead: false` ở cấp Message:**
+   - Mỗi người tham gia có mốc `lastReadAt` riêng trong `Conversation.participants`.
+   - Một tin nhắn được coi là "chưa đọc" đối với User $U$ nếu:
+     $\text{Message.createdAt} > U.\text{lastReadAt}$ VÀ tin nhắn đó **không phải** do chính $U$ gửi.
+2. **Tự động đồng bộ khi tương tác:**
+   - Khi gửi tin nhắn thành công, server tự động cập nhật `lastReadAt` của người gửi bằng thời điểm gửi.
+   - Khi gọi `POST /:id/read` hoặc emit `chat:read`, `lastReadAt` được nâng lên thời điểm hiện tại.
+3. **Badge của Admin:**
+   - Chỉ đếm các tin nhắn do khách gửi (`senderType === "USER"`), không tính thông báo của BOT hoặc tin hệ thống.

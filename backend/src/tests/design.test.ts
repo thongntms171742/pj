@@ -3,10 +3,8 @@
 
 import { Types } from "mongoose";
 import { Design, type IRoomDesign } from "../models/Design";
-import {
-  composeRoomPrompt,
-  composeCardPrompt,
-} from "../services/ai/googleImageService";
+import { composeCardPrompt } from "../services/ai/googleImageService";
+import { composeRoomPrompt } from "../services/ai/legacyRoomDesignService";
 
 let passed = 0;
 let failed = 0;
@@ -38,6 +36,7 @@ async function runTests() {
   assert(doc.roomImageUrl === "", "Default roomImageUrl is empty string");
   assert(doc.resultImageUrl === "", "Default resultImageUrl is empty string");
   assert(doc.lastError === null, "Default lastError is null");
+  assert(doc.compositeSource === "CLIENT", "Default compositeSource is CLIENT");
 
   console.log("\n── Test 2: Status enum ──");
   const validStatuses = ["DRAFT", "AI_PENDING", "AI_COMPLETED", "FAILED"];

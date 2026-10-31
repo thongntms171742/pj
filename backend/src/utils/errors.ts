@@ -43,6 +43,10 @@ export const ErrorCode = {
   DESIGN_NOT_FOUND: "DESIGN_NOT_FOUND",
   DESIGN_NOT_CONFIRMED: "DESIGN_NOT_CONFIRMED",
   ROOM_IMAGE_REQUIRED: "ROOM_IMAGE_REQUIRED",
+  /** POST /api/designs/:id/result thiếu file `compositeImage`. */
+  COMPOSITE_IMAGE_REQUIRED: "COMPOSITE_IMAGE_REQUIRED",
+  /** Endpoint đã bị gỡ (VD: /generate-image khi AI_ROOM_DESIGN_ENABLED=true). */
+  ENDPOINT_GONE: "ENDPOINT_GONE",
 
   // ── Delivery ────────────────────────────────────────────────────────────
   DELIVERY_OPTION_INVALID: "DELIVERY_OPTION_INVALID",
@@ -63,6 +67,7 @@ export const ErrorCode = {
   ORDER_PAYMENT_INVALID_STATE: "ORDER_PAYMENT_INVALID_STATE",
   ORDER_ID_REQUIRED: "ORDER_ID_REQUIRED",
   ORDER_CANCEL_NOT_ALLOWED: "ORDER_CANCEL_NOT_ALLOWED",
+  ORDER_IN_PROGRESS: "ORDER_IN_PROGRESS",
 
   // ── Account / User ──────────────────────────────────────────────────────
   ACCOUNT_NOT_FOUND: "ACCOUNT_NOT_FOUND",
@@ -95,9 +100,13 @@ export const ErrorCode = {
   AI_GENERATION_TIMEOUT: "AI_GENERATION_TIMEOUT",
   GREETING_CARD_GENERATION_FAILED: "GREETING_CARD_GENERATION_FAILED",
 
-  // ── Chat ────────────────────────────────────────────────────────────────
-  CONVERSATION_NOT_FOUND: "CONVERSATION_NOT_FOUND",
-  CONVERSATION_STATUS_INVALID: "CONVERSATION_STATUS_INVALID",
+  // ── Chat (v3 unified) ───────────────────────────────────────────────────
+  CHAT_CONVERSATION_NOT_FOUND: "CHAT_CONVERSATION_NOT_FOUND",
+  CHAT_STATUS_INVALID: "CHAT_STATUS_INVALID",
+  CHAT_FORBIDDEN: "CHAT_FORBIDDEN",
+  CHAT_INVALID_ID: "CHAT_INVALID_ID",
+  CHAT_EMPTY_CONTENT: "CHAT_EMPTY_CONTENT",
+  CHAT_MESSAGE_TOO_LONG: "CHAT_MESSAGE_TOO_LONG",
 
   // ── Review ──────────────────────────────────────────────────────────────
   REVIEW_NOT_FOUND: "REVIEW_NOT_FOUND",
@@ -143,6 +152,8 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   DESIGN_NOT_FOUND: 404,
   DESIGN_NOT_CONFIRMED: 400,
   ROOM_IMAGE_REQUIRED: 400,
+  COMPOSITE_IMAGE_REQUIRED: 400,
+  ENDPOINT_GONE: 410,
 
   // Delivery
   DELIVERY_OPTION_INVALID: 400,
@@ -163,6 +174,7 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   ORDER_PAYMENT_INVALID_STATE: 422,
   ORDER_ID_REQUIRED: 400,
   ORDER_CANCEL_NOT_ALLOWED: 409,
+  ORDER_IN_PROGRESS: 409,
 
   // Account / User
   ACCOUNT_NOT_FOUND: 404,
@@ -196,8 +208,12 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   GREETING_CARD_GENERATION_FAILED: 502,
 
   // Chat
-  CONVERSATION_NOT_FOUND: 404,
-  CONVERSATION_STATUS_INVALID: 400,
+  CHAT_CONVERSATION_NOT_FOUND: 404,
+  CHAT_STATUS_INVALID: 400,
+  CHAT_FORBIDDEN: 403,
+  CHAT_INVALID_ID: 400,
+  CHAT_EMPTY_CONTENT: 400,
+  CHAT_MESSAGE_TOO_LONG: 400,
 
   // Review
   REVIEW_NOT_FOUND: 404,
@@ -213,7 +229,8 @@ export function sendError(
   res: Response,
   code: ErrorCodeValue,
   message: string,
-  status?: number
+  status?: number,
+  details?: unknown
 ): Response {
   const httpStatus = status ?? ErrorStatus[code] ?? 500;
   // Attach requestId so FE can quote it back to dev when reporting bugs.
@@ -222,7 +239,12 @@ export function sendError(
       ? String((res.req as { id?: unknown }).id ?? "")
       : "";
   return res.status(httpStatus).json({
-    error: { code, message, requestId: reqId || undefined },
+    error: {
+      code,
+      message,
+      requestId: reqId || undefined,
+      ...(details !== undefined ? { details } : {}),
+    },
   });
 }
 

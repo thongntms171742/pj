@@ -11,7 +11,7 @@ import {
   verifySepayWebhookAuth,
   SepayWebhookPayload,
 } from "../services/sepayService";
-import { emitOrderPaymentUpdate } from "../services/socket";
+import { emitOrderPaymentUpdate } from "../services/realtime";
 import {
   sendError,
   ErrorCode,

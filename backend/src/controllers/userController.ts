@@ -1,5 +1,16 @@
-import { Request, Response } from "express";
-import { User } from "../models";
+import { Request, Response, NextFunction } from "express";
+import { Types } from "mongoose";
+import {
+  User,
+  Order,
+  Cart,
+  CartItem,
+  Design,
+  Review,
+  Notification,
+  Conversation,
+} from "../models";
+import { deleteAsset } from "../services/cloudinaryService";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { ah } from "../utils/asyncRoute";
 import { ok, created } from "../utils/respond";
@@ -142,4 +153,156 @@ export const deleteAddress = ah(async (req, res) => {
   await user.save();
   ok(res, { success: true });
 });
+
+// ── Rate limiter cho yêu cầu xoá tài khoản (1 request / 60s / user) ───────────
+const deletionCooldowns = new Map<string, number>();
+
+export const deleteAccountRateLimiter = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  const userId = req.user?.id;
+  if (!userId) {
+    next();
+    return;
+  }
+  const now = Date.now();
+  const lastTime = deletionCooldowns.get(userId);
+  if (lastTime && now - lastTime < 60000) {
+    sendError(
+      res,
+      ErrorCode.CONFLICT,
+      "Yêu cầu xoá tài khoản quá nhanh. Vui lòng thử lại sau 1 phút.",
+      429
+    );
+    return;
+  }
+  deletionCooldowns.set(userId, now);
+
+  if (deletionCooldowns.size > 1000) {
+    for (const [key, ts] of deletionCooldowns) {
+      if (now - ts > 60000) deletionCooldowns.delete(key);
+    }
+  }
+  next();
+};
+
+// ── DELETE /api/users/me (Account Deletion & Data Cascade) ────────────────────
+export const deleteMyAccount = ah(async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    return sendError(res, ErrorCode.UNAUTHORIZED, "Chưa đăng nhập", 401);
+  }
+
+  // 1. Idempotency check: user có tồn tại không
+  const user = await User.findById(userId);
+  if (!user) {
+    return sendError(res, ErrorCode.NOT_FOUND, "Tài khoản không tồn tại", 404);
+  }
+
+  const userObjectId = new Types.ObjectId(userId);
+
+  // 2. Chặn nếu còn đơn hàng đang xử lý
+  const BLOCKING_STATUSES = ["PENDING_PAYMENT", "PAID", "CONFIRMED", "PACKING"];
+  const blocking = await Order.find({
+    buyerId: userObjectId,
+    status: { $in: BLOCKING_STATUSES },
+  }).select("orderCode status totalAmount");
+
+  if (blocking.length > 0) {
+    return sendError(
+      res,
+      ErrorCode.ORDER_IN_PROGRESS,
+      "Bạn còn đơn hàng đang được xử lý. Vui lòng hoàn tất hoặc huỷ đơn trước khi xoá tài khoản.",
+      409,
+      {
+        blockingOrders: blocking.map((b) => ({
+          orderCode: b.orderCode,
+          orderStatus: b.status,
+          totalAmount: b.totalAmount,
+        })),
+      }
+    );
+  }
+
+  // 3. Scrub PII trong Order (giữ lịch sử đối soát)
+  await Order.updateMany(
+    { buyerId: userObjectId },
+    {
+      $set: {
+        shippingName: "Khách hàng đã xóa tài khoản",
+        shippingPhone: "",
+        shippingAddress: "",
+        shippingProvinceName: "",
+        shippingCommuneName: "",
+        internalNotes: "",
+        pickupInfo: null,
+        isAnonymized: true,
+        userDeletedAt: new Date(),
+      },
+    }
+  );
+
+  // 4. Cascade xóa dữ liệu cá nhân
+  // 4.1. Cart + CartItems
+  const cart = await Cart.findOne({ userId: userObjectId });
+  if (cart) {
+    await CartItem.deleteMany({ cartId: cart._id });
+    await Cart.findByIdAndDelete(cart._id);
+  }
+
+  // 4.2. Designs (dọn dẹp Cloudinary asset nếu có)
+  const designs = await Design.find({ ownerId: userObjectId }).select(
+    "roomImagePublicId resultImagePublicId"
+  );
+  for (const d of designs) {
+    if (d.roomImagePublicId) {
+      deleteAsset(d.roomImagePublicId, "image").catch(() => {});
+    }
+    if (d.resultImagePublicId) {
+      deleteAsset(d.resultImagePublicId, "image").catch(() => {});
+    }
+  }
+  await Design.deleteMany({ ownerId: userObjectId });
+
+  // 4.3. Reviews
+  await Review.deleteMany({ buyerId: userObjectId });
+
+  // 4.4. Notifications
+  await Notification.deleteMany({ userId: userObjectId });
+
+  // 4.5. Conversations (anonymize customerInfo & pull participant, xóa AI channel rỗng)
+  await Conversation.updateMany(
+    { "participants.userId": String(userId) },
+    {
+      $pull: { participants: { userId: String(userId) } },
+      $set: {
+        "customerInfo.name": "Khách hàng đã xóa tài khoản",
+        "customerInfo.phone": "",
+        "customerInfo.email": "",
+      },
+    }
+  );
+  await Conversation.deleteMany({
+    channel: "AI",
+    "participants.0": { $exists: false },
+  });
+
+  // 5. Xóa user vĩnh viễn (addresses[] là embedded trong User nên tự động cascade)
+  await User.findByIdAndDelete(userId);
+
+  // 6. Ghi log audit (không log PII)
+  console.log(
+    JSON.stringify({
+      action: "ACCOUNT_DELETED",
+      userId: String(userId),
+      at: new Date().toISOString(),
+    })
+  );
+
+  // 7. Trả 204 No Content
+  res.status(204).send();
+});
+
 

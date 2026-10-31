@@ -47,6 +47,8 @@ tags:
     description: User notification feed
   - name: Admin
     description: Christmas catalog CRUD + order overview + stats + user management
+  - name: Chat
+    description: Unified Chat subsystem (AI Chatbot & Support agent)
 
 paths:
 
@@ -170,8 +172,25 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ============================================================
-  # USERS (saved addresses)
+  # USERS
   # ============================================================
+  /api/users/me:
+    delete:
+      tags: [Users]
+      summary: Permanently delete user account and cascade clean personal data (Google Play Data Safety)
+      operationId: deleteMyAccount
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204':
+          description: No Content - Account deleted successfully
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Conflict - Order in progress
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
   /api/users/me/addresses:
     get:
       tags: [Users]
@@ -954,6 +973,88 @@ paths:
                 properties:
                   design: { $ref: '#/components/schemas/Design' }
                   shareUrl: { type: string }
+
+  /api/designs/upload-room:
+    post:
+      tags: [Designs]
+      summary: Upload customer room photo
+      operationId: uploadRoomImage
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [roomImage]
+              properties:
+                roomImage:
+                  type: string
+                  format: binary
+                  description: Room photo file (JPEG/PNG/WebP, max 8MB)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      roomImageUrl: { type: string }
+                      roomImagePublicId: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '415': { description: Unsupported Media Type }
+
+  /api/designs/{id}/result:
+    post:
+      tags: [Designs]
+      summary: Upload client-side composited room design image
+      operationId: uploadCompositeResult
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [compositeImage]
+              properties:
+                compositeImage:
+                  type: string
+                  format: binary
+                  description: Composited room image (JPEG/PNG/WebP, max 8MB)
+                clientPrompt:
+                  type: string
+                  description: Optional client note or prompt
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      designId: { type: string }
+                      status: { type: string, enum: [AI_COMPLETED] }
+                      imageUrl: { type: string }
+                      imagePublicId: { type: string }
+                      compositeSource: { type: string, enum: [CLIENT] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ============================================================
   # CART
@@ -2027,6 +2128,302 @@ paths:
                   stats: { $ref: '#/components/schemas/UserStats' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # ============================================================
+  # CHAT (UNIFIED MODEL V3)
+  # ============================================================
+  /api/chat/conversations:
+    post:
+      tags: [Chat]
+      summary: Initialize or retrieve conversation (AI or SUPPORT)
+      operationId: initChatConversation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  type: string
+                  enum: [AI, SUPPORT]
+                  default: AI
+                sessionId:
+                  type: string
+                  description: Guest session ID if not authenticated
+                customerInfo:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    phone: { type: string }
+                    email: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+                  messages:
+                    type: array
+                    items: { $ref: '#/components/schemas/ChatMessageDto' }
+    get:
+      tags: [Chat]
+      summary: List user's conversations
+      operationId: listMyChatConversations
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items: { $ref: '#/components/schemas/ChatConversationDto' }
+                  pagination:
+                    type: object
+                    properties:
+                      page: { type: integer }
+                      limit: { type: integer }
+                      total: { type: integer }
+                      totalPages: { type: integer }
+
+  /api/chat/conversations/{id}/messages:
+    get:
+      tags: [Chat]
+      summary: Get paginated conversation messages (cursor before)
+      operationId: getChatMessages
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 100 }
+        - in: query
+          name: before
+          schema: { type: string }
+          description: Cursor ID of oldest message currently loaded
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items: { $ref: '#/components/schemas/ChatMessageDto' }
+                  hasMore: { type: boolean }
+                  total: { type: integer }
+                  conversationId: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Chat]
+      summary: Send message via REST fallback
+      operationId: sendChatMessageRest
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                metadata:
+                  type: object
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/ChatMessageDto' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/chat/conversations/{id}/read:
+    post:
+      tags: [Chat]
+      summary: Mark conversation messages as read
+      operationId: markChatRead
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  conversationId: { type: string }
+
+  /api/chat/conversations/{id}/escalate:
+    post:
+      tags: [Chat]
+      summary: Escalate conversation to human support staff
+      operationId: escalateChat
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+
+  /api/chat/unread:
+    get:
+      tags: [Chat]
+      summary: Get total unread messages count for current user
+      operationId: getChatUnreadCount
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unread: { type: integer }
+
+  /api/chat/admin/conversations:
+    get:
+      tags: [Chat, Admin]
+      summary: List all conversations (Admin)
+      operationId: adminListChatConversations
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: channel
+          schema: { type: string, enum: [AI, SUPPORT] }
+        - in: query
+          name: status
+          schema: { type: string, enum: [BOT_ACTIVE, WAITING_ADMIN, ADMIN_ACTIVE, RESOLVED] }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items: { $ref: '#/components/schemas/ChatConversationDto' }
+                  pagination:
+                    type: object
+                    properties:
+                      page: { type: integer }
+                      limit: { type: integer }
+                      total: { type: integer }
+                      totalPages: { type: integer }
+
+  /api/chat/admin/conversations/{id}/status:
+    put:
+      tags: [Chat, Admin]
+      summary: Update conversation status (Admin)
+      operationId: adminUpdateChatStatus
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [BOT_ACTIVE, WAITING_ADMIN, ADMIN_ACTIVE, RESOLVED]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+
+  /api/chat/admin/conversations/{id}/assign:
+    post:
+      tags: [Chat, Admin]
+      summary: Assign current admin to handle conversation
+      operationId: adminAssignChatConversation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2077,6 +2474,48 @@ components:
           schema: { $ref: '#/components/schemas/ApiError' }
 
   schemas:
+    ChatMessageDto:
+      type: object
+      properties:
+        id: { type: string }
+        conversationId: { type: string }
+        senderType: { type: string, enum: [USER, BOT, ADMIN, SYSTEM] }
+        senderId: { type: string, nullable: true }
+        senderName: { type: string }
+        content: { type: string }
+        metadata: { type: object }
+        sentAt: { type: string, format: date-time }
+        isOwn: { type: boolean }
+
+    ChatConversationDto:
+      type: object
+      properties:
+        id: { type: string }
+        channel: { type: string, enum: [AI, SUPPORT] }
+        status: { type: string, enum: [BOT_ACTIVE, WAITING_ADMIN, ADMIN_ACTIVE, RESOLVED] }
+        peer:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+            avatarUrl: { type: string }
+            role: { type: string }
+        lastMessage:
+          type: object
+          nullable: true
+          properties:
+            content: { type: string }
+            sentAt: { type: string, format: date-time }
+            senderType: { type: string }
+        unread: { type: integer }
+        updatedAt: { type: string, format: date-time }
+        assignedAdmin:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            name: { type: string }
+
     MediaAsset:
       type: object
       properties:
