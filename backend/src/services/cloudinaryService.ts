@@ -190,3 +190,34 @@ export function getOptimizedImageUrl(publicId: string): string {
     fetch_format: "auto",
   });
 }
+
+/**
+ * Returns a poster/thumbnail URL for a video publicId.
+ *
+ * Cloudinary can extract a frame from a video on the fly, so FE/Mobile
+ * always has a thumbnail without the admin having to upload a separate
+ * image. `so_0` = seek to the very first second.
+ *
+ * @param publicId  publicId of the VIDEO (resource_type "video")
+ * @param seconds   frame position in seconds (default 0)
+ */
+export function getVideoPosterUrl(
+  publicId: string,
+  seconds = 0
+): string {
+  configureCloudinary();
+
+  if (!publicId || publicId.includes("://")) {
+    throw new Error("A valid Cloudinary publicId is required.");
+  }
+
+  return cloudinary.url(publicId, {
+    secure: true,
+    resource_type: "video",
+    format: "jpg",
+    transformation: [
+      { start_offset: `${Math.max(0, Math.floor(seconds))}s` },
+      { width: 720, crop: "limit", quality: "auto", fetch_format: "auto" },
+    ],
+  });
+}

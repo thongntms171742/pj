@@ -20,6 +20,7 @@ Track changes to the API contract over time to ensure synchronization between Ba
 
 ### Changed
 - `POST /api/uploads` — Mở rộng hỗ trợ **audio** (mp3/mp4/m4a/aac/wav/ogg), giới hạn 15MB (ảnh 5MB, video 30MB). Response có thêm trường `kind: "audio"` và `duration`. Audio upload lên Cloudinary dùng `resourceType: "video"` (Cloudinary xử lý audio như video).
+- `POST /api/uploads` & `POST /api/admin/media` & `PATCH /api/admin/media/:id` — **Tự sinh `posterUrl` cho video**. Cloudinary trích frame đầu tiên on-the-fly (`so_0s`), nên FE/Mobile luôn có thumbnail mà admin không cần upload ảnh riêng. Các asset VIDEO cũ (đã tạo trước tính năng này) cũng được backfill `posterUrl` khi đọc qua `GET /api/media*`.
 - `POST /api/admin/banners` & `PATCH /api/admin/banners/:id` — **Fix bug**: trước đây các field `subtitle`, `aspectRatio`, `placement`, `ctaLabel`, `ctaLink`, `overlayColor` bị bỏ qua khi lưu. Giờ đã persist đầy đủ.
 
 ### New model

@@ -8,6 +8,7 @@ import {
 import { sendError, ErrorCode } from "../../utils/errors";
 import { ah } from "../../utils/asyncRoute";
 import { ok, created } from "../../utils/respond";
+import { getVideoPosterUrl } from "../../services/cloudinaryService";
 
 // ── Media assets Admin CRUD ──────────────────────────────────────────────────
 // Admin upload video/audio lên Cloudinary qua `POST /api/uploads`, rồi tạo
@@ -57,14 +58,29 @@ export const createMediaAsset = ah(async (req: Request, res: Response) => {
     linkType = body.linkType as MediaLinkType;
   }
 
+  const url = body.url.trim();
+  const publicId =
+    typeof body.publicId === "string" ? body.publicId.trim() : "";
+
+  // Video chưa có poster → tự trích frame đầu tiên từ Cloudinary.
+  // Nhờ vậy FE/Mobile luôn có thumbnail, không cần admin upload ảnh riêng.
+  let posterUrl = typeof body.posterUrl === "string" ? body.posterUrl.trim() : "";
+  if (!posterUrl && kind === "VIDEO" && publicId && !publicId.includes("://")) {
+    try {
+      posterUrl = getVideoPosterUrl(publicId);
+    } catch {
+      posterUrl = "";
+    }
+  }
+
   const asset = await MediaAsset.create({
     kind,
     placement,
     title: body.title.trim(),
     caption: typeof body.caption === "string" ? body.caption.trim() : "",
-    url: body.url.trim(),
-    publicId: typeof body.publicId === "string" ? body.publicId.trim() : "",
-    posterUrl: typeof body.posterUrl === "string" ? body.posterUrl.trim() : "",
+    url,
+    publicId,
+    posterUrl,
     format: typeof body.format === "string" ? body.format.trim() : "",
     size: typeof body.size === "number" ? body.size : 0,
     duration: typeof body.duration === "number" ? body.duration : 0,
@@ -122,6 +138,20 @@ export const updateMediaAsset = ah(async (req: Request, res: Response) => {
   }
   if (VALID_LINK_TYPES.includes(body.linkType as any)) {
     asset.linkType = body.linkType as MediaLinkType;
+  }
+
+  // Video chưa có poster → tự trích frame đầu tiên từ Cloudinary.
+  if (
+    asset.kind === "VIDEO" &&
+    !asset.posterUrl &&
+    asset.publicId &&
+    !asset.publicId.includes("://")
+  ) {
+    try {
+      asset.posterUrl = getVideoPosterUrl(asset.publicId);
+    } catch {
+      // Giữ posterUrl rỗng — FE sẽ fallback sang ảnh mặc định.
+    }
   }
 
   await asset.save();

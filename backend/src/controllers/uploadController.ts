@@ -8,6 +8,7 @@ import {
   isCloudinaryEnabled,
   uploadFromBuffer,
   uploadFromDataUrl,
+  getVideoPosterUrl,
 } from "../services/cloudinaryService";
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB for images
@@ -128,6 +129,10 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
             size: uploaded.size,
             kind,
             duration: uploaded.duration,
+            // Cloudinary tự trích frame đầu tiên làm poster.
+            ...(kind === "video"
+              ? { posterUrl: getVideoPosterUrl(uploaded.publicId) }
+              : {}),
           });
           return;
         }
@@ -222,6 +227,8 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
         size: number;
         kind: "image" | "video" | "audio";
         duration?: number;
+        /** Auto-generated thumbnail (video only) — dùng làm poster cho FE. */
+        posterUrl?: string;
       } | null = null;
 
       for (const part of parts) {
@@ -271,6 +278,11 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
               size: uploaded.size,
               kind,
               duration: uploaded.duration,
+              // Cloudinary tự trích frame đầu tiên làm poster → FE/Mobile
+              // luôn có thumbnail, không cần admin upload ảnh riêng.
+              ...(kind === "video"
+                ? { posterUrl: getVideoPosterUrl(uploaded.publicId) }
+                : {}),
             };
             break;
           }

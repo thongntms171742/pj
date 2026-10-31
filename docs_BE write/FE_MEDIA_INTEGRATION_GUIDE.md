@@ -112,8 +112,10 @@ const formData = new FormData();
 formData.append('file', file);   // File (web) hoặc {uri,name,type} (mobile)
 
 const res = await api.post('/uploads', formData);   // ⚠️ KHÔNG set Content-Type thủ công
-// res.data = { url, publicId, format, size, kind, duration }
+// res.data = { url, publicId, format, size, kind, duration, posterUrl? }
 ```
+
+> 💡 **Video**: BE tự sinh `posterUrl` (Cloudinary trích frame đầu tiên) → FE dùng làm `poster` / thumbnail, **không cần admin upload ảnh riêng**.
 
 > 🔴 **QUAN TRỌNG — Web**: axios interceptor đã tự xóa `Content-Type` khi body là `FormData` (để browser tự set boundary). Nếu bạn set `Content-Type: multipart/form-data` thủ công → **mất boundary → BE trả 400 `MISSING_FIELD`**. Cứ `api.post('/uploads', formData)` là đủ.
 

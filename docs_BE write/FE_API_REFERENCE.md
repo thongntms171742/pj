@@ -1113,7 +1113,7 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
 | `caption` | string | Mô tả ngắn hiển thị dưới story |
 | `url` | string | **Bắt buộc** — URL Cloudinary (https) |
 | `publicId` | string | Cloudinary publicId để xóa/thay file sau này |
-| `posterUrl` | string | Ảnh poster (thumbnail) cho video |
+| `posterUrl` | string | Ảnh poster/thumbnail cho video (BE tự sinh từ Cloudinary) |
 | `format` | string | `mp4`, `mp3`, `m4a`... |
 | `size` | number | Byte |
 | `duration` | number | Giây |
@@ -1192,9 +1192,12 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
   "format": "mp4",
   "size": 8421376,
   "kind": "video",
-  "duration": 12
+  "duration": 12,
+  "posterUrl": "https://res.cloudinary.com/xxx/video/upload/so_0s/c_limit,f_auto,q_auto,w_720/v1/buildyourchristmas/story1.jpg"
 }
 ```
+> 💡 **`posterUrl` được BE tự sinh** cho video (Cloudinary trích frame đầu tiên on-the-fly).
+> FE/Mobile dùng làm `poster` của `<video>` / `thumbnail` của story bubble → không cần admin upload ảnh riêng.
 - **Lỗi**:
   - `400 MISSING_FIELD` — thiếu file
   - `400 UNSUPPORTED_MEDIA_TYPE` — sai định dạng

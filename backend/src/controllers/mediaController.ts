@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { MediaAsset, type MediaPlacement } from "../models/MediaAsset";
 import { ah } from "../utils/asyncRoute";
 import { ok } from "../utils/respond";
+import { getVideoPosterUrl } from "../services/cloudinaryService";
 
 // ── Public media endpoints ───────────────────────────────────────────────────
 // FE (web + mobile) đọc media từ đây. Chỉ trả asset `isActive: true`.
@@ -15,6 +16,25 @@ const VALID_PLACEMENTS: MediaPlacement[] = [
 
 function isValidPlacement(value: string): value is MediaPlacement {
   return (VALID_PLACEMENTS as string[]).includes(value);
+}
+
+/**
+ * Bổ sung posterUrl cho asset VIDEO còn thiếu (asset upload trước khi có
+ * tính năng auto-poster). Cloudinary trích frame đầu tiên on-the-fly nên
+ * không cần lưu ảnh riêng — chỉ cần trả URL về cho FE/Mobile.
+ */
+function withPoster<T extends { kind?: string; posterUrl?: string; publicId?: string }>(
+  asset: T | null
+): (T & { posterUrl: string }) | null {
+  if (!asset) return null;
+  if (asset.kind === "VIDEO" && !asset.posterUrl && asset.publicId && !asset.publicId.includes("://")) {
+    try {
+      return { ...asset, posterUrl: getVideoPosterUrl(asset.publicId) };
+    } catch {
+      return { ...asset, posterUrl: asset.posterUrl ?? "" };
+    }
+  }
+  return { ...asset, posterUrl: asset.posterUrl ?? "" };
 }
 
 /**
@@ -45,7 +65,7 @@ export const listMedia = ah(async (req: Request, res: Response) => {
     .limit(safeLimit)
     .lean();
 
-  ok(res, { assets });
+  ok(res, { assets: assets.map((a) => withPoster(a)) });
 });
 
 /**
@@ -62,7 +82,7 @@ export const getHeroMedia = ah(async (_req: Request, res: Response) => {
       .lean()) ||
     null;
 
-  ok(res, { asset });
+  ok(res, { asset: withPoster(asset) });
 });
 
 /**
@@ -78,5 +98,5 @@ export const getBackgroundMusic = ah(async (_req: Request, res: Response) => {
     .sort({ sortOrder: 1, createdAt: -1 })
     .lean();
 
-  ok(res, { asset: asset || null });
+  ok(res, { asset: withPoster(asset || null) });
 });
