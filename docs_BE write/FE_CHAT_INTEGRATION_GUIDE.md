@@ -445,6 +445,46 @@ Hệ thống Chat v3 hỗ trợ trả kèm `metadata` trong `ChatMessageDto` đ�
   - Render thẻ tóm tắt đơn hàng với huy hiệu trạng thái (Badge: Chờ xác nhận, Đang xử lý, Đang giao, Đã hoàn tất).
   - Có nút bấm "Theo dõi đơn hàng" điều hướng tới trang `/orders/:id`.
 
+### 6.4 Cập nhật v3.1 — Hybrid Chatbot (KHÔNG BREAKING)
+
+Từ v3.1, bot dùng kiến trúc **Hybrid** (Rule-first → AI → chuyển tư vấn viên). Toàn bộ DTO và
+event Socket.IO của v3.0 giữ nguyên — **FE không cần sửa code**, chỉ lưu ý 4 điểm sau:
+
+1. **Bot có thể trả lời tức thì bằng Rule** (chưa từng gọi AI).
+   FE vẫn nhận `chat:message` bình thường ⇒ không cần xử lý khác.
+
+2. **`metadata.quickReplies` xuất hiện ở nhiều node hơn** (chào, tư vấn, FAQ, tra cứu đơn).
+   Component chips hiện tại đã hỗ trợ sẵn.
+
+3. **`metadata.suggestedProducts` có thể chứa `type: "accessory"`** (ngoài `"tree"`).
+   → Nên render theo `type` thay vì hard-code `"tree"`:
+   ```typescript
+   const href = p.type === "accessory"
+     ? `/accessories/${p.id}`
+     : `/trees/${p.id}`;
+   ```
+
+4. **`metadata.orderInfo` giờ có cả `orderCode` và `orderNumber`** (trùng giá trị, tương thích ngược).
+
+5. **Khi bot chuyển tư vấn viên**, khách nhận **2 tin liên tiếp**:
+   - 1 tin `senderType: "SYSTEM"` — "Đã gửi yêu cầu kết nối với tư vấn viên…"
+   - 1 tin `senderType: "BOT"` — xác nhận đã kết nối.
+   
+   Kèm event `chat:status` với `status: "WAITING_ADMIN"`.
+
+**Khuyến nghị:** hiển thị banner trạng thái handoff để khách biết đang chờ:
+```typescript
+chatSocket.on("chat:status", ({ conversationId, status, assignedAdmin }) => {
+  if (status === "WAITING_ADMIN") {
+    showBanner("Đang chờ tư vấn viên phản hồi…");
+  } else if (status === "ADMIN_ACTIVE" && assignedAdmin) {
+    showBanner(`${assignedAdmin.name} đang phụ trách cuộc trò chuyện`);
+  }
+});
+```
+
+> Chi tiết kiến trúc + endpoint admin mới: `backend/docs/CHAT_HYBRID_API.md`.
+
 ---
 
 ## 7. Xử Lý Các Trường Hợp Biên (Edge Cases & Resilience)

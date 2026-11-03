@@ -280,14 +280,14 @@ export function initChatSocket(io: SocketIOServer): Namespace {
           // Broadcast qua socket
           await broadcastNewMessage(conv._id, savedMessage, conv);
 
-          // Nếu là channel AI và trạng thái BOT_ACTIVE và người gửi là USER -> trigger Bot reply async
+          // Nếu là channel AI và trạng thái BOT_ACTIVE và người gửi là USER -> trigger Hybrid router async
           if (conv.channel === "AI" && conv.status === "BOT_ACTIVE" && senderType === "USER") {
-            const { processAiChatMessage } = await import("../../../services/ai/chatbotService");
-            processAiChatMessage(String(conv._id), content.trim(), {
+            const { route: hybridRoute } = await import("../bot/hybridRouter");
+            hybridRoute(String(conv._id), content.trim(), {
               userId: actor.userId,
               sessionId: actor.sessionId,
             }).catch((botErr: any) => {
-              console.error("[chatSocket] Bot reply error:", botErr);
+              console.error("[chatSocket] Hybrid router error:", botErr);
             });
           }
         } catch (err: any) {

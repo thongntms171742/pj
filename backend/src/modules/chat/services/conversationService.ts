@@ -18,6 +18,7 @@ import {
 } from "./chatAccess";
 import { chatErrors, ChatError } from "./chatErrors";
 import { countUnreadBatch, UnreadConvLike, sendMessage } from "./messageService";
+import { BOT_NAME, DEFAULT_QUICK_REPLIES, WELCOME_CONTENT } from "../bot/copy";
 
 // ── Admin user ID resolution & caching (5 minutes TTL) ────────────────────────
 let cachedAdminId: string | null = null;
@@ -235,18 +236,16 @@ export async function getOrCreateConversation(
 }
 
 async function sendWelcomeMessage(conversationId: Types.ObjectId): Promise<void> {
-  const welcomeContent =
-    "Xin chào! 🎄 Em là trợ lý ảo của Build Your Christmas. Em có thể giúp gì cho anh/chị hôm nay ạ? Anh/chị có thể hỏi về tư vấn cây thông, giá cả, hoặc tra cứu đơn hàng nhé!";
-
+  // Nội dung chào lấy từ bot/copy.ts (nguồn duy nhất — tránh hard-code 2 nơi).
   await sendMessage({
     conversationId,
     sender: {
       type: "BOT",
-      name: "Trợ lý AI",
+      name: BOT_NAME,
     },
-    content: welcomeContent,
+    content: WELCOME_CONTENT,
     metadata: {
-      quickReplies: ["Tư vấn cây thông Noel", "Tra cứu đơn hàng", "Gặp nhân viên hỗ trợ"],
+      quickReplies: [...DEFAULT_QUICK_REPLIES],
     },
     trustedMetadata: true,
   });

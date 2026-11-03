@@ -23,3 +23,5 @@ export * from "./Banner";
 export * from "./MediaAsset";
 export * from "./Conversation";
 export * from "./Review";
+export * from "./ChatFaq";
+export * from "./ChatLog";

@@ -24,6 +24,7 @@ import {
 } from "../services/messageService";
 import { messageToDto, conversationToDto } from "../dto/chat";
 import { broadcastNewMessage, broadcastStatusChange } from "../socket/chatSocket";
+import { escalateToAdmin } from "../bot/tools/escalate.tool";
 import { sendError, ErrorCode, handleInternalError } from "../../../utils/errors";
 import { ok, created } from "../../../utils/respond";
 import { isChatError, sendChatError } from "../services/chatErrors";
@@ -197,14 +198,14 @@ export async function sendMessage(req: Request, res: Response): Promise<void> {
     // Broadcast realtime qua socket
     await broadcastNewMessage(conv._id, saved, conv);
 
-    // Bot reply async nếu là bot conversation
+    // Bot reply async nếu là bot conversation (Hybrid router: rule → AI → human)
     if (conv.channel === "AI" && conv.status === "BOT_ACTIVE" && senderType === "USER") {
-      const { processAiChatMessage } = await import("../../../services/ai/chatbotService");
-      processAiChatMessage(String(conv._id), String(content).trim(), {
+      const { route: hybridRoute } = await import("../bot/hybridRouter");
+      hybridRoute(String(conv._id), String(content).trim(), {
         userId: actor.userId,
         sessionId: actor.sessionId,
       }).catch((err) => {
-        console.error("[chatController] processAiChatMessage error:", err);
+        console.error("[chatController] hybridRoute error:", err);
       });
     }
 
@@ -249,6 +250,8 @@ export async function markRead(req: Request, res: Response): Promise<void> {
 /**
  * POST /api/chat/conversations/:id/escalate (optionalAuth)
  * Body: { reason? }
+ *
+ * Dùng chung `escalateToAdmin()` với AI agent ⇒ 1 nguồn logic chuyển viên.
  */
 export async function requestEscalation(req: Request, res: Response): Promise<void> {
   try {
@@ -258,25 +261,13 @@ export async function requestEscalation(req: Request, res: Response): Promise<vo
 
     const conv = await resolveConversationAccess(id, actor);
 
-    conv.status = "WAITING_ADMIN";
-    conv.summary = reason || "Khách hàng yêu cầu hỗ trợ từ tư vấn viên";
-    await conv.save();
+    const finalReason =
+      reason || "Khách hàng yêu cầu hỗ trợ từ tư vấn viên";
 
-    const sysMsg = await Message.create({
-      conversationId: conv._id,
-      sender: {
-        type: "SYSTEM",
-        name: "Hệ thống",
-      },
-      content: "Đã gửi yêu cầu kết nối với tư vấn viên. Vui lòng chờ trong giây lát...",
-      metadata: { action: "ESCALATION_REQUESTED", reason },
-    });
-
-    await broadcastNewMessage(conv._id, sysMsg, conv);
-    broadcastStatusChange(conv._id, "WAITING_ADMIN");
+    const result = await escalateToAdmin(conv._id, finalReason);
 
     ok(res, {
-      success: true,
+      success: result.success,
       conversation: conversationToDto(conv, 0, actor.userId),
     });
   } catch (err: any) {

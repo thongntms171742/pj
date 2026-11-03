@@ -41,6 +41,52 @@ export interface ICustomerInfo {
   email?: string;
 }
 
+// ── Hybrid chatbot state (refactor Hybrid Chatbot) ─────────────────────────
+// Trạng thái máy kịch bản của cuộc hội thoại. Tương thích ngược: field mới
+// đều optional, conversation cũ không có vẫn load được bình thường.
+
+/** Các node trong máy kịch bản (scenario engine). */
+export const CHAT_SCENARIO_NODES = [
+  "greeting",
+  "consult_tree",
+  "order_lookup",
+  "faq_highfreq",
+  "complaint_handoff",
+  "closing_csat",
+] as const;
+
+export type ChatScenarioNode = (typeof CHAT_SCENARIO_NODES)[number];
+
+/** Slot đã trích xuất từ tin nhắn khách (VD: kích thước, ngân sách, SĐT). */
+export interface IChatSlots {
+  /** Kích thước cây (S/M/L/XL hoặc chiều cao cm). */
+  size?: string;
+  /** Ngân sách tối đa (VNĐ). */
+  maxPrice?: number;
+  /** Ngân sách tối thiểu (VNĐ). */
+  minPrice?: number;
+  /** Số điện thoại khách cung cấp (đã chuẩn hoá). */
+  phone?: string;
+  /** Mã đơn hàng khách cung cấp. */
+  orderCode?: string;
+  /** Không gian sử dụng (phòng khách, sảnh, văn phòng...). */
+  space?: string;
+  /** Kiểu/style cây quan tâm (classic, nordic, luxury...). */
+  style?: string;
+  [key: string]: unknown;
+}
+
+export interface IScenarioState {
+  /** Node hiện tại của máy kịch bản. */
+  currentNode: ChatScenarioNode;
+  /** Slot đã thu thập. */
+  slots: IChatSlots;
+  /** Số lần AI không tìm thấy kết quả liên tiếp — dùng để auto-escalate. */
+  attempts: number;
+  /** Node đã từng đi qua (phục vụ phân tích). */
+  visited: string[];
+}
+
 export interface IChatParticipant {
   /** ObjectId hex (buyer/admin) hoặc `guest:<sessionId>`. */
   userId: string;
@@ -56,6 +102,14 @@ export interface IConversation extends Document {
   assignedAdminId?: Types.ObjectId | null;
   customerInfo?: ICustomerInfo;
   summary?: string;
+  /** Lý do chuyển tư vấn viên (do bot hoặc khách ghi). */
+  handoffReason?: string;
+  /** Intent cuối cùng bot nhận diện được. */
+  lastIntent?: string;
+  /** Trạng thái máy kịch bản Hybrid. */
+  scenarioState?: IScenarioState;
+  /** Điểm hài lòng 1..5 sau khi cuộc trò chuyện kết thúc. */
+  satisfaction?: number;
   lastMessage?: string;
   /** Loại người gửi của tin cuối (USER/BOT/ADMIN/SYSTEM) — để render sidebar không cần join Message. */
   lastMessageSenderType?: string;
@@ -90,6 +144,19 @@ const ConversationSchema = new Schema<IConversation>(
       email: { type: String, trim: true, lowercase: true },
     },
     summary: { type: String, trim: true },
+    handoffReason: { type: String, trim: true },
+    lastIntent: { type: String, trim: true },
+    scenarioState: {
+      currentNode: {
+        type: String,
+        enum: CHAT_SCENARIO_NODES,
+        default: "greeting",
+      },
+      slots: { type: Schema.Types.Mixed, default: {} },
+      attempts: { type: Number, default: 0, min: 0 },
+      visited: { type: [String], default: [] },
+    },
+    satisfaction: { type: Number, min: 1, max: 5 },
     lastMessage: { type: String, trim: true },
     lastMessageSenderType: { type: String, trim: true },
     lastMessageAt: { type: Date, default: Date.now },
