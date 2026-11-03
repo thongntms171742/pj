@@ -1,299 +1,397 @@
-# Chat API Specification — Unified Model (v3)
+# Chat REST API Specification (v4)
 
-> **Version:** 3.0 · **Backend Status:** ✅ Deployed · **Architecture:** 1 Model Duy Nhất (Single Source of Truth)
+> **Version:** 4.0 · **Architecture:** Hybrid AI & Human Support (TDD v1.0)
+> **Trạng thái:** ✅ Backend hoàn tất — 321 assertions xanh, `tsc --noEmit` sạch.
 >
-> **Tóm tắt thay đổi cốt lõi từ v2:**
-> 1. **Bãi bỏ hoàn toàn convention định danh chuỗi `c_<a>__<b>` và collection messages trôi nổi.** Mọi hội thoại (Chatbot AI và Hỗ trợ Tư vấn viên) đều lưu dưới dạng 1 document chuẩn trong collection `conversations`.
-> 2. **Hợp nhất Socket.IO về namespace duy nhất `/chat`:** Bỏ hoàn toàn 2 hệ socket rời rạc, chuẩn hóa hệ event C → S và S → C.
-> 3. **Cơ chế Read-state theo participant:** Đọc tin nhắn dựa trên mốc `participants[].lastReadAt` so với `Message.createdAt`. Xoá bỏ cờ `isRead: false` phẳng gây tràn badge unread.
-> 4. **Tách biệt sender rõ ràng:** Phân loại `senderType: "USER" | "BOT" | "ADMIN" | "SYSTEM"`, khắc phục lỗi admin bị gán role "buyer".
+> 📖 **Tài liệu đầy đủ:**
+> - Kiến trúc & bảo trì: `backend/docs/CHAT_HYBRID_API.md`
+> - Hướng dẫn tích hợp FE/Mobile: `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md`
 
 ---
 
-## 1. Bảng tra cứu chuyển đổi nhanh (Mapping v2 → v3)
+## 1. Tổng quan
 
-### 1.1 REST Endpoints
+| | |
+| :--- | :--- |
+| **Base URL** | `/api/chat` (user) · `/api/chat/admin` (admin) |
+| **Auth** | `Authorization: Bearer <token>` — **BẮT BUỘC**, không có guest |
+| **Socket namespace** | `/chat` |
+| **Content type** | `application/json` |
 
-| Mục đích | v2 Legacy | v3 Unified (Mới) | Auth |
-| :--- | :--- | :--- | :--- |
-| **Mở/Tạo hội thoại** | `POST /api/chat/conversations`<br>`POST /api/chat/ai/conversations` | `POST /api/chat/conversations`<br>`Body: { channel: "AI" \| "SUPPORT", sessionId? }` | Optional |
-| **Danh sách hội thoại của tôi** | `GET /api/chat/conversations` (1-1 peer)<br>`GET /api/chat/ai/conversations` | `GET /api/chat/conversations` | Require |
-| **Lấy tin nhắn hội thoại** | `GET /api/chat/conversations/:peerId/messages`<br>`GET /api/chat/ai/conversations/:id/messages` | `GET /api/chat/conversations/:id/messages?limit=&before=` | Optional |
-| **Gửi tin nhắn** | `POST /api/chat/conversations/:peerId/messages`<br>`POST /api/chat/ai/conversations/:id/messages` | `POST /api/chat/conversations/:id/messages`<br>`Body: { content, metadata? }` | Optional |
-| **Đánh dấu đã đọc** | `POST /api/chat/conversations/:peerId/markRead` | `POST /api/chat/conversations/:id/read` | Optional |
-| **Yêu cầu gặp Admin (Escalate)** | `POST /api/chat/conversations/:id/escalate`<br>`POST /api/chat/ai/conversations/:id/escalate` | `POST /api/chat/conversations/:id/escalate`<br>`Body: { reason? }` | Optional |
-| **Tổng số tin chưa đọc** | `GET /api/chat/unread` | `GET /api/chat/unread` | Require |
-| **Admin: Danh sách hội thoại** | `GET /api/chat/admin/conversations`<br>`GET /api/chat/ai/admin/conversations` | `GET /api/chat/admin/conversations?channel=&status=&page=&limit=` | Admin |
-| **Admin: Đổi trạng thái** | `PUT /api/chat/admin/conversations/:id/status` | `PUT /api/chat/admin/conversations/:id/status`<br>`Body: { status }` | Admin |
-| **Admin: Tiếp nhận ca trực** | *(chưa có endpoint riêng)* | `POST /api/chat/admin/conversations/:id/assign` | Admin |
+### 1.1 Response format
 
-### 1.2 Socket Events (Namespace `/chat`)
+**Success:**
 
-| Event C → S | v2 AI | v2 1-1 | v3 Unified (Namespace `/chat`) | Payload |
-| :--- | :--- | :--- | :--- | :--- |
-| **Vào phòng chat** | `join_conversation` | `chat:join` | `chat:join` | `{ conversationId }` |
-| **Gửi tin nhắn** | `send_message` | `chat:send` | `chat:send` | `{ conversationId, content, metadata? }` |
-| **Đánh dấu đã đọc** | *(không có)* | `chat:markRead` | `chat:read` | `{ conversationId, lastMessageId? }` |
-| **Đang nhập văn bản** | `typing` / `stop_typing`| `chat:typing` | `chat:typing` | `{ conversationId }` |
-| **Rời phòng chat** | `leave_conversation` | `chat:leave` | `chat:leave` | `{ conversationId }` |
+```json
+{ "items": [...], "pagination": { "page": 1, "limit": 20, "total": 42, "totalPages": 3, "hasNext": true, "hasPrev": false } }
+```
 
-| Event S → C | v2 AI | v2 1-1 | v3 Unified (Namespace `/chat`) | Payload |
-| :--- | :--- | :--- | :--- | :--- |
-| **Tin nhắn mới** | `new_message` | `chat:message` | `chat:message` | `ChatMessageDto` |
-| **Cập nhật hội thoại** | `conversation_updated`| *(không có)* | `chat:conversation` | `ChatConversationDto` |
-| **Số tin chưa đọc** | *(không có)* | `chat:unread` | `chat:unread` | `{ total: number, byConversation: Record<string, number> }` |
-| **Đổi trạng thái** | `status_changed` | *(không có)* | `chat:status` | `{ conversationId, status, assignedAdmin? }` |
-| **Báo đang nhập** | `user_typing` | `chat:typing` | `chat:typing` | `{ conversationId, userId, userName }` |
-| **Lỗi thao tác** | `error` | `chat:error` | `chat:error` | `{ code: string, message: string }` |
+**Error:**
 
-### 1.3 Trường dữ liệu DTO
-
-| DTO | Trường cũ (v2) | Trường mới (v3) | Ghi chú thay đổi |
-| :--- | :--- | :--- | :--- |
-| **Message** | `_id` | `id` | Chuẩn hoá string hex không có gạch dưới |
-| **Message** | `role: "buyer" \| "admin"` | `senderType: "USER" \| "BOT" \| "ADMIN" \| "SYSTEM"` | Phân loại chính xác người phát ngôn |
-| **Message** | `isRead: boolean` | *(bỏ trên Message)* | Tính tự động từ `Conversation.participants[].lastReadAt` |
-| **Conversation**| `conversationId` | `id` | ObjectId hex duy nhất của Conversation document |
-| **Conversation**| *(không có)* | `channel: "AI" \| "SUPPORT"` | Phân biệt trợ lý AI và nhân viên hỗ trợ |
-
----
-
-## 2. TypeScript Data Transfer Objects (DTO)
-
-```typescript
-export type ChatChannel = "AI" | "SUPPORT";
-export type ChatStatus = "BOT_ACTIVE" | "WAITING_ADMIN" | "ADMIN_ACTIVE" | "RESOLVED";
-export type MessageSenderType = "USER" | "BOT" | "ADMIN" | "SYSTEM";
-
-export interface ChatMessageDto {
-  id: string;
-  conversationId: string;
-  senderType: MessageSenderType;
-  senderId: string | null;
-  senderName: string;
-  content: string;
-  metadata: {
-    quickReplies?: string[];
-    suggestedProducts?: Array<{
-      id: string;
-      type: "tree" | "accessory";
-      name: string;
-      price: number;
-      imageUrl?: string;
-    }>;
-    orderInfo?: {
-      orderId: string;
-      orderCode?: string;
-      status: string;
-      totalAmount: number;
-    };
-    [key: string]: unknown;
-  };
-  sentAt: string; // ISO 8601
-  isOwn: boolean; // True nếu tin nhắn do chính người đang xem gửi
-}
-
-export interface ChatConversationDto {
-  id: string;
-  channel: ChatChannel;
-  status: ChatStatus;
-  peer: {
-    id: string;
-    name: string;
-    avatarUrl?: string;
-    role: string;
-  };
-  lastMessage: {
-    content: string;
-    sentAt: string;
-    senderType: string;
-  } | null;
-  unread: number;
-  updatedAt: string; // ISO 8601
-  assignedAdmin?: {
-    id: string;
-    name: string;
-  } | null;
+```json
+{
+  "error": {
+    "code": "CHAT_VERSION_CONFLICT",
+    "message": "Hội thoại vừa được cập nhật bởi người khác. Vui lòng tải lại.",
+    "requestId": "req_abc123",
+    "details": {}
+  }
 }
 ```
 
+### 1.2 Quy tắc quan trọng
+
+| Quy tắc | Chi tiết |
+| :--- | :--- |
+| **Idempotency** | Gửi tin kèm `clientMessageId` (UUID). Gửi lại cùng id ⇒ `200` + `duplicate: true`, **không** tạo tin mới. |
+| **Optimistic lock** | Endpoint mutate nhận `expectedVersion`. Stale ⇒ `409 CHAT_VERSION_CONFLICT` ⇒ **phải refetch**. |
+| **Pagination tin nhắn** | Cursor-based: `?before=<id>` (tin cũ hơn) hoặc `?after=<id>` (tin mới hơn). **Không** dùng `page`. |
+| **Tin nội bộ** | `visibility: "internal"` — user **không bao giờ** thấy (kể cả qua socket). |
+| **Đóng hội thoại** | Conversation `closed` ⇒ không nhận tin mới (`409 CHAT_CONVERSATION_CLOSED`). Mở lại trong 24h. |
+
 ---
 
-## 3. Đặc tả REST API Chi tiết
+## 2. Endpoints — Phía USER
 
-### 3.1 Mở hoặc tạo phiên chat
-- **Endpoint:** `POST /api/chat/conversations`
-- **Auth:** Optional (Khách vãng lai gửi `sessionId` qua body hoặc header `x-chat-session-id`, user đăng nhập gửi token `Authorization: Bearer <token>`).
-- **Body:**
-  ```json
-  {
-    "channel": "AI", // "AI" (mặc định) hoặc "SUPPORT"
-    "sessionId": "guest_179343...",
-    "customerInfo": {
-      "name": "Nguyễn Văn A",
-      "phone": "0901234567",
-      "email": "vana@example.com"
-    }
-  }
-  ```
-- **Response 200 OK:**
-  ```json
-  {
-    "conversation": {
-      "id": "6724a...",
-      "channel": "AI",
-      "status": "BOT_ACTIVE",
-      "peer": { "id": "ai_bot", "name": "Trợ lý AI", "role": "bot" },
-      "lastMessage": { "content": "Xin chào! 🎄...", "sentAt": "2026-10-31T07:00:00.000Z", "senderType": "BOT" },
-      "unread": 0,
-      "updatedAt": "2026-10-31T07:00:00.000Z"
+### 2.1 Conversations
+
+#### `POST /api/chat/conversations`
+
+Tạo hoặc lấy lại conversation active. **Idempotent**: đã có conversation `open`/`pending` ⇒ trả lại chính nó.
+
+- **Query:** `?forceNew=true` (tuỳ chọn — tạo conversation mới thay vì dùng lại).
+- **Response `201`:**
+
+```json
+{
+  "conversation": {
+    "id": "6724a1b2c3d4e5f6a7b8c9d0",
+    "userId": "65f...",
+    "status": "open",
+    "supportMode": "ai",
+    "assignedAdminId": null,
+    "assignedAdminName": null,
+    "aiConfig": {
+      "model": "", "promptVersion": "", "intent": "",
+      "intentConfidence": 0, "sentiment": "", "enabled": true
     },
-    "messages": [
-      {
-        "id": "6724b...",
-        "conversationId": "6724a...",
-        "senderType": "BOT",
-        "senderId": null,
-        "senderName": "Trợ lý AI",
-        "content": "Xin chào! 🎄 Em là trợ lý ảo của Build Your Christmas...",
-        "metadata": {
-          "quickReplies": ["Tư vấn cây thông Noel", "Tra cứu đơn hàng", "Gặp nhân viên hỗ trợ"]
-        },
-        "sentAt": "2026-10-31T07:00:00.000Z",
-        "isOwn": false
-      }
-    ]
+    "lastMessageId": null,
+    "lastMessageAt": null,
+    "unreadCount": { "user": 0, "admin": 0 },
+    "version": 1,
+    "closedAt": null,
+    "closedBy": null,
+    "createdAt": "2026-11-04T02:00:00.000Z",
+    "updatedAt": "2026-11-04T02:00:00.000Z"
   }
-  ```
-
-### 3.2 Lấy danh sách hội thoại của người dùng
-- **Endpoint:** `GET /api/chat/conversations`
-- **Auth:** Require (`Authorization: Bearer <token>`)
-- **Query Params:** `?page=1&limit=20`
-- **Response 200 OK:**
-  ```json
-  {
-    "conversations": [ /* danh sách ChatConversationDto */ ],
-    "pagination": { "page": 1, "limit": 20, "total": 2, "totalPages": 1 }
-  }
-  ```
-
-### 3.3 Xem lịch sử tin nhắn (Pagination Cursor)
-- **Endpoint:** `GET /api/chat/conversations/:id/messages`
-- **Auth:** Optional (Phải là chủ sở hữu hoặc admin)
-- **Query Params:**
-  - `limit`: Số tin muốn lấy (mặc định 50, tối đa 100).
-  - `before`: ID của tin nhắn **cũ nhất** hiện tại trên giao diện. Server sẽ trả về các tin có `createdAt` cũ hơn tin này.
-- **Response 200 OK:**
-  ```json
-  {
-    "messages": [ /* mảng ChatMessageDto sắp xếp từ CŨ ĐẾN MỚI */ ],
-    "hasMore": false,
-    "total": 12,
-    "conversationId": "6724a..."
-  }
-  ```
-
-### 3.4 Gửi tin nhắn qua REST (Fallback khi socket gián đoạn)
-- **Endpoint:** `POST /api/chat/conversations/:id/messages`
-- **Auth:** Optional
-- **Body:**
-  ```json
-  {
-    "content": "Cây 1m8 giá bao nhiêu em?",
-    "metadata": {} // Tùy chọn, tối đa 2000 ký tự JSON
-  }
-  ```
-- **Response 201 Created:** `{ "message": ChatMessageDto }`
-
-### 3.5 Đánh dấu đã đọc
-- **Endpoint:** `POST /api/chat/conversations/:id/read`
-- **Auth:** Optional
-- **Response 200 OK:** `{ "success": true, "conversationId": "6724a..." }`
-
-### 3.6 Chuyển tiếp sang nhân viên hỗ trợ (Escalate)
-- **Endpoint:** `POST /api/chat/conversations/:id/escalate`
-- **Auth:** Optional
-- **Body:** `{ "reason": "Cần giải quyết khiếu nại giao hàng" }`
-- **Response 200 OK:** `{ "success": true, "conversation": ChatConversationDto }`
-
-### 3.7 Lấy tổng số tin chưa đọc
-- **Endpoint:** `GET /api/chat/unread`
-- **Auth:** Require
-- **Response 200 OK:** `{ "unread": 3 }`
-
----
-
-## 4. Kết nối Realtime Socket.IO (Namespace `/chat`)
-
-### 4.1 Cấu hình kết nối Client
-
-```typescript
-import { io, Socket } from "socket.io-client";
-
-const SOCKET_SERVER_URL = "https://your-backend.onrender.com/chat"; // BẮT BUỘC có namespace /chat
-
-export const chatSocket: Socket = io(SOCKET_SERVER_URL, {
-  auth: {
-    token: localStorage.getItem("token") || undefined,
-    sessionId: localStorage.getItem("chat_session_id") || undefined,
-  },
-  // BẮT BUỘC trên môi trường Render / Cloud proxy để tránh lỗi websocket handshake
-  transports: ["websocket", "polling"],
-  tryAllTransports: true,
-  reconnection: true,
-  reconnectionAttempts: 10,
-  reconnectionDelay: 1000,
-});
+}
 ```
 
-### 4.2 Các luồng sự kiện chính
+> `supportMode` khởi tạo là `"ai"` nếu AI khả dụng, ngược lại `"waiting_admin"`.
 
-1. **Khi mở khung chat:**
-   ```typescript
-   chatSocket.emit("chat:join", { conversationId: activeConvId });
-   ```
-2. **Khi gửi tin nhắn:**
-   ```typescript
-   chatSocket.emit("chat:send", {
-     conversationId: activeConvId,
-     content: "Tôi muốn đặt thêm phụ kiện",
-   });
-   ```
-3. **Lắng nghe tin nhắn mới:**
-   ```typescript
-   chatSocket.on("chat:message", (msg: ChatMessageDto) => {
-     if (msg.conversationId === activeConvId) {
-       appendMessageToChatBox(msg);
-       // Đánh dấu đã đọc ngay nếu đang mở
-       chatSocket.emit("chat:read", { conversationId: activeConvId });
-     }
-   });
-   ```
-4. **Lắng nghe cập nhật unread badge:**
-   ```typescript
-   chatSocket.on("chat:unread", ({ total, byConversation }) => {
-     updateHeaderBadge(total);
-     updateSidebarBadges(byConversation);
-   });
-   ```
-5. **Lắng nghe chuyển đổi trạng thái hỗ trợ:**
-   ```typescript
-   chatSocket.on("chat:status", ({ conversationId, status, assignedAdmin }) => {
-     updateStatusIndicator(conversationId, status, assignedAdmin);
-   });
-   ```
+#### `GET /api/chat/conversations`
+
+- **Query:** `?page=1&limit=20&status=all|open|pending|closed`
+- **Response `200`:** `{ "items": [ChatConversationDto], "pagination": PaginationMeta }`
+
+#### `GET /api/chat/conversations/unread-count`
+
+- **Response `200`:** `{ "unreadCount": 3 }`
+
+#### `GET /api/chat/conversations/:id`
+
+- **Response `200`:** `{ "conversation": ChatConversationDto }`
+- **Lỗi:** `404 CHAT_CONVERSATION_NOT_FOUND` · `403 CHAT_FORBIDDEN`
+
+#### `POST /api/chat/conversations/:id/close`
+
+- **Response `200`:** `{ "conversation": ChatConversationDto }` (status → `closed`)
+
+#### `POST /api/chat/conversations/:id/reopen`
+
+- Chỉ trong **24h** kể từ lúc đóng.
+- **Response `200`:** `{ "conversation": ChatConversationDto }` (status → `open`, supportMode → `ai`)
+- **Lỗi:** `409 CHAT_REOPEN_WINDOW_EXPIRED`
 
 ---
 
-## 5. Quy tắc Read-State & Unread Badges
+### 2.2 Messages
 
-1. **Không còn cờ `isRead: false` ở cấp Message:**
-   - Mỗi người tham gia có mốc `lastReadAt` riêng trong `Conversation.participants`.
-   - Một tin nhắn được coi là "chưa đọc" đối với User $U$ nếu:
-     $\text{Message.createdAt} > U.\text{lastReadAt}$ VÀ tin nhắn đó **không phải** do chính $U$ gửi.
-2. **Tự động đồng bộ khi tương tác:**
-   - Khi gửi tin nhắn thành công, server tự động cập nhật `lastReadAt` của người gửi bằng thời điểm gửi.
-   - Khi gọi `POST /:id/read` hoặc emit `chat:read`, `lastReadAt` được nâng lên thời điểm hiện tại.
-3. **Badge của Admin:**
-   - Chỉ đếm các tin nhắn do khách gửi (`senderType === "USER"`), không tính thông báo của BOT hoặc tin hệ thống.
+#### `GET /api/chat/conversations/:id/messages`
+
+- **Query:** `?limit=20&before=<messageId>&after=<messageId>`
+- `before` = lấy tin **cũ hơn** (load lịch sử ngược).
+- `after` = lấy tin **mới hơn** (poll tin mới).
+- **Response `200`:**
+
+```json
+{
+  "items": [
+    {
+      "id": "6724b...",
+      "conversationId": "6724a...",
+      "senderId": "65f...",
+      "senderType": "user",
+      "content": "Cây thông size L giá bao nhiêu ạ?",
+      "messageType": "text",
+      "visibility": "public",
+      "attachments": [],
+      "aiMetadata": null,
+      "clientMessageId": "9f2c...",
+      "userReadAt": null,
+      "adminReadAt": null,
+      "createdAt": "2026-11-04T02:01:00.000Z",
+      "updatedAt": "2026-11-04T02:01:00.000Z"
+    }
+  ],
+  "pagination": { "hasMore": true, "nextCursor": "6724b..." }
+}
+```
+
+> **User chỉ thấy `visibility: "public"`.** Tin `internal` bị lọc hoàn toàn.
+> `items` sắp xếp **cũ → mới**. `nextCursor` = id của tin cũ nhất trong trang (dùng cho `before` lần sau).
+
+#### `POST /api/chat/conversations/:id/messages`
+
+**Body:**
+
+```json
+{
+  "content": "Cây thông size L giá bao nhiêu ạ?",
+  "messageType": "text",
+  "attachments": [
+    { "url": "https://...", "publicId": "abc", "name": "a.jpg", "mimeType": "image/jpeg", "size": 102400 }
+  ],
+  "clientMessageId": "9f2c1e40-..."
+}
+```
+
+- `content` tối đa **5000 ký tự**; tối đa **5** file, mỗi file ≤ **10MB**.
+- `visibility` không nhận từ user ⇒ luôn `"public"`.
+- **Response `200`:**
+
+```json
+{
+  "message": { /* MessageDto */ },
+  "acknowledged": true,
+  "duplicate": false
+}
+```
+
+> `duplicate: true` ⇒ tin đã tồn tại (idempotency hit) — client **không** render thêm.
+> **Lưu ý:** Response trả về ngay, **không** chờ AI. Tin AI sẽ tới sau qua socket `message:new`.
+
+#### `POST /api/chat/conversations/:id/read`
+
+- **Response `200`:** `{ "markedCount": 12 }`
+
+---
+
+### 2.3 Handoff
+
+#### `POST /api/chat/conversations/:id/handoff`
+
+**Body:** `{ "reason": "Khách hàng yêu cầu tư vấn viên", "priority": "normal" }`
+
+- `priority`: `low | normal | high | urgent` (mặc định `normal`).
+- **Response `201`:**
+
+```json
+{
+  "handoff": {
+    "id": "6724c...",
+    "conversationId": "6724a...",
+    "userId": "65f...",
+    "reason": "Khách hàng yêu cầu tư vấn viên",
+    "priority": "normal",
+    "status": "waiting",
+    "summary": "",
+    "requestedAt": "2026-11-04T02:02:00.000Z",
+    "assignedAdminId": null,
+    "acceptedAt": null,
+    "resolvedAt": null,
+    "version": 1,
+    "createdAt": "2026-11-04T02:02:00.000Z",
+    "updatedAt": "2026-11-04T02:02:00.000Z"
+  },
+  "conversation": { /* ConversationDto — supportMode → "waiting_admin" */ },
+  "resolvedByAi": false
+}
+```
+
+- **Lỗi:** `409 CHAT_HANDOFF_ALREADY_EXISTS` (details.handoffId)
+
+#### `GET /api/chat/conversations/:id/handoff`
+
+- **Response `200`:** `{ "handoff": ChatHandoffDto | null }`
+
+#### `DELETE /api/chat/conversations/:id/handoff`
+
+- Huỷ handoff (`waiting`/`assigned` → `cancelled`), conversation trở về `supportMode: "ai"`.
+- **Response `200`:** `{ "handoff": ChatHandoffDto }`
+
+---
+
+## 3. Endpoints — Phía ADMIN
+
+Base: `/api/chat/admin` — yêu cầu đăng nhập + role `admin`.
+
+### 3.1 Conversations
+
+| Method | Path | Query / Body | Ghi chú |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/conversations` | `?scope=unassigned\|mine\|all&status=&supportMode=&page=&limit=` | `scope=unassigned` ⇒ hàng đợi chờ |
+| `GET` | `/conversations/:id` | — | Kèm `assignedAdminName` |
+| `POST` | `/conversations/:id/assign` | `{ expectedVersion? }` | Claim ⇒ `supportMode: "human"`, gán `assignedAdminId` |
+| `POST` | `/conversations/:id/accept` | `{ expectedVersion? }` | Nhận handoff (`assigned → accepted`) |
+| `POST` | `/conversations/:id/close` | — | Đóng hội thoại |
+| `POST` | `/conversations/:id/reopen` | — | Mở lại ⇒ `supportMode: "ai"` |
+| `GET` | `/unread-count` | — | Tổng unread trong hàng đợi |
+
+### 3.2 Messages
+
+| Method | Path | Body | Ghi chú |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/conversations/:id/messages` | `?limit=&before=&after=` | **Bao gồm** tin `internal` |
+| `POST` | `/conversations/:id/messages` | `{ content, messageType?, attachments?, clientMessageId?, visibility? }` | `visibility: "internal"` ⇒ ghi chú nội bộ |
+| `POST` | `/conversations/:id/read` | — | Reset `unreadCount.admin` |
+
+### 3.3 Handoff queue
+
+| Method | Path | Body | Ghi chú |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/handoffs` | `?status=all\|waiting\|assigned\|accepted\|resolved\|cancelled&page=&limit=` | Sắp theo `priority` desc, `requestedAt` asc |
+| `POST` | `/conversations/:id/handoff/assign` | `{ expectedVersion? }` | Claim (`waiting → assigned`) |
+| `POST` | `/conversations/:id/handoff/resolve` | `{ expectedVersion?, returnToAi? }` | `returnToAi` mặc định `true` |
+
+### 3.4 AI Copilot
+
+Base: `/api/chat/admin/copilot` — cần `FEATURE_AI_COPILOT=true`.
+
+| Method | Path | Body / Query | Response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/conversations/:id/summary` | — | `{ summary: { summary, customerIntent, currentStatus, suggestedNextSteps[], lastMessagePreview, urgent, tokensUsed, latencyMs } }` |
+| `POST` | `/conversations/:id/suggest-reply` | `{ instruction? }` | `{ suggestion: { suggestion, summary, needMoreInfo[], toolsUsed[], tokensUsed, latencyMs } }` |
+| `POST` | `/conversations/:id/note` | `{ note? }` | `201 { note: { conversationId, noteId, note, createdAt } }` |
+| `GET` | `/conversations/:id/context` | — | `{ context: { handoff\|null, sentiment, intent, urgent } }` — **không** gọi AI |
+| `GET` | `/policies` | `?query=&category=&limit=` | `{ results: [{ id, title, category, summary, content, relevance }], count }` |
+
+- `POST /note` không có `note` ⇒ AI tự tóm tắt thành ghi chú nội bộ.
+- `POST /note` có `note` ⇒ lưu nguyên văn, **không** gọi AI (0 token).
+- **Lỗi:** `403 CHAT_FORBIDDEN` (không phải admin) · `503 CHAT_AI_UNAVAILABLE` (flag tắt / provider lỗi)
+
+### 3.5 Knowledge Base
+
+Base: `/api/chat/admin/knowledge`.
+
+| Method | Path | Body / Query |
+| :--- | :--- | :--- |
+| `GET` | `/` | `?status=&category=&q=&page=&limit=` |
+| `GET` | `/:id` | — |
+| `POST` | `/` | `{ title*, content*, summary?, category?, keywords?, tags?, status?, priority?, isActive? }` |
+| `PUT` | `/:id` | Cùng shape (partial update) |
+| `DELETE` | `/:id` | **Archive** (xoá mềm) |
+
+- `category`: `policy | faq | guide | product_care | shipping | payment | return | warranty`
+- `status`: `draft | published | archived`
+- Chỉ `published` + `isActive: true` ⇒ AI dùng được.
+- `slug` tự sinh từ `title` (bỏ dấu, phân biệt hoa thường), tự thêm hậu tố nếu trùng.
+
+---
+
+## 4. Socket.IO — Namespace `/chat`
+
+### 4.1 Client → Server
+
+| Event | Payload | Ack |
+| :--- | :--- | :--- |
+| `message:send` | `{ conversationId, content, messageType?, attachments?, clientMessageId? }` | `{ ok: true, data: { message, duplicate } }` |
+| `message:typing` | `{ conversationId, isTyping }` | `{ ok: true, data: { ok: true } }` |
+| `conversation:subscribe` | `{ conversationId }` | `{ ok: true, data: { conversationId } }` |
+| `conversation:unsubscribe` | `{ conversationId }` | — |
+| `conversation:read` | `{ conversationId }` | `{ ok: true, data: { markedCount } }` |
+| `chat:ping` | — | `{ ok: true, data: { serverTime } }` |
+
+### 4.2 Server → Client
+
+| Event | Payload |
+| :--- | :--- |
+| `message:new` | `{ conversationId, message: MessageDto, echo: boolean }` |
+| `conversation:updated` | `{ conversationId, conversation: ConversationDto }` |
+| `conversation:unread` | `{ conversationId, unreadCount: { user, admin } }` |
+| `message:typing` | `{ conversationId, userId, isTyping }` |
+| `handoff:updated` | `{ conversationId, handoff: HandoffDto, status: "created"\|"accepted"\|"resolved"\|"cancelled" }` |
+| `ai:status` | `{ conversationId, status: "thinking"\|"answered"\|"escalated"\|"unavailable", message? }` |
+| `chat:connected` | `{ userId, roles, serverTime }` |
+
+**Quy tắc quan trọng:**
+- `message:new` với `echo: true` ⇒ tin do chính client gửi ⇒ **bỏ qua render**.
+- Tin `internal` chỉ tới room `admins` ⇒ user **không** nhận.
+- `ai:status === "thinking"` ⇒ bật typing indicator; `"answered"` ⇒ tắt.
+
+### 4.3 Rooms
+
+| Room | Thành viên |
+| :--- | :--- |
+| `conversation:<id>` | Client đã `conversation:subscribe` |
+| `user:<id>` | Mọi socket của 1 user (badge đồng bộ đa tab) |
+| `admins` | Mọi admin online |
+
+### 4.4 Rate limit
+
+- **10 tin / 1 giây / user** (cửa sổ trượt).
+- Vượt ⇒ ack `{ ok: false, error: { code: "CHAT_RATE_LIMITED" } }`.
+
+---
+
+## 5. Error Codes
+
+| Code | HTTP | Nguyên nhân |
+| :--- | :--- | :--- |
+| `CHAT_CONVERSATION_NOT_FOUND` | 404 | Không tồn tại |
+| `CHAT_FORBIDDEN` | 403 | Không có quyền |
+| `CHAT_INVALID_ID` | 400 | ID sai định dạng |
+| `CHAT_EMPTY_CONTENT` | 400 | Tin rỗng, không có attachment |
+| `CHAT_MESSAGE_TOO_LONG` | 400 | > 5000 ký tự |
+| `CHAT_CONVERSATION_CLOSED` | 409 | Hội thoại đã đóng |
+| `CHAT_DUPLICATE_MESSAGE` | 409 | Idempotency hit (hiện trả 200 + `duplicate: true`) |
+| `CHAT_VERSION_CONFLICT` | 409 | Optimistic lock stale |
+| `CHAT_RATE_LIMITED` | 429 | Gửi quá nhanh |
+| `CHAT_AI_UNAVAILABLE` | 503 | AI/Copilot tắt hoặc provider lỗi |
+| `CHAT_AI_ESCALATED` | 503 | AI đã chuyển nhân viên |
+| `CHAT_AI_QUOTA_EXCEEDED` | 429 | Hết quota AI hôm nay |
+| `CHAT_HANDOFF_NOT_FOUND` | 404 | Không có handoff |
+| `CHAT_HANDOFF_ALREADY_EXISTS` | 409 | Đã có yêu cầu chờ |
+| `CHAT_HANDOFF_INVALID_TRANSITION` | 409 | Transition không hợp lệ |
+| `CHAT_REOPEN_WINDOW_EXPIRED` | 409 | Quá 24h |
+
+---
+
+## 6. Curl examples
+
+```bash
+# Mở conversation
+curl -X POST http://localhost:4000/api/chat/conversations \
+  -H "Authorization: Bearer $TOKEN"
+
+# Gửi tin (idempotent)
+curl -X POST http://localhost:4000/api/chat/conversations/$CONV_ID/messages \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"content":"Cây thông size L giá bao nhiêu?","clientMessageId":"uuid-1"}'
+
+# Gửi lại cùng clientMessageId ⇒ duplicate=true
+
+# Load tin cũ hơn
+curl "http://localhost:4000/api/chat/conversations/$CONV_ID/messages?limit=30&before=$OLDEST_ID" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Chuyển nhân viên
+curl -X POST http://localhost:4000/api/chat/conversations/$CONV_ID/handoff \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"Cần tư vấn viên","priority":"high"}'
+
+# Admin: ghi chú nội bộ
+curl -X POST http://localhost:4000/api/chat/admin/conversations/$CONV_ID/messages \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"content":"KH VIP, cần gọi lại","visibility":"internal"}'
+```

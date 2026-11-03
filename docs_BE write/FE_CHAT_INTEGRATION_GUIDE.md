@@ -1,523 +1,673 @@
-# Frontend & Mobile Chat Integration Guide — Unified Model (v3)
+# Frontend & Mobile Chat Integration Guide — Hybrid AI & Human Support (v4)
 
-> **Mục tiêu:** Hướng dẫn đội ngũ Frontend (Web) và Mobile (React Native / Flutter) tích hợp hoặc nâng cấp lên hệ thống Chat v3 hợp nhất (Single Model Architecture).
-> **Backend Namespace:** `/chat`
+> **Mục tiêu:** Hướng dẫn đội ngũ Frontend (Web) và Mobile (React Native / Flutter) tích hợp hệ thống Chat **v4 — Hybrid AI & Human Support** (theo TDD v1.0).
+> **Backend Namespace:** `/chat` (Socket.IO)
 > **Base REST URL:** `/api/chat`
-> **Trạng thái:** ✅ Backend đã hoàn tất & kiểm thử tự động 100%.
+> **Trạng thái:** ✅ Backend đã hoàn tất — unit + integration + socket tests đều xanh.
+>
+> ⚠️ **BREAKING CHANGE từ v3 → v4:** Toàn bộ chat cũ đã bị **xoá & code lại từ đầu**.
+> FE **BẮT BUỘC** phải đọc §1 (Migration) trước khi tích hợp.
 
 ---
 
-## 1. Bảng Kiểm Tra Tiến Độ Tích Hợp (Integration Checklist)
+## 0. TL;DR — Thay đổi cốt lõi
 
-### 1.1 Web Frontend Checklist
-- [ ] **Gỡ bỏ code cũ (Legacy Cleanup):**
-  - [ ] Xoá tất cả logic gọi đến route cũ `/api/chat/ai/*` và `/api/chat/conversations/:peerId/*`.
-  - [ ] Gỡ bỏ việc tự sinh chuỗi định danh hội thoại `c_<a>__<b>`.
-  - [ ] Gỡ kết nối socket tới default namespace `/` cho chat (chỉ dùng `/chat`).
-  - [ ] Bỏ logic kiểm tra cờ `message.isRead` phẳng và `message.role === "buyer"`.
-- [ ] **Khởi tạo kết nối Socket.IO (Namespace `/chat`):**
-  - [ ] Cấu hình Socket.IO client trỏ đến `https://<domain>/chat`.
-  - [ ] Truyền `auth: { token, sessionId }` khi khởi tạo socket.
-  - [ ] Cấu hình `transports: ["websocket", "polling"]` và `tryAllTransports: true` để tránh lỗi proxy trên Render.
-- [ ] **Quản lý danh tính khách & User (Identity Management):**
-  - [ ] Lưu trữ và tái sử dụng `chat_session_id` (UUID v4) trong `localStorage` cho khách chưa đăng nhập.
-  - [ ] Tự động truyền Bearer token khi user đã đăng nhập.
-  - [ ] Tự động chuyển giao hội thoại khách sang tài khoản khi user đăng nhập.
-- [ ] **Giao diện & Tương tác (UI/UX):**
-  - [ ] Cập nhật DTO `ChatMessageDto` và `ChatConversationDto` (dùng `id` thay vì `_id`, `senderType` thay vì `role`).
-  - [ ] Render tin nhắn theo `senderType` ("USER", "BOT", "ADMIN", "SYSTEM") và cờ `isOwn`.
-  - [ ] Render component `quickReplies` dạng nút bấm (chips/pills) tự động gửi tin khi click.
-  - [ ] Render component `suggestedProducts` (thẻ sản phẩm kèm ảnh, giá, nút xem/mua).
-  - [ ] Render component `orderInfo` (thẻ thông tin đơn hàng).
-  - [ ] Tích hợp tính năng cuộn ngược lên tải thêm tin nhắn cũ (Cursor Pagination với param `before`).
-  - [ ] Emit `chat:read` khi user mở khung chat hoặc nhận tin mới khi cửa sổ đang active.
-  - [ ] Hiển thị badge số tin chưa đọc từ event `chat:unread` hoặc API `GET /api/chat/unread`.
-  - [ ] Tính năng "Gặp nhân viên hỗ trợ" (Escalate): gọi `POST /api/chat/conversations/:id/escalate`.
-
-### 1.2 Mobile (React Native / Flutter) Checklist
-- [ ] **Cài đặt thư viện & kết nối:**
-  - [ ] Sử dụng `socket.io-client` (khuyến nghị phiên bản `^4.7.x` hoặc `^4.8.x`).
-  - [ ] Lưu `chat_session_id` vào `AsyncStorage` / `SecureStore`.
-  - [ ] Đảm bảo giữ kết nối khi ứng dụng vào background hoặc kết nối lại khi quay lại foreground (App State handling).
-- [ ] **Trải nghiệm tin nhắn:**
-  - [ ] Sử dụng `FlatList` với thuộc tính `inverted` để render tin nhắn tối ưu hiệu năng.
-  - [ ] Bắt sự kiện `onEndReached` khi cuộn lên đầu danh sách để gọi API lấy tin cũ hơn (`before=<oldestId>`).
-  - [ ] Tránh giật lag bằng cách deduplicate tin nhắn theo trường `id`.
-  - [ ] Xử lý bàn phím ảo với `KeyboardAvoidingView` tránh che khuất ô nhập tin.
-- [ ] **Thông báo & Badge:**
-  - [ ] Đồng bộ số lượng tin chưa đọc với App Badge icon khi nhận event `chat:unread`.
-  - [ ] Gửi `chat:read` khi màn hình Chat Screen được `focus`.
+| Hệ thống | v3 (cũ) | v4 (mới) |
+| :--- | :--- | :--- |
+| **Auth** | Cho phép guest (sessionId) | **BẮT BUỘC đăng nhập.** Không có guest mode. |
+| **Trạng thái hội thoại** | `BOT_ACTIVE` / `WAITING_ADMIN` / `ADMIN_ACTIVE` / `RESOLVED` | `open` / `pending` / `closed` |
+| **Chế độ phục vụ** | `channel: "AI" \| "SUPPORT"` | `supportMode: "ai" \| "waiting_admin" \| "human" \| "ai_assisted"` |
+| **Người gửi** | `USER` / `BOT` / `ADMIN` / `SYSTEM` | `user` / `admin` / `ai` / `system` (lowercase) |
+| **Tin nhắn nội bộ** | Không có | **Có** — `visibility: "internal"`, user **không bao giờ** thấy. |
+| **Escalate** | `POST /conversations/:id/escalate` | `POST /conversations/:id/handoff` (+ `DELETE` để huỷ) |
+| **CSAT** | `POST /conversations/:id/satisfaction` | ❌ **Đã bỏ** (không có trong TDD v1.0). |
+| **Socket events** | `chat:send`, `chat:message`, `chat:join`… | `message:send`, `message:new`, `conversation:subscribe`… |
+| **Idempotency** | Không có | `clientMessageId` (retry an toàn, không tạo tin trùng) |
+| **Optimistic lock** | Không có | `version` trên conversation — trả `409 CHAT_VERSION_CONFLICT` khi stale. |
 
 ---
 
-## 2. Khai báo TypeScript DTO (Copy-Paste Ready)
+## 1. Migration Checklist (BẮT BUỘC đọc trước)
+
+### 1.1 Xoá code cũ
+
+- [ ] Xoá toàn bộ gọi tới route cũ: `/api/chat/ai/*`, `/api/chat/conversations/:peerId/*`, `/api/chat/escalate`, `/api/chat/satisfaction`.
+- [ ] Xoá logic `chat_session_id` / `x-chat-session-id` (guest đã bị bỏ).
+- [ ] Xoá field `metadata` cũ (`quickReplies`, `suggestedProducts`, `orderInfo`, `route`, `confidence`, `escalationReason`).
+  → Thay bằng `aiMetadata` (xem §3.3).
+- [ ] Xoá socket event cũ: `chat:join`, `chat:send`, `chat:message`, `chat:typing`, `chat:read`, `chat:status`, `chat:unread`.
+- [ ] Xoá DTO cũ: `ChatMessageDto` (`senderType` uppercase, `isOwn`, `sentAt`), `ChatConversationDto` (`channel`, `peer`, `unread`).
+- [ ] Xoá component render `role === "buyer"`, `message.isRead`.
+
+### 1.2 Kết nối Socket.IO mới
+
+- [ ] URL: `io(`${API_BASE}/chat`, { auth: { token } })` — **bắt buộc có JWT**.
+- [ ] `transports: ["websocket", "polling"]`, `tryAllTransports: true`.
+- [ ] Khi vào 1 hội thoại: `socket.emit("conversation:subscribe", { conversationId }, ack)`.
+- [ ] Khi rời hội thoại: `socket.emit("conversation:unsubscribe", { conversationId })`.
+
+### 1.3 Luồng gửi tin (quan trọng)
+
+- [ ] **Luôn** sinh `clientMessageId` (UUID v4) ở client trước khi gửi.
+- [ ] Dùng **một** id đó cho cả lần gửi Socket lẫn fallback REST (nếu socket rớt).
+- [ ] Khi nhận `message:new` với `echo === true` ⇒ tin đó là của chính mình → **không render lại** (đã optimistic-render).
+- [ ] Deduplicate theo `message.id` khi merge danh sách.
+
+---
+
+## 2. Kiểm tra Tiến Độ Tích Hợp
+
+### 2.1 Web Frontend Checklist
+
+- [ ] **REST — Hội thoại:**
+  - [ ] `POST /api/chat/conversations` (mở/lấy lại conversation active).
+  - [ ] `GET /api/chat/conversations` (danh sách + pagination).
+  - [ ] `GET /api/chat/conversations/unread-count` (badge).
+  - [ ] `GET /api/chat/conversations/:id/messages?limit=30&before=<id>` (cursor pagination).
+  - [ ] `POST /api/chat/conversations/:id/messages` (gửi tin, kèm `clientMessageId`).
+  - [ ] `POST /api/chat/conversations/:id/read` (đánh dấu đã đọc).
+  - [ ] `POST /api/chat/conversations/:id/close` / `POST /api/chat/conversations/:id/reopen`.
+  - [ ] `POST /api/chat/conversations/:id/handoff` (nút "Gặp nhân viên").
+  - [ ] `DELETE /api/chat/conversations/:id/handoff` (huỷ yêu cầu chờ).
+- [ ] **Socket — Realtime:**
+  - [ ] Listen `message:new` (tin mới — kể cả tin AI).
+  - [ ] Listen `conversation:updated` (status / supportMode / version đổi).
+  - [ ] Listen `conversation:unread` (badge đồng bộ mọi tab).
+  - [ ] Listen `message:typing` (ai đang gõ / admin đang gõ).
+  - [ ] Listen `handoff:updated` (yêu cầu chuyển viên thay đổi).
+  - [ ] Listen `ai:status` (`thinking` / `answered` / `escalated` / `unavailable`).
+- [ ] **UI:**
+  - [ ] Badge "Đang chờ tư vấn viên" khi `supportMode === "waiting_admin"`.
+  - [ ] Hiện tên tư vấn viên khi `supportMode === "human"` / `"ai_assisted"`.
+  - [ ] Nút "Gặp nhân viên" disable khi đã có handoff đang mở.
+  - [ ] Typing indicator bật khi `ai:status === "thinking"`.
+  - [ ] Banner thông báo khi `ai:status === "escalated"`.
+- [ ] **Admin Panel (nếu có):**
+  - [ ] `GET /api/chat/admin/conversations?scope=unassigned|mine|all`.
+  - [ ] `POST /api/chat/admin/conversations/:id/assign` (claim hội thoại).
+  - [ ] `POST /api/chat/admin/conversations/:id/messages` (gửi tin, `visibility: "internal"` cho ghi chú nội bộ).
+  - [ ] `GET /api/chat/admin/copilot/conversations/:id/summary` (tóm tắt hội thoại).
+  - [ ] `POST /api/chat/admin/copilot/conversations/:id/suggest-reply` (gợi ý trả lời).
+  - [ ] `POST /api/chat/admin/copilot/conversations/:id/note` (ghi chú nội bộ do AI tóm tắt).
+  - [ ] `GET /api/chat/admin/copilot/policies?query=` (tra chính sách).
+  - [ ] `GET/POST/PUT/DELETE /api/chat/admin/knowledge` (CRUD kho tri thức).
+
+### 2.2 Mobile (React Native / Flutter) Checklist
+
+- [ ] `socket.io-client` `^4.8.x`.
+- [ ] Giữ kết nối khi app vào background → reconnect + emit lại `conversation:subscribe`.
+- [ ] `FlatList` với `inverted` để render tin nhắn tối ưu.
+- [ ] `onEndReached` (cuộn lên đầu) → `GET /messages?before=<oldestId>`.
+- [ ] Dedup theo `message.id`.
+- [ ] `KeyboardAvoidingView` cho ô nhập tin.
+- [ ] Đồng bộ App Badge với event `conversation:unread`.
+
+---
+
+## 3. TypeScript DTO (Copy-Paste Ready)
 
 ```typescript
 // types/chat.ts
 
-export type ChatChannel = "AI" | "SUPPORT";
-export type ChatStatus = "BOT_ACTIVE" | "WAITING_ADMIN" | "ADMIN_ACTIVE" | "RESOLVED";
-export type MessageSenderType = "USER" | "BOT" | "ADMIN" | "SYSTEM";
+export type ConversationStatus = "open" | "pending" | "closed";
 
-export interface SuggestedProduct {
+export type SupportMode =
+  | "ai"             // AI đang phục vụ
+  | "waiting_admin"  // Đã chuyển, đang chờ nhân viên
+  | "human"          // Nhân viên đang phục vụ
+  | "ai_assisted";   // Nhân viên phục vụ + AI hỗ trợ
+
+export type MessageSenderType = "user" | "admin" | "ai" | "system";
+export type MessageVisibility = "public" | "internal";
+export type MessageType = "text" | "image" | "file" | "system";
+
+export interface ChatUnreadCount {
+  user: number;
+  admin: number;
+}
+
+export interface ConversationAiConfigDto {
+  model: string;
+  promptVersion: string;
+  intent: string;
+  intentConfidence: number;
+  sentiment: "negative" | "neutral" | "positive" | "";
+  enabled: boolean;
+}
+
+export interface ChatConversationDto {
   id: string;
-  type: "tree" | "accessory";
+  userId: string;
+  status: ConversationStatus;
+  supportMode: SupportMode;
+  assignedAdminId: string | null;
+  assignedAdminName: string | null;
+  aiConfig: ConversationAiConfigDto;
+  lastMessageId: string | null;
+  lastMessageAt: string | null;
+  unreadCount: ChatUnreadCount;
+  /** Optimistic lock — gửi lại khi mutate. */
+  version: number;
+  closedAt: string | null;
+  closedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatAttachmentDto {
+  url: string;
+  publicId: string;
   name: string;
-  price: number;
-  imageUrl?: string;
+  mimeType: string;
+  size: number;
 }
 
-export interface OrderInfoMetadata {
-  orderId: string;
-  orderCode?: string;
-  status: string;
-  totalAmount: number;
-}
-
-export interface ChatMessageMetadata {
-  quickReplies?: string[];
-  suggestedProducts?: SuggestedProduct[];
-  orderInfo?: OrderInfoMetadata;
-  [key: string]: unknown;
+export interface MessageAiMetadataDto {
+  model: string;
+  promptVersion: string;
+  intent: string;
+  intentConfidence: number;
+  sentiment: string;
+  tokensUsed: number;
+  latencyMs: number;
+  /** Tên tool AI đã dùng: "searchProducts" | "lookupOrder" | "shippingInfo" | "policySearch" */
+  toolsUsed: string[];
+  /** true nếu AI không chắc ⇒ nên để admin duyệt. */
+  needsHumanReview: boolean;
 }
 
 export interface ChatMessageDto {
   id: string;
   conversationId: string;
-  senderType: MessageSenderType;
   senderId: string | null;
-  senderName: string;
+  senderType: MessageSenderType;
   content: string;
-  metadata: ChatMessageMetadata;
-  sentAt: string; // ISO 8601
-  isOwn: boolean; // true nếu tin nhắn do chính client hiện tại gửi
+  messageType: MessageType;
+  /** User CHỈ thấy "public". */
+  visibility: MessageVisibility;
+  attachments: ChatAttachmentDto[];
+  aiMetadata: MessageAiMetadataDto | null;
+  clientMessageId: string | null;
+  userReadAt: string | null;
+  adminReadAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface ChatConversationPeer {
+export interface ChatHandoffDto {
   id: string;
-  name: string;
-  avatarUrl?: string;
-  role: string;
-}
-
-export interface ChatConversationDto {
-  id: string;
-  channel: ChatChannel;
-  status: ChatStatus;
-  peer: ChatConversationPeer;
-  lastMessage: {
-    content: string;
-    sentAt: string;
-    senderType: MessageSenderType;
-  } | null;
-  unread: number;
-  updatedAt: string; // ISO 8601
-  assignedAdmin?: {
-    id: string;
-    name: string;
-  } | null;
-}
-
-export interface GetMessagesResponse {
-  messages: ChatMessageDto[];
-  hasMore: boolean;
-  total: number;
-  conversationId: string;
-}
-
-export interface UnreadUpdatePayload {
-  total: number;
-  byConversation: Record<string, number>;
-}
-
-export interface StatusChangedPayload {
-  conversationId: string;
-  status: ChatStatus;
-  assignedAdmin?: {
-    id: string;
-    name: string;
-  } | null;
-}
-
-export interface TypingPayload {
   conversationId: string;
   userId: string;
-  userName: string;
+  reason: string;
+  priority: "low" | "normal" | "high" | "urgent";
+  status: "waiting" | "assigned" | "accepted" | "resolved" | "cancelled";
+  summary: string;
+  requestedAt: string;
+  assignedAdminId: string | null;
+  acceptedAt: string | null;
+  resolvedAt: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessageListResponse {
+  items: ChatMessageDto[];
+  pagination: {
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+}
+
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
 }
 ```
 
 ---
 
-## 3. Bảng Ánh Xạ Dữ Liệu: Cũ (v2) → Mới (v3)
+## 4. REST API — Phía USER
 
-| Khái niệm | v2 Legacy | v3 Unified (Mới) | Lý do thay đổi & Hành động cho FE |
+> Base: `/api/chat` — **tất cả** yêu cầu header `Authorization: Bearer <token>`.
+
+### 4.1 Conversations
+
+| Method | Path | Body / Query | Response |
 | :--- | :--- | :--- | :--- |
-| **Định danh hội thoại** | Chuỗi tự ghép `c_<a>__<b>` | ObjectId hex string chuẩn (`conv.id`) | FE không bao giờ tự ghép chuỗi. Chỉ dùng `id` trả về từ API. |
-| **Định danh tin nhắn** | `_id` | `id` | FE đổi mọi `msg._id` thành `msg.id` (làm key trong React list). |
-| **Phân loại người gửi** | `role: "buyer" \| "admin"` | `senderType: "USER" \| "BOT" \| "ADMIN" \| "SYSTEM"` | Xoá bỏ lỗi admin bị nhận nhầm là buyer. FE style giao diện theo `senderType`. |
-| **Xác định tin của mình** | So sánh `senderId === currentUser.id` | Sử dụng trường boolean `isOwn` | FE chỉ cần kiểm tra `if (msg.isOwn)` để căn phải (Right-align) bong bóng chat. |
-| **Trạng thái đọc tin** | `message.isRead: boolean` | `conversation.unread: number` & `lastReadAt` | Không dùng `msg.isRead` để hiện icon 2 tick (vì tin bot/admin không lưu flat boolean). Chỉ dùng số `unread` trên danh sách hoặc badge. |
-| **Namespace Socket** | `/` (root) | `/chat` | Khi gọi `io(SERVER_URL + "/chat")` phải có đuôi `/chat`. |
-| **Event Socket gửi tin** | `send_message` hoặc `chat:send` | `chat:send` | Chuẩn hoá 1 event duy nhất cho cả AI và Admin. |
-| **Event Socket nhận tin** | `new_message` hoặc `chat:message` | `chat:message` | Chuẩn hoá 1 event duy nhất. |
+| `GET` | `/conversations` | `?page=1&limit=20&status=all\|open\|pending\|closed` | `{ items: ChatConversationDto[], pagination: PaginationMeta }` |
+| `POST` | `/conversations` | `?forceNew=true` (tuỳ chọn) | `201 { conversation: ChatConversationDto }` |
+| `GET` | `/conversations/unread-count` | — | `{ unreadCount: number }` |
+| `GET` | `/conversations/:id` | — | `{ conversation: ChatConversationDto }` |
+| `POST` | `/conversations/:id/close` | — | `{ conversation: ChatConversationDto }` |
+| `POST` | `/conversations/:id/reopen` | — | `{ conversation: ChatConversationDto }` |
+
+> **`POST /conversations` là idempotent**: nếu user đã có conversation `open`/`pending` thì trả lại chính conversation đó. Muốn conversation mới ⇒ `?forceNew=true`.
+
+### 4.2 Messages
+
+| Method | Path | Body / Query | Response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/conversations/:id/messages` | `?limit=20&before=<messageId>&after=<messageId>` | `{ items: ChatMessageDto[], pagination: { hasMore, nextCursor } }` |
+| `POST` | `/conversations/:id/messages` | `{ content, messageType?, attachments?, clientMessageId? }` | `{ message: ChatMessageDto, acknowledged: true, duplicate: boolean }` |
+| `POST` | `/conversations/:id/read` | — | `{ markedCount: number }` |
+
+**Request body gửi tin:**
+
+```typescript
+interface SendMessageRequest {
+  content: string;                          // bắt buộc (trừ khi có attachments)
+  messageType?: "text" | "image" | "file" | "system";
+  attachments?: Array<{
+    url: string;
+    publicId?: string;
+    name?: string;
+    mimeType?: string;
+    size?: number;
+  }>;
+  /** Idempotency key — BẮT BUỘC để retry an toàn. */
+  clientMessageId?: string;
+}
+```
+
+**Giới hạn:**
+
+- `content` tối đa **5000 ký tự** (`CHAT_MESSAGE_MAX_LENGTH`).
+- Tối đa **5** file đính kèm, mỗi file ≤ **10MB**.
+- Tin nhắn `internal` ⇒ **403 `CHAT_FORBIDDEN`** (chỉ admin tạo được).
+
+**Idempotency:** nếu `clientMessageId` đã tồn tại trong conversation ⇒ trả **200** với tin nhắn cũ và `duplicate: true`. Không tạo bản ghi mới.
+
+### 4.3 Handoff (chuyển nhân viên)
+
+| Method | Path | Body | Response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/conversations/:id/handoff` | — | `{ handoff: ChatHandoffDto \| null }` |
+| `POST` | `/conversations/:id/handoff` | `{ reason?, priority? }` | `201 { handoff, conversation, resolvedByAi: false }` |
+| `DELETE` | `/conversations/:id/handoff` | — | `{ handoff: ChatHandoffDto }` |
+
+- `reason` mặc định: `"Khách hàng yêu cầu tư vấn viên"`.
+- `priority`: `"low" | "normal" | "high" | "urgent"`.
+- Đã có handoff đang mở ⇒ **409 `CHAT_HANDOFF_ALREADY_EXISTS`** (details có `handoffId`).
+- `DELETE` chỉ huỷ được handoff ở trạng thái `waiting`/`assigned` ⇒ conversation trở về `supportMode: "ai"`.
 
 ---
 
-## 4. Khởi Tạo Kết Nối Socket.IO Client
+## 5. REST API — Phía ADMIN
+
+> Base: `/api/chat/admin` — yêu cầu đăng nhập + role `admin`.
+
+| Method | Path | Mô tả |
+| :--- | :--- | :--- |
+| `GET` | `/conversations?scope=unassigned\|mine\|all&status=&supportMode=&page=&limit=` | Danh sách hội thoại |
+| `GET` | `/conversations/:id` | Chi tiết (kèm tên admin) |
+| `POST` | `/conversations/:id/assign` | Claim hội thoại → `supportMode: "human"` |
+| `POST` | `/conversations/:id/accept` | Nhận handoff (`assigned → accepted`) |
+| `POST` | `/conversations/:id/close` | Đóng hội thoại |
+| `POST` | `/conversations/:id/reopen` | Mở lại → `supportMode: "ai"` |
+| `GET` | `/conversations/:id/messages` | Lịch sử (**bao gồm** `internal`) |
+| `POST` | `/conversations/:id/messages` | Gửi tin (`visibility: "public" \| "internal"`) |
+| `POST` | `/conversations/:id/read` | Đánh dấu đã đọc (phía admin) |
+| `GET` | `/handoffs?status=&page=&limit=` | Hàng đợi handoff |
+| `POST` | `/conversations/:id/handoff/assign` | Claim handoff |
+| `POST` | `/conversations/:id/handoff/resolve` | Kết thúc handoff (mặc định trả về AI) |
+| `GET` | `/unread-count` | Tổng unread trong hàng đợi |
+
+**Optimistic locking:** các endpoint mutate nhận `body.expectedVersion`. Nếu version đã stale ⇒ **409 `CHAT_VERSION_CONFLICT`** ⇒ FE **phải refetch** rồi thử lại.
 
 ```typescript
-// services/chatSocket.ts
+await fetch(`/api/chat/admin/conversations/${id}/assign`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+  body: JSON.stringify({ expectedVersion: conversation.version }),
+});
+```
+
+### 5.1 AI Copilot
+
+> Base: `/api/chat/admin/copilot`
+> ⚠️ Cần bật `FEATURE_AI_COPILOT=true` trên BE. Nếu tắt ⇒ **503 `CHAT_AI_UNAVAILABLE`**.
+
+| Method | Path | Body / Query | Response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/conversations/:id/summary` | — | `{ summary: { summary, customerIntent, currentStatus, suggestedNextSteps[], lastMessagePreview, urgent, tokensUsed, latencyMs } }` |
+| `POST` | `/conversations/:id/suggest-reply` | `{ instruction? }` | `{ suggestion: { suggestion, summary, needMoreInfo[], toolsUsed[], tokensUsed, latencyMs } }` |
+| `POST` | `/conversations/:id/note` | `{ note? }` | `201 { note: { conversationId, noteId, note, createdAt } }` |
+| `GET` | `/conversations/:id/context` | — | `{ context: { handoff \| null, sentiment, intent, urgent } }` |
+| `GET` | `/policies?query=&category=&limit=` | — | `{ results: CopilotPolicyHit[], count }` |
+
+- `POST /note` **không có** `note` ⇒ AI tự tóm tắt hội thoại thành ghi chú nội bộ (`visibility: "internal"` ⇒ user **không** thấy).
+- `POST /note` **có** `note` ⇒ lưu nguyên văn (không gọi AI, 0 token).
+- `GET /context` **không** gọi AI ⇒ dùng để ưu tiên hàng đợi, rẻ & nhanh.
+
+### 5.2 Kho tri thức (Knowledge Base)
+
+> Base: `/api/chat/admin/knowledge`
+
+| Method | Path | Mô tả |
+| :--- | :--- | :--- |
+| `GET` | `/?status=&category=&q=&page=&limit=` | Danh sách tài liệu |
+| `GET` | `/:id` | Chi tiết |
+| `POST` | `/` | Tạo tài liệu |
+| `PUT` | `/:id` | Sửa tài liệu |
+| `DELETE` | `/:id` | **Archive** (xoá mềm → `status: "archived"`) |
+
+**Body khi tạo/sửa:**
+
+```typescript
+{
+  title: string;             // bắt buộc
+  content: string;           // bắt buộc — markdown, là nguồn sự thật cho AI
+  summary?: string;          // 1-2 câu, dùng cho quick answer
+  category?: "policy" | "faq" | "guide" | "product_care"
+            | "shipping" | "payment" | "return" | "warranty";
+  keywords?: string[];       // không dấu, để match nhanh
+  tags?: string[];
+  status?: "draft" | "published" | "archived";
+  priority?: number;         // cao = thử trước khi nhiều tài liệu cùng khớp
+  isActive?: boolean;
+}
+```
+
+> Chỉ tài liệu `status: "published"` + `isActive: true` mới được AI dùng.
+> `DELETE` là **xoá mềm** — tài liệu không bị mất khỏi DB.
+
+---
+
+## 6. Socket.IO — Namespace `/chat`
+
+### 6.1 Khởi tạo
+
+```typescript
 import { io, Socket } from "socket.io-client";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://your-api.onrender.com";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 const CHAT_SOCKET_URL = `${API_BASE_URL.replace(/\/api\/?$/, "")}/chat`;
 
-export function getOrCreateSessionId(): string {
-  if (typeof window === "undefined") return "";
-  let sid = localStorage.getItem("chat_session_id");
-  if (!sid) {
-    sid = "guest_" + Math.random().toString(36).substring(2, 11) + "_" + Date.now();
-    localStorage.setItem("chat_session_id", sid);
-  }
-  return sid;
-}
-
-export function createChatSocket(token?: string | null): Socket {
-  const sessionId = getOrCreateSessionId();
-
+export function createChatSocket(token: string): Socket {
   const socket = io(CHAT_SOCKET_URL, {
-    auth: {
-      token: token || undefined,
-      sessionId: sessionId || undefined,
-    },
-    // Quan trọng cho Render.com & proxy để tránh lỗi WebSocket handshake 400
+    auth: { token },                  // BẮT BUỘC — không có guest
     transports: ["websocket", "polling"],
     tryAllTransports: true,
     reconnection: true,
     reconnectionAttempts: 15,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
   });
 
-  socket.on("connect", () => {
-    console.log("[ChatSocket] Connected successfully with socket ID:", socket.id);
+  socket.on("chat:connected", (p: { userId: string; roles: string[]; serverTime: string }) => {
+    console.log("[Chat] connected as", p.userId);
   });
 
-  socket.on("connect_error", (error) => {
-    console.warn("[ChatSocket] Connection error:", error.message);
-  });
-
-  socket.on("chat:error", (err: { code: string; message: string }) => {
-    console.error(`[ChatSocket] Server Error [${err.code}]:`, err.message);
+  socket.on("connect_error", (err) => {
+    // Thường là token hết hạn / sai
+    console.warn("[Chat] connect_error:", err.message);
   });
 
   return socket;
 }
 ```
 
----
+### 6.2 Client → Server
 
-## 5. Các Đoạn Code Mẫu Chuẩn Cho Từng Thao Tác (Code Snippets)
+| Event | Payload | Ack |
+| :--- | :--- | :--- |
+| `message:send` | `{ conversationId, content, messageType?, attachments?, clientMessageId? }` | `{ ok: true, data: { message, duplicate } }` \| `{ ok: false, error: { code, message } }` |
+| `message:typing` | `{ conversationId, isTyping }` | `{ ok: true, data: { ok: true } }` |
+| `conversation:subscribe` | `{ conversationId }` | `{ ok: true, data: { conversationId } }` |
+| `conversation:unsubscribe` | `{ conversationId }` | — |
+| `conversation:read` | `{ conversationId }` | `{ ok: true, data: { markedCount } }` |
+| `chat:ping` | — | `{ ok: true, data: { serverTime } }` |
 
-### 5.1 Khởi tạo hội thoại & Tham gia phòng chat (`chat:join`)
+### 6.3 Server → Client
 
-```typescript
-import { createChatSocket, getOrCreateSessionId } from "./chatSocket";
-import { ChatConversationDto, ChatMessageDto } from "../types/chat";
+| Event | Payload | Ghi chú |
+| :--- | :--- | :--- |
+| `message:new` | `{ conversationId, message: ChatMessageDto, echo: boolean }` | `echo=true` ⇒ tin của chính mình. Tin `internal` **chỉ** tới room admin. |
+| `conversation:updated` | `{ conversationId, conversation: ChatConversationDto }` | Khi status / supportMode / version đổi. |
+| `conversation:unread` | `{ conversationId, unreadCount: { user, admin } }` | Đồng bộ badge mọi tab. |
+| `message:typing` | `{ conversationId, userId, isTyping }` | Ai đó đang gõ. |
+| `handoff:updated` | `{ conversationId, handoff: ChatHandoffDto, status: "created"\|"accepted"\|"resolved"\|"cancelled" }` | |
+| `ai:status` | `{ conversationId, status: "thinking"\|"answered"\|"escalated"\|"unavailable", message? }` | `message` chỉ có khi `answered`. |
+| `chat:connected` | `{ userId, roles, serverTime }` | |
 
-// 1. Gọi REST mở hoặc tạo hội thoại
-async function initConversation(channel: "AI" | "SUPPORT" = "AI", token?: string) {
-  const sessionId = getOrCreateSessionId();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const res = await fetch("/api/chat/conversations", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      channel,
-      sessionId,
-    }),
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || "Failed to initialize conversation");
-
-  const conversation: ChatConversationDto = data.conversation;
-  const initialMessages: ChatMessageDto[] = data.messages;
-
-  return { conversation, initialMessages };
-}
-
-// 2. Tham gia phòng realtime trên Socket
-function joinChatRoom(socket: Socket, conversationId: string) {
-  socket.emit("chat:join", { conversationId });
-}
-```
-
----
-
-### 5.2 Gửi tin nhắn qua Socket và Fallback sang REST
+### 6.4 Mẫu xử lý sự kiện
 
 ```typescript
-// Gửi qua Realtime Socket
-export function sendSocketMessage(
+export function setupChatHandlers(
   socket: Socket,
   conversationId: string,
-  content: string,
-  metadata?: Record<string, unknown>
-) {
-  if (!socket.connected) {
-    throw new Error("SOCKET_DISCONNECTED");
+  handlers: {
+    onMessage: (m: ChatMessageDto, echo: boolean) => void;
+    onConversationUpdated: (c: ChatConversationDto) => void;
+    onUnread: (c: ChatUnreadCount) => void;
+    onTyping: (userId: string, isTyping: boolean) => void;
+    onHandoff: (h: ChatHandoffDto) => void;
+    onAiStatus: (s: "thinking" | "answered" | "escalated" | "unavailable") => void;
   }
-
-  socket.emit("chat:send", {
-    conversationId,
-    content: content.trim(),
-    metadata,
-  });
-}
-
-// Gửi qua REST (dùng khi Socket tạm mất kết nối)
-export async function sendRestMessage(
-  conversationId: string,
-  content: string,
-  token?: string,
-  metadata?: Record<string, unknown>
-): Promise<ChatMessageDto> {
-  const sessionId = getOrCreateSessionId();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  if (sessionId) headers["x-chat-session-id"] = sessionId;
-
-  const res = await fetch(`/api/chat/conversations/${conversationId}/messages`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ content: content.trim(), metadata }),
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || "Failed to send message via REST");
-  return data.message;
-}
-```
-
----
-
-### 5.3 Nhận tin nhắn mới & Tự động đánh dấu đã đọc (`chat:read`)
-
-```typescript
-export function setupMessageListener(
-  socket: Socket,
-  currentConvId: string,
-  isChatWindowFocused: boolean,
-  onNewMessage: (msg: ChatMessageDto) => void
 ) {
-  const handleIncomingMessage = (msg: ChatMessageDto) => {
-    // Chỉ xử lý tin thuộc hội thoại đang mở
-    if (msg.conversationId === currentConvId) {
-      onNewMessage(msg);
+  socket.on("message:new", ({ message, echo }) => {
+    if (message.conversationId !== conversationId) return;
+    handlers.onMessage(message, echo);
+  });
 
-      // Nếu người dùng đang mở cửa sổ chat và xem màn hình, gửi ngay chat:read
-      if (isChatWindowFocused) {
-        socket.emit("chat:read", {
-          conversationId: currentConvId,
-          lastMessageId: msg.id,
-        });
-      }
-    }
-  };
+  socket.on("conversation:updated", ({ conversation }) => {
+    if (conversation.id !== conversationId) return;
+    handlers.onConversationUpdated(conversation);
+  });
 
-  socket.on("chat:message", handleIncomingMessage);
+  socket.on("conversation:unread", ({ unreadCount }) => handlers.onUnread(unreadCount));
+  socket.on("message:typing", ({ userId, isTyping }) => handlers.onTyping(userId, isTyping));
+  socket.on("handoff:updated", ({ handoff }) => handlers.onHandoff(handoff));
+  socket.on("ai:status", ({ status }) => handlers.onAiStatus(status));
+
   return () => {
-    socket.off("chat:message", handleIncomingMessage);
+    socket.off("message:new");
+    socket.off("conversation:updated");
+    socket.off("conversation:unread");
+    socket.off("message:typing");
+    socket.off("handoff:updated");
+    socket.off("ai:status");
   };
 }
 ```
 
 ---
 
-### 5.4 Cuộn lên trên để tải thêm tin cũ (Cursor Pagination với `before`)
+## 7. Luồng AI Hybrid — FE cần hiểu gì?
 
-> **Quy tắc Cursor:** Không dùng `page=2, 3` vì khi có tin mới tới, thứ tự phân trang dạng số sẽ bị trượt và sinh ra tin trùng lặp. FE luôn truyền `before=<id_của_tin_nhắn_cũ_nhất_trên_màn_hình>`.
+Khi user gửi tin ở `supportMode: "ai"`, BE tự xử lý (fire-and-forget, **không** chặn response API):
+
+```
+user gửi tin
+   → message:new (echo=true)          [tin user]
+   → ai:status { status: "thinking" }  [AI đang xử lý]
+   → ai:status { status: "answered", message: ChatMessageDto }
+   → message:new (echo=false)          [tin AI, senderType="ai"]
+```
+
+**Khi AI không xử lý được** (cần nhân viên):
+
+```
+   → ai:status { status: "escalated" }
+   → conversation:updated { supportMode: "waiting_admin" }
+   → handoff:updated { status: "created" }
+   → message:new (senderType="system")  ["Mình đã chuyển yêu cầu của bạn…"]
+```
+
+**Khi AI lỗi kỹ thuật** (provider timeout / quota):
+
+```
+   → ai:status { status: "unavailable" }
+```
+
+> `unavailable` **KHÔNG** có nghĩa hội thoại đã escalate — user vẫn có thể gửi tin tiếp.
+
+### 7.1 Metadata AI (để hiển thị badge / tooltip)
 
 ```typescript
-export async function loadOlderMessages(
-  conversationId: string,
-  oldestMessageId: string,
-  token?: string
-): Promise<{ olderMessages: ChatMessageDto[]; hasMore: boolean }> {
-  const sessionId = getOrCreateSessionId();
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  if (sessionId) headers["x-chat-session-id"] = sessionId;
+if (message.senderType === "ai" && message.aiMetadata) {
+  const { intent, intentConfidence, sentiment, toolsUsed, needsHumanReview } = message.aiMetadata;
 
-  const url = `/api/chat/conversations/${conversationId}/messages?limit=30&before=${oldestMessageId}`;
-  const res = await fetch(url, { headers });
-  const data = await res.json();
-
-  if (!res.ok) throw new Error(data.message || "Failed to load older messages");
-
-  // data.messages trả về được sắp xếp theo thời gian tăng dần (cũ đến mới)
-  return {
-    olderMessages: data.messages,
-    hasMore: data.hasMore,
-  };
+  if (needsHumanReview) {
+    showBadge("AI chưa chắc — nhân viên sẽ xác nhận");
+  }
+  if (sentiment === "negative") {
+    showBadge("Khách đang không hài lòng");   // ưu tiên cao cho admin
+  }
 }
 ```
 
 ---
 
-### 5.5 Chuyển tiếp sang nhân viên hỗ trợ (Escalate / Human Handoff)
+## 8. Xử Lý Lỗi
 
-Khi khách hàng nhấn nút "Gặp nhân viên hỗ trợ" hoặc chat câu hỏi phức tạp mà BOT không giải quyết được:
+### 8.1 Format lỗi chuẩn
+
+```json
+{
+  "error": {
+    "code": "CHAT_VERSION_CONFLICT",
+    "message": "Hội thoại vừa được cập nhật bởi người khác. Vui lòng tải lại.",
+    "requestId": "req_abc123",
+    "details": {}
+  }
+}
+```
+
+### 8.2 Bảng mã lỗi Chat
+
+| Code | HTTP | Ý nghĩa | FE nên làm |
+| :--- | :--- | :--- | :--- |
+| `CHAT_CONVERSATION_NOT_FOUND` | 404 | Không tồn tại (hoặc không có quyền) | Quay lại danh sách |
+| `CHAT_FORBIDDEN` | 403 | Không có quyền (VD: user tạo tin `internal`) | Hiện toast, không retry |
+| `CHAT_INVALID_ID` | 400 | ID sai định dạng | Bug FE |
+| `CHAT_EMPTY_CONTENT` | 400 | Tin nhắn rỗng | Chặn ở client |
+| `CHAT_MESSAGE_TOO_LONG` | 400 | > 5000 ký tự | Chặn ở client |
+| `CHAT_CONVERSATION_CLOSED` | 409 | Hội thoại đã đóng | Hiện nút "Mở lại" |
+| `CHAT_VERSION_CONFLICT` | 409 | Optimistic lock stale | **Refetch** conversation rồi thử lại |
+| `CHAT_RATE_LIMITED` | 429 | Gửi quá nhanh | Hiện cảnh báo, chặn 1-2s |
+| `CHAT_AI_UNAVAILABLE` | 503 | AI/Copilot đang tắt hoặc provider lỗi | Ẩn UI AI, cho phép chat tiếp |
+| `CHAT_AI_ESCALATED` | 503 | AI đã chuyển nhân viên | Hiện banner "đang chờ tư vấn viên" |
+| `CHAT_AI_QUOTA_EXCEEDED` | 429 | Hết quota AI hôm nay | Ẩn UI AI |
+| `CHAT_HANDOFF_NOT_FOUND` | 404 | Không có handoff | Refresh trạng thái |
+| `CHAT_HANDOFF_ALREADY_EXISTS` | 409 | Đã có yêu cầu chờ | Disable nút "Gặp nhân viên" |
+| `CHAT_HANDOFF_INVALID_TRANSITION` | 409 | Chuyển trạng thái handoff không hợp lệ | Refresh |
+| `CHAT_REOPEN_WINDOW_EXPIRED` | 409 | Quá 24h ⇒ không mở lại được | Tạo conversation mới |
+
+### 8.3 Xử lý `409 CHAT_VERSION_CONFLICT`
 
 ```typescript
-export async function requestAdminHandoff(
-  conversationId: string,
-  reason?: string,
-  token?: string
-): Promise<ChatConversationDto> {
-  const sessionId = getOrCreateSessionId();
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  if (sessionId) headers["x-chat-session-id"] = sessionId;
-
-  const res = await fetch(`/api/chat/conversations/${conversationId}/escalate`, {
+async function assignConversation(conversation: ChatConversationDto) {
+  const res = await fetch(`/api/chat/admin/conversations/${conversation.id}/assign`, {
     method: "POST",
-    headers,
-    body: JSON.stringify({ reason }),
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ expectedVersion: conversation.version }),
   });
 
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || "Cannot escalate to admin");
-  return data.conversation;
+  if (res.status === 409) {
+    const fresh = await fetch(`/api/chat/admin/conversations/${conversation.id}`).then((r) => r.json());
+    // Thử lại 1 lần với version mới
+    return assignConversation(fresh.conversation);
+  }
+  return res.json();
 }
 ```
 
 ---
 
-## 6. Hướng Dẫn Render Metadata Đặc Thù
+## 9. Edge Cases
 
-Hệ thống Chat v3 hỗ trợ trả kèm `metadata` trong `ChatMessageDto` để render các widget tương tác phong phú.
+### 9.1 Mất mạng & reconnect
 
-### 6.1 Gợi ý câu hỏi nhanh (`quickReplies`)
-- **Dữ liệu:** Mảng các chuỗi ký tự, ví dụ: `["Tư vấn cây thông Noel", "Tra cứu đơn hàng", "Gặp tư vấn viên"]`.
-- **Hành vi:**
-  - Render dạng hàng nút bấm nhỏ (chip/pill button) ngay bên dưới bong bóng chat của BOT.
-  - Khi user nhấn vào một nút:
-    - Lấy nội dung nút làm văn bản gửi đi (`chat:send`).
-    - Ẩn hoặc disable danh sách nút vừa bấm để tránh user spam bấm nhiều lần.
-
-### 6.2 Gợi ý sản phẩm (`suggestedProducts`)
-- **Dữ liệu:**
-  ```json
-  [
-    {
-      "id": "6723f...",
-      "type": "tree",
-      "name": "Cây Thông Noble Fir Cao Cấp 1m8",
-      "price": 1850000,
-      "imageUrl": "https://res.cloudinary.com/.../tree1.jpg"
-    }
-  ]
-  ```
-- **Hành vi:**
-  - Render card sản phẩm ngang hoặc carousel.
-  - Hiển thị ảnh đại diện, tên sản phẩm và giá tiền định dạng `1.850.000 ₫`.
-  - Có nút hành động: "Xem chi tiết" (navigate đến trang `/trees/:id` hoặc `/accessories/:id`) hoặc "Thêm vào giỏ".
-
-### 6.3 Thẻ tra cứu đơn hàng (`orderInfo`)
-- **Dữ liệu:**
-  ```json
-  {
-    "orderId": "6724a...",
-    "orderCode": "BYC-2026-9812",
-    "status": "PROCESSING",
-    "totalAmount": 2450000
-  }
-  ```
-- **Hành vi:**
-  - Render thẻ tóm tắt đơn hàng với huy hiệu trạng thái (Badge: Chờ xác nhận, Đang xử lý, Đang giao, Đã hoàn tất).
-  - Có nút bấm "Theo dõi đơn hàng" điều hướng tới trang `/orders/:id`.
-
-### 6.4 Cập nhật v3.1 — Hybrid Chatbot (KHÔNG BREAKING)
-
-Từ v3.1, bot dùng kiến trúc **Hybrid** (Rule-first → AI → chuyển tư vấn viên). Toàn bộ DTO và
-event Socket.IO của v3.0 giữ nguyên — **FE không cần sửa code**, chỉ lưu ý 4 điểm sau:
-
-1. **Bot có thể trả lời tức thì bằng Rule** (chưa từng gọi AI).
-   FE vẫn nhận `chat:message` bình thường ⇒ không cần xử lý khác.
-
-2. **`metadata.quickReplies` xuất hiện ở nhiều node hơn** (chào, tư vấn, FAQ, tra cứu đơn).
-   Component chips hiện tại đã hỗ trợ sẵn.
-
-3. **`metadata.suggestedProducts` có thể chứa `type: "accessory"`** (ngoài `"tree"`).
-   → Nên render theo `type` thay vì hard-code `"tree"`:
-   ```typescript
-   const href = p.type === "accessory"
-     ? `/accessories/${p.id}`
-     : `/trees/${p.id}`;
-   ```
-
-4. **`metadata.orderInfo` giờ có cả `orderCode` và `orderNumber`** (trùng giá trị, tương thích ngược).
-
-5. **Khi bot chuyển tư vấn viên**, khách nhận **2 tin liên tiếp**:
-   - 1 tin `senderType: "SYSTEM"` — "Đã gửi yêu cầu kết nối với tư vấn viên…"
-   - 1 tin `senderType: "BOT"` — xác nhận đã kết nối.
-   
-   Kèm event `chat:status` với `status: "WAITING_ADMIN"`.
-
-**Khuyến nghị:** hiển thị banner trạng thái handoff để khách biết đang chờ:
-```typescript
-chatSocket.on("chat:status", ({ conversationId, status, assignedAdmin }) => {
-  if (status === "WAITING_ADMIN") {
-    showBanner("Đang chờ tư vấn viên phản hồi…");
-  } else if (status === "ADMIN_ACTIVE" && assignedAdmin) {
-    showBanner(`${assignedAdmin.name} đang phụ trách cuộc trò chuyện`);
-  }
-});
-```
-
-> Chi tiết kiến trúc + endpoint admin mới: `backend/docs/CHAT_HYBRID_API.md`.
-
----
-
-## 7. Xử Lý Các Trường Hợp Biên (Edge Cases & Resilience)
-
-### 7.1 Mất kết nối & Kết nối lại (Reconnection & Auto-Rejoin)
-Khi người dùng mất mạng (đổi WiFi, qua hầm) hoặc tab trình duyệt bị hệ điều hành đóng băng:
 ```typescript
 socket.on("reconnect", () => {
-  console.log("[ChatSocket] Reconnected!");
-  // BẮT BUỘC: Khi reconnect thành công, phải emit lại chat:join cho phòng đang mở
-  if (currentActiveConversationId) {
-    socket.emit("chat:join", { conversationId: currentActiveConversationId });
+  // BẮT BUỘC subscribe lại — server không nhớ client đã ở room nào
+  if (currentConversationId) {
+    socket.emit("conversation:subscribe", { conversationId: currentConversationId });
   }
-  // Đồng bộ lại tin nhắn mới nhất đề phòng tin nhắn bị bỏ lỡ trong lúc mất mạng
-  syncLatestMessages(currentActiveConversationId);
+  syncLatestMessages(currentConversationId);   // bù tin bị lỡ
 });
 ```
 
-### 7.2 Hết hạn Token JWT (Token Expiration)
-Khi Bearer token hết hạn, socket hoặc REST request sẽ trả về mã lỗi `UNAUTHORIZED` hoặc event `chat:error` (`CHAT_FORBIDDEN`):
-1. Client gọi API Refresh Token để lấy token mới.
-2. Cập nhật `socket.auth.token = newToken`.
-3. Gọi `socket.disconnect().connect()` để kết nối lại bằng quyền mới mà không cần reload trang.
+### 9.2 Token hết hạn
 
-### 7.3 Đồng bộ giữa nhiều Tab trình duyệt (Multi-tab Sync)
-Khi người dùng mở 2 tab cùng lúc:
-- Sử dụng `BroadcastChannel("byc_chat_channel")` hoặc lắng nghe `window.addEventListener("storage", ...)`:
-- Khi tab A gửi tin nhắn hoặc đánh dấu đọc tin, tab A broadcast sự kiện sang tab B để cập nhật giao diện mà không cần chờ socket echo ngược lại.
+```typescript
+socket.on("connect_error", async (err) => {
+  if (err.message.includes("UNAUTHORIZED")) {
+    const newToken = await refreshToken();
+    socket.auth.token = newToken;
+    socket.disconnect().connect();
+  }
+});
+```
 
-### 7.4 Khách vãng lai đăng nhập (Guest Claiming Account)
-- Khi khách hàng chưa đăng nhập: Client lưu `chat_session_id` trong `localStorage`.
-- Khi khách hàng hoàn tất đăng nhập hoặc tạo tài khoản:
-  - Khi mở khung chat, gọi `POST /api/chat/conversations` kèm **cả hai**:
-    1. Header `Authorization: Bearer <token>` của tài khoản mới.
-    2. Body `{ channel: "AI", sessionId: localStorage.getItem("chat_session_id") }`.
-  - Backend sẽ tự động phát hiện và liên kết hội thoại của `sessionId` đó vào tài khoản người dùng (`userId`). Toàn bộ lịch sử trao đổi trước đó sẽ không bị mất.
+### 9.3 Nhiều tab
+
+- Server phát `conversation:unread` tới **room `user:<id>`** ⇒ mọi tab đều nhận ⇒ badge đồng bộ tự động.
+- Dùng `BroadcastChannel` nếu cần đồng bộ optimistic state giữa các tab.
+
+### 9.4 Gửi trùng (double-click / retry)
+
+- **Luôn** truyền `clientMessageId` (UUID v4 sinh 1 lần, lưu vào state).
+- Response có `duplicate: true` nghĩa là tin đã tồn tại ⇒ **không** render thêm.
+- Index unique partial `(conversationId, clientMessageId)` ở BE bảo đảm không tạo tin trùng kể cả khi 2 request chạy song song.
+
+### 9.5 Đóng / mở lại hội thoại
+
+- User tự đóng: `POST /conversations/:id/close`.
+- Mở lại: `POST /conversations/:id/reopen` — chỉ trong **24h** (`CHAT_REOPEN_WINDOW_MS`), và tự đưa `supportMode` về `"ai"`.
+
+---
+
+## 10. Kiểm thử nhanh (Smoke Test)
+
+```bash
+# 1. Health
+curl http://localhost:4000/api/health
+
+# 2. Tạo conversation (cần token)
+curl -X POST http://localhost:4000/api/chat/conversations \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"
+
+# 3. Gửi tin (có clientMessageId để idempotent)
+curl -X POST http://localhost:4000/api/chat/conversations/$CONV_ID/messages \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"content":"Cây thông size L giá bao nhiêu?","clientMessageId":"uuid-1"}'
+
+# 4. Gửi lại cùng clientMessageId ⇒ duplicate=true, không tạo tin mới
+```
+
+**Kết quả mong đợi khi AI được bật (`GEMINI_API_KEY` hợp lệ):**
+- Tin AI xuất hiện trong `GET /conversations/:id/messages` với `senderType: "ai"` và `aiMetadata.intent === "product_inquiry"`.
+
+---
+
+## 11. Câu hỏi thường gặp (FAQ)
+
+**Q: Vì sao không còn CSAT?**
+A: TDD v1.0 không yêu cầu. Có thể thêm sau ở `POST /api/chat/conversations/:id/satisfaction`.
+
+**Q: Tin `internal` có hiện cho user không?**
+A: **Không.** BE lọc ở 2 tầng: `listMessages` (user chỉ thấy `public`) và `chat.emitter` (tin internal chỉ broadcast tới room `admins`).
+
+**Q: Tin nhắn gửi 2 lần có tạo 2 tin không?**
+A: Không — nếu truyền `clientMessageId` giống nhau. Response lần 2 có `duplicate: true`.
+
+**Q: AI có trả lời được câu hỏi ngoài phạm vi không?**
+A: Không — prompt chặn AI bịa. AI được lệnh gọi tool để tra thật; nếu tool không có kết quả ⇒ AI nói "chưa tìm thấy" hoặc chuyển nhân viên.
+
+**Q: Admin xem được tin `internal` qua REST không?**
+A: Có — `GET /api/chat/admin/conversations/:id/messages` trả cả `internal`.
+
+**Q: `409 CHAT_VERSION_CONFLICT` xử lý thế nào?**
+A: Refetch conversation để lấy `version` mới rồi thử lại (xem §8.3).
+
+---
+
+> **Tài liệu liên quan:**
+> - Kiến trúc chi tiết BE: `backend/docs/CHAT_HYBRID_API.md`
+> - Error code catalog: `docs_BE write/API_CONTRACT.md`
+> - OpenAPI: `docs_BE write/openapi.yaml`

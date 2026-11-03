@@ -7,20 +7,21 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "seed": "ts-node-dev --transpile-only src/seed-christmas.ts",
-    "seed:chat-faq": "ts-node --transpile-only src/scripts/seed-chat-faq.ts",
     "test": "ts-node --transpile-only src/tests/errorContract.test.ts",
     "test:address": "ts-node --transpile-only src/tests/address.test.ts",
     "test:auth": "ts-node --transpile-only src/tests/authValidation.test.ts",
     "test:pricing": "ts-node --transpile-only src/tests/pricing.test.ts",
     "test:upload": "ts-node --transpile-only src/tests/upload.test.ts",
     "test:ai": "ts-node --transpile-only src/tests/design.test.ts",
-    "test:chat": "ts-node --transpile-only src/tests/chat.test.ts && ts-node --transpile-only src/tests/chatUnified.test.ts && ts-node --transpile-only src/tests/chatHybrid.test.ts && ts-node --transpile-only src/tests/chatHybridIntegration.test.ts",
+    "test:chat": "ts-node --transpile-only src/tests/chatFoundation.test.ts",
+    "test:chat:ai": "ts-node --transpile-only src/tests/chatAi.test.ts",
+    "test:chat:socket": "ts-node --transpile-only src/tests/chatSocket.test.ts",
     "test:sepay": "ts-node --transpile-only src/tests/sepay.test.ts",
     "test:review": "ts-node --transpile-only src/tests/review.test.ts",
     "test:media": "ts-node --transpile-only src/tests/media.test.ts",
     "test:hard-delete": "ts-node --transpile-only src/tests/hardDeleteCascade.test.ts",
     "test:account-deletion": "ts-node --transpile-only src/tests/accountDeletion.test.ts",
-    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/design.test.ts && ts-node --transpile-only src/tests/sepay.test.ts && ts-node --transpile-only src/tests/review.test.ts && ts-node --transpile-only src/tests/media.test.ts && ts-node --transpile-only src/tests/chat.test.ts && ts-node --transpile-only src/tests/chatUnified.test.ts && ts-node --transpile-only src/tests/chatHybrid.test.ts && ts-node --transpile-only src/tests/chatHybridIntegration.test.ts && ts-node --transpile-only src/tests/accountDeletion.test.ts",
+    "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/design.test.ts && ts-node --transpile-only src/tests/sepay.test.ts && ts-node --transpile-only src/tests/review.test.ts && ts-node --transpile-only src/tests/media.test.ts && ts-node --transpile-only src/tests/chatFoundation.test.ts && ts-node --transpile-only src/tests/chatAi.test.ts && ts-node --transpile-only src/tests/chatSocket.test.ts && ts-node --transpile-only src/tests/accountDeletion.test.ts",
     "clean:trees": "ts-node --transpile-only src/scripts/clean-legacy-trees.ts",
     "reset:chat": "ts-node --transpile-only src/scripts/reset-chat.ts"
   },
@@ -45,6 +46,8 @@
     "typescript": "^5.7.3"
   },
   "devDependencies": {
+    "@types/socket.io-client": "^1.4.36",
+    "socket.io-client": "^4.8.4",
     "ts-node-dev": "^2.0.0"
   }
 }

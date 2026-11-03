@@ -100,13 +100,35 @@ export const ErrorCode = {
   AI_GENERATION_TIMEOUT: "AI_GENERATION_TIMEOUT",
   GREETING_CARD_GENERATION_FAILED: "GREETING_CARD_GENERATION_FAILED",
 
-  // ── Chat (v3 unified) ───────────────────────────────────────────────────
+  // ── Chat (v4 hybrid — TDD v1.0) ──────────────────────────────────────────
   CHAT_CONVERSATION_NOT_FOUND: "CHAT_CONVERSATION_NOT_FOUND",
   CHAT_STATUS_INVALID: "CHAT_STATUS_INVALID",
   CHAT_FORBIDDEN: "CHAT_FORBIDDEN",
   CHAT_INVALID_ID: "CHAT_INVALID_ID",
   CHAT_EMPTY_CONTENT: "CHAT_EMPTY_CONTENT",
   CHAT_MESSAGE_TOO_LONG: "CHAT_MESSAGE_TOO_LONG",
+  /** Conversation đã đóng — không nhận tin nhắn mới. */
+  CHAT_CONVERSATION_CLOSED: "CHAT_CONVERSATION_CLOSED",
+  /** Tin nhắn đã tồn tại (idempotency hit). Trả 200 thay vì 409. */
+  CHAT_DUPLICATE_MESSAGE: "CHAT_DUPLICATE_MESSAGE",
+  /** Optimistic-lock thất bại — client phải refetch. */
+  CHAT_VERSION_CONFLICT: "CHAT_VERSION_CONFLICT",
+  /** Vượt rate limit. */
+  CHAT_RATE_LIMITED: "CHAT_RATE_LIMITED",
+  /** AI tạm thời không dùng được (provider lỗi / timeout). */
+  CHAT_AI_UNAVAILABLE: "CHAT_AI_UNAVAILABLE",
+  /** AI không trả lời được ⇒ đã chuyển sang chờ admin. */
+  CHAT_AI_ESCALATED: "CHAT_AI_ESCALATED",
+  /** Quota AI của user đã hết. */
+  CHAT_AI_QUOTA_EXCEEDED: "CHAT_AI_QUOTA_EXCEEDED",
+  /** Handoff request không tồn tại. */
+  CHAT_HANDOFF_NOT_FOUND: "CHAT_HANDOFF_NOT_FOUND",
+  /** Conversation đã có handoff đang mở. */
+  CHAT_HANDOFF_ALREADY_EXISTS: "CHAT_HANDOFF_ALREADY_EXISTS",
+  /** Chuyển trạng thái handoff không hợp lệ. */
+  CHAT_HANDOFF_INVALID_TRANSITION: "CHAT_HANDOFF_INVALID_TRANSITION",
+  /** Hết cửa sổ được phép mở lại conversation đã đóng. */
+  CHAT_REOPEN_WINDOW_EXPIRED: "CHAT_REOPEN_WINDOW_EXPIRED",
 
   // ── Review ──────────────────────────────────────────────────────────────
   REVIEW_NOT_FOUND: "REVIEW_NOT_FOUND",
@@ -207,13 +229,24 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   AI_GENERATION_TIMEOUT: 504,
   GREETING_CARD_GENERATION_FAILED: 502,
 
-  // Chat
+  // Chat (v4 hybrid — TDD v1.0)
   CHAT_CONVERSATION_NOT_FOUND: 404,
   CHAT_STATUS_INVALID: 400,
   CHAT_FORBIDDEN: 403,
   CHAT_INVALID_ID: 400,
   CHAT_EMPTY_CONTENT: 400,
   CHAT_MESSAGE_TOO_LONG: 400,
+  CHAT_CONVERSATION_CLOSED: 409,
+  CHAT_DUPLICATE_MESSAGE: 409,
+  CHAT_VERSION_CONFLICT: 409,
+  CHAT_RATE_LIMITED: 429,
+  CHAT_AI_UNAVAILABLE: 503,
+  CHAT_AI_ESCALATED: 503,
+  CHAT_AI_QUOTA_EXCEEDED: 429,
+  CHAT_HANDOFF_NOT_FOUND: 404,
+  CHAT_HANDOFF_ALREADY_EXISTS: 409,
+  CHAT_HANDOFF_INVALID_TRANSITION: 409,
+  CHAT_REOPEN_WINDOW_EXPIRED: 409,
 
   // Review
   REVIEW_NOT_FOUND: 404,

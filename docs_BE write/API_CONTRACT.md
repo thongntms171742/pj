@@ -1873,54 +1873,67 @@ hoặc
 
 ---
 
-## Chat (Unified Model v3)
+## Chat (Hybrid AI & Human Support — v4 / TDD v1.0)
 
 > **Namespace Socket.IO**: `/chat`
-> **Kiến trúc**: 1 Model duy nhất (Single Source of Truth). Bỏ convention `c_<a>__<b>` và routes `/api/chat/ai/*`.
-> **DTO chính**: `ChatMessageDto`, `ChatConversationDto`.
+> **Base REST**: `/api/chat` (user) · `/api/chat/admin` (admin) · `/api/chat/admin/copilot` · `/api/chat/admin/knowledge`
+> **Auth**: `Authorization: Bearer <token>` — **BẮT BUỘC** (không còn guest mode).
+> **Tài liệu đầy đủ**: `backend/docs/CHAT_API.md` (REST) · `backend/docs/CHAT_HYBRID_API.md` (kiến trúc) · `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md` (FE).
+>
+> ⚠️ **BREAKING CHANGE v3 → v4:** toàn bộ chat cũ đã bị xoá & code lại từ đầu.
+
+### Bảng trạng thái
+
+| Khái niệm | Giá trị |
+| :--- | :--- |
+| `status` (vòng đời) | `open` \| `pending` \| `closed` |
+| `supportMode` (ai phục vụ) | `ai` \| `waiting_admin` \| `human` \| `ai_assisted` |
+| `senderType` | `user` \| `admin` \| `ai` \| `system` |
+| `visibility` | `public` \| `internal` (user **không bao giờ** thấy) |
+| `messageType` | `text` \| `image` \| `file` \| `system` |
+
+### Quy tắc chung
+
+| Quy tắc | Chi tiết |
+| :--- | :--- |
+| **Idempotency** | Gửi tin kèm `clientMessageId` (UUID). Gửi lại cùng id ⇒ `200` + `duplicate: true`, **không** tạo tin mới. |
+| **Optimistic lock** | Endpoint mutate nhận `expectedVersion`. Stale ⇒ `409 CHAT_VERSION_CONFLICT` ⇒ **phải refetch**. |
+| **Pagination tin nhắn** | Cursor-based: `?before=<id>` (tin cũ hơn) hoặc `?after=<id>` (tin mới hơn). **Không** dùng `page`. |
+| **Đóng hội thoại** | `closed` ⇒ không nhận tin mới (`409 CHAT_CONVERSATION_CLOSED`). Mở lại trong 24h. |
 
 ### POST `/api/chat/conversations`
 
-**Auth**: Optional (Hỗ trợ khách vãng lai qua `sessionId` và user đăng nhập qua Bearer token).
+**Auth**: Required.
 
-**Request**:
-```json
-{
-  "channel": "AI | SUPPORT",
-  "sessionId": "string (optional — bắt buộc đối với khách vãng lai)",
-  "customerInfo": {
-    "name": "string (optional)",
-    "phone": "string (optional)",
-    "email": "string (optional)"
-  }
-}
-```
+**Query**: `forceNew=true` (tuỳ chọn) — tạo conversation mới thay vì lấy lại conversation active.
 
-**Success (200)**:
+**Success (201)**:
 ```json
 {
   "conversation": {
     "id": "string (ObjectId)",
-    "channel": "AI | SUPPORT",
-    "status": "BOT_ACTIVE | WAITING_ADMIN | ADMIN_ACTIVE | RESOLVED",
-    "peer": {
-      "id": "string",
-      "name": "string",
-      "avatarUrl": "string (optional)",
-      "role": "string"
+    "userId": "string",
+    "status": "open",
+    "supportMode": "ai",
+    "assignedAdminId": null,
+    "assignedAdminName": null,
+    "aiConfig": {
+      "model": "gemini-2.5-flash",
+      "promptVersion": "v1",
+      "intent": "",
+      "intentConfidence": 0,
+      "sentiment": "",
+      "enabled": true
     },
-    "lastMessage": {
-      "content": "string",
-      "sentAt": "string (ISO)",
-      "senderType": "USER | BOT | ADMIN | SYSTEM"
-    },
-    "unread": 0,
-    "updatedAt": "string (ISO)",
-    "assignedAdmin": null
-  },
-  "messages": [
-    /* Array ChatMessageDto */
-  ]
+    "lastMessageId": null,
+    "lastMessageAt": null,
+    "unreadCount": { "user": 0, "admin": 0 },
+    "version": 1,
+    "closedAt": null,
+    "closedBy": null,
+    "createdAt": "string (ISO)",
+    "updatedAt": "string (ISO)"
+  }
 }
 ```
 
@@ -1930,49 +1943,71 @@ hoặc
 
 **Auth**: Required.
 
-**Query**: `page=1&limit=20`
+**Query**: `page=1&limit=20&status=all|open|pending|closed`
 
 **Success (200)**:
 ```json
 {
-  "conversations": [ /* ChatConversationDto[] */ ],
-  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  "items": [ /* ConversationDto[] */ ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNext": false, "hasPrev": false }
 }
+```
+
+---
+
+### GET `/api/chat/conversations/unread-count`
+
+**Auth**: Required. Tổng số tin nhắn chưa đọc của user.
+
+**Success (200)**:
+```json
+{ "unreadCount": 3 }
+```
+
+---
+
+### GET `/api/chat/conversations/:id`
+
+**Auth**: Required (chủ hội thoại hoặc Admin).
+
+**Success (200)**:
+```json
+{ "conversation": { /* ConversationDto */ } }
 ```
 
 ---
 
 ### GET `/api/chat/conversations/:id/messages`
 
-**Auth**: Optional (phải là chủ sở hữu hội thoại hoặc Admin).
+**Auth**: Required (chủ hội thoại hoặc Admin).
 
 **Query**:
-- `limit`: Số tin nhắn (mặc định 50, tối đa 100).
-- `before`: ID của tin nhắn cũ nhất trên giao diện để cuộn ngược lên tải thêm tin (Cursor pagination).
+- `limit`: Số tin nhắn (mặc định 20).
+- `before`: ID tin nhắn cũ hơn — để cuộn ngược lên tải thêm (cursor pagination).
+- `after`: ID tin nhắn mới hơn — để poll tin mới.
 
 **Success (200)**:
 ```json
 {
-  "messages": [
+  "items": [
     {
       "id": "string (ObjectId)",
       "conversationId": "string",
-      "senderType": "USER | BOT | ADMIN | SYSTEM",
       "senderId": "string | null",
-      "senderName": "string",
+      "senderType": "user | admin | ai | system",
       "content": "string",
-      "metadata": {
-        "quickReplies": ["string"],
-        "suggestedProducts": [],
-        "orderInfo": null
-      },
-      "sentAt": "string (ISO)",
-      "isOwn": true
+      "messageType": "text",
+      "visibility": "public",
+      "attachments": [],
+      "aiMetadata": null,
+      "clientMessageId": "string | null",
+      "userReadAt": "string (ISO) | null",
+      "adminReadAt": "string (ISO) | null",
+      "createdAt": "string (ISO)",
+      "updatedAt": "string (ISO)"
     }
   ],
-  "hasMore": false,
-  "total": 12,
-  "conversationId": "string"
+  "pagination": { "hasMore": false, "nextCursor": "string | null" }
 }
 ```
 
@@ -1985,20 +2020,24 @@ hoặc
 
 ### POST `/api/chat/conversations/:id/messages`
 
-**Auth**: Optional. Gửi tin nhắn qua REST (dự phòng khi Socket mất kết nối).
+**Auth**: Required. Gửi tin nhắn qua REST (dự phòng khi Socket mất kết nối).
 
 **Request**:
 ```json
 {
-  "content": "string (1 - 2000 ký tự)",
-  "metadata": {}
+  "content": "string (1 - 5000 ký tự)",
+  "messageType": "text | image | file | system",
+  "attachments": [],
+  "clientMessageId": "string (UUID — khuyến nghị mạnh)"
 }
 ```
 
-**Success (201)**:
+**Success (200)**:
 ```json
 {
-  "message": { /* ChatMessageDto */ }
+  "message": { /* MessageDto */ },
+  "acknowledged": true,
+  "duplicate": false
 }
 ```
 
@@ -2007,63 +2046,221 @@ hoặc
 - `400 CHAT_MESSAGE_TOO_LONG`
 - `403 CHAT_FORBIDDEN`
 - `404 CHAT_CONVERSATION_NOT_FOUND`
+- `409 CHAT_CONVERSATION_CLOSED`
+- `429 CHAT_RATE_LIMITED`
 
 ---
 
 ### POST `/api/chat/conversations/:id/read`
 
-**Auth**: Optional. Đánh dấu đã đọc tin nhắn trong hội thoại.
+**Auth**: Required. Đánh dấu đã đọc tin nhắn trong hội thoại.
 
 **Success (200)**:
 ```json
-{ "success": true, "conversationId": "string" }
+{ "markedCount": 3 }
 ```
 
 ---
 
-### POST `/api/chat/conversations/:id/escalate`
+### POST `/api/chat/conversations/:id/close`
 
-**Auth**: Optional. Yêu cầu chuyển sang nhân viên tư vấn hỗ trợ.
+**Auth**: Required. Đóng hội thoại.
+
+**Success (200)**:
+```json
+{ "conversation": { /* ConversationDto */ } }
+```
+
+---
+
+### POST `/api/chat/conversations/:id/reopen`
+
+**Auth**: Required. Mở lại hội thoại đã đóng (trong vòng 24h).
+
+**Success (200)**:
+```json
+{ "conversation": { /* ConversationDto */ } }
+```
+
+**Errors**:
+- `409 CHAT_REOPEN_WINDOW_EXPIRED`
+
+---
+
+### POST `/api/chat/conversations/:id/handoff`
+
+**Auth**: Required. Yêu cầu chuyển nhân viên tư vấn.
 
 **Request**:
 ```json
-{ "reason": "string (optional)" }
+{ "reason": "string (optional)", "priority": "low | normal | high | urgent" }
 ```
+
+**Success (201)**:
+```json
+{
+  "handoff": { /* HandoffRequestDto */ },
+  "conversation": { /* ConversationDto */ },
+  "resolvedByAi": false
+}
+```
+
+**Errors**:
+- `404 CHAT_HANDOFF_NOT_FOUND`
+- `409 CHAT_HANDOFF_ALREADY_EXISTS`
+- `409 CHAT_HANDOFF_INVALID_TRANSITION`
+
+---
+
+### GET `/api/chat/conversations/:id/handoff`
+
+**Auth**: Required. Trạng thái handoff hiện tại.
 
 **Success (200)**:
 ```json
-{ "success": true, "conversation": { /* ChatConversationDto */ } }
+{ "handoff": { /* HandoffRequestDto */ } }
 ```
 
 ---
 
-### GET `/api/chat/unread`
+### DELETE `/api/chat/conversations/:id/handoff`
 
-**Auth**: Required. Lấy tổng số tin nhắn chưa đọc của user.
+**Auth**: Required. User huỷ yêu cầu handoff.
 
 **Success (200)**:
 ```json
-{ "unread": 3 }
+{ "handoff": { /* HandoffRequestDto */ } }
 ```
 
 ---
 
 ### Admin Chat Endpoints
 
-#### GET `/api/chat/admin/conversations`
-- **Auth**: Admin required.
-- **Query**: `channel=AI|SUPPORT`, `status=BOT_ACTIVE|WAITING_ADMIN|ADMIN_ACTIVE|RESOLVED`, `page=1`, `limit=20`
-- **Success (200)**: `{ "conversations": [...], "pagination": {...} }`
+Tất cả yêu cầu `role = admin`. Base: `/api/chat/admin`.
 
-#### PUT `/api/chat/admin/conversations/:id/status`
-- **Auth**: Admin required.
-- **Body**: `{ "status": "BOT_ACTIVE | WAITING_ADMIN | ADMIN_ACTIVE | RESOLVED" }`
-- **Success (200)**: `{ "conversation": { /* ChatConversationDto */ } }`
+#### GET `/api/chat/admin/conversations`
+- **Query**: `page=1&limit=20&status=...&supportMode=...&scope=all|mine|unassigned`
+- **Success (200)**: `{ "items": [ /* AdminConversationListItemDto[] */ ], "pagination": {...} }`
+
+#### GET `/api/chat/admin/conversations/:id`
+- **Success (200)**: `{ "conversation": { /* ConversationDto */ } }`
+
+#### GET `/api/chat/admin/conversations/:id/messages`
+- **Query**: `limit=20&before=<id>`
+- **Success (200)**: `{ "items": [ /* MessageDto[] — gồm cả tin internal */ ], "pagination": {...} }`
+
+#### POST `/api/chat/admin/conversations/:id/messages`
+- **Body**: `{ "content": "...", "messageType": "text", "visibility": "public | internal", "clientMessageId": "..." }`
+- **Success (200)**: `{ "message": { /* MessageDto */ }, "acknowledged": true, "duplicate": false }`
+- **Lưu ý**: `visibility: "internal"` ⇒ chỉ admin thấy, user **không bao giờ** nhận qua socket.
+
+#### POST `/api/chat/admin/conversations/:id/read`
+- **Success (200)**: `{ "markedCount": 3 }`
 
 #### POST `/api/chat/admin/conversations/:id/assign`
-- **Auth**: Admin required.
-- **Description**: Tiếp nhận ca trực hỗ trợ hội thoại (chuyển sang `ADMIN_ACTIVE` và gán `assignedAdminId`).
-- **Success (200)**: `{ "conversation": { /* ChatConversationDto */ } }`
+- **Description**: Gán admin phụ trách (chuyển `supportMode` → `human`).
+- **Success (200)**: `{ "conversation": { /* ConversationDto */ } }`
+
+#### POST `/api/chat/admin/conversations/:id/accept`
+- **Description**: Nhận handoff từ hàng đợi (chuyển `supportMode` → `human`).
+- **Success (200)**: `{ "conversation": { /* ConversationDto */ }, "handoff": { /* HandoffRequestDto */ } }`
+
+#### POST `/api/chat/admin/conversations/:id/close`
+- **Success (200)**: `{ "conversation": { /* ConversationDto */ } }`
+
+#### POST `/api/chat/admin/conversations/:id/reopen`
+- **Success (200)**: `{ "conversation": { /* ConversationDto */ } }`
+
+#### GET `/api/chat/admin/handoffs`
+- **Query**: `status=waiting|accepted|resolved|cancelled&priority=...&page=1&limit=20`
+- **Success (200)**: `{ "items": [ /* HandoffRequestDto[] */ ], "pagination": {...} }`
+
+#### POST `/api/chat/admin/conversations/:id/handoff/assign`
+- **Description**: Gán handoff cho 1 admin cụ thể.
+- **Success (200)**: `{ "handoff": { /* HandoffRequestDto */ } }`
+
+#### POST `/api/chat/admin/conversations/:id/handoff/resolve`
+- **Description**: Đóng handoff (conversation quay lại `ai` nếu AI còn khả dụng).
+- **Success (200)**: `{ "handoff": { /* HandoffRequestDto */ }, "conversation": { /* ConversationDto */ } }`
+
+#### GET `/api/chat/admin/unread-count`
+- **Success (200)**: `{ "unreadCount": 5 }`
+
+---
+
+### AI Copilot Endpoints
+
+Base: `/api/chat/admin/copilot`. Yêu cầu `role = admin`.
+
+#### GET `/api/chat/admin/copilot/conversations/:id/summary`
+- **Success (200)**: `{ "summary": { "text": "...", "sentiment": "neutral", "intent": "...", "keyPoints": [], "suggestedAction": "..." } }`
+
+#### POST `/api/chat/admin/copilot/conversations/:id/suggest-reply`
+- **Body**: `{ "instruction": "string (optional — chỉ dẫn bổ sung cho AI, VD: \"hỏi về size\")" }`
+- **Success (200)**: `{ "suggestion": { "text": "...", "alternatives": [] } }`
+
+#### POST `/api/chat/admin/copilot/conversations/:id/note`
+- **Body**: `{ "note": "string (optional — có `note` thì lưu nguyên văn, không có thì AI tóm tắt)" }`
+- **Success (201)**: `{ "note": { /* MessageDto — visibility internal */ } }`
+
+#### GET `/api/chat/admin/copilot/conversations/:id/context`
+- **Success (200)**: `{ "context": { "conversation": {...}, "messages": [...], "handoff": {...} | null, "customer": {...} } }`
+
+#### GET `/api/chat/admin/copilot/policies`
+- **Query**: `query=<keyword>&category=<category>&limit=10`
+- **Success (200)**: `{ "results": [ { "id": "...", "title": "...", "category": "...", "excerpt": "..." } ], "count": 3 }`
+
+---
+
+### Knowledge Base Endpoints
+
+Base: `/api/chat/admin/knowledge`. Yêu cầu `role = admin`.
+
+#### GET `/api/chat/admin/knowledge`
+- **Query**: `page=1&limit=20&q=<keyword>&category=<category>&status=draft|published|archived`
+- **Success (200)**: `{ "items": [ /* KnowledgeDocumentDto[] */ ], "pagination": {...} }`
+
+#### GET `/api/chat/admin/knowledge/:id`
+- **Success (200)**: `{ "document": { /* KnowledgeDocumentDto */ } }`
+
+#### POST `/api/chat/admin/knowledge`
+- **Body**: `{ "title": "...", "content": "...", "category": "...", "summary": "...", "keywords": [], "tags": [], "status": "published", "priority": 0, "isActive": true }`
+- **Success (201)**: `{ "document": { /* KnowledgeDocumentDto */ } }`
+
+#### PUT `/api/chat/admin/knowledge/:id`
+- **Body**: các field trên (chỉ truyền field cần đổi).
+- **Success (200)**: `{ "document": { /* KnowledgeDocumentDto */ } }`
+
+#### DELETE `/api/chat/admin/knowledge/:id`
+- **Mô tả**: Xoá **mềm** ⇒ đặt `status = "archived"`, `isActive = false` (không mất lịch sử).
+- **Success (200)**: `{ "document": { /* KnowledgeDocumentDto */ } }`
+
+---
+
+### Socket.IO Events (namespace `/chat`)
+
+**Client → Server** (mọi event có `ack` callback trả `{ ok, data }` hoặc `{ ok, error }`):
+
+| Event | Payload | Mô tả |
+| :--- | :--- | :--- |
+| `conversation:subscribe` | `{ conversationId }` | Vào room conversation để nhận realtime. |
+| `conversation:unsubscribe` | `{ conversationId }` | Rời room. |
+| `message:send` | `{ conversationId, content, messageType?, attachments?, clientMessageId? }` | Gửi tin nhắn mới. |
+| `message:typing` | `{ conversationId, isTyping }` | Báo đang gõ. |
+| `conversation:read` | `{ conversationId }` | Đánh dấu đã đọc. |
+
+**Server → Client:**
+
+| Event | Payload | Mô tả |
+| :--- | :--- | :--- |
+| `chat:connected` | `{ userId, roles }` | Xác nhận kết nối. |
+| `message:new` | `{ conversationId, message, echo }` | Tin nhắn mới (`echo: true` ⇒ của chính mình). |
+| `conversation:updated` | `{ conversationId, conversation }` | Trạng thái/mode/version conversation đổi. |
+| `message:typing` | `{ conversationId, userId, isTyping }` | Ai đó đang gõ. |
+| `conversation:unread` | `{ conversationId, unreadCount: { user, admin } }` | Unread count thay đổi. |
+| `handoff:updated` | `{ conversationId, handoff, status }` | Handoff thay đổi trạng thái. |
+| `ai:status` | `{ conversationId, status, message? }` | AI đang xử lý / đã trả lời / đã escalate. |
+| `chat:error` | `{ code, message }` | Lỗi chung. |
 
 ---
 

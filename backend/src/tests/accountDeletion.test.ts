@@ -10,6 +10,7 @@ import {
   Review,
   Notification,
   Conversation,
+  Message,
 } from "../models";
 
 let passed = 0;
@@ -145,11 +146,21 @@ async function runAccountDeletionTests() {
         comment: "Great tree",
       });
 
-      // Create Conversation
-      await Conversation.create({
-        channel: "SUPPORT",
-        participants: [{ userId: String(userId), role: "buyer" }],
-        customerInfo: { name: "Test Delete User", phone: "0901234567", email: dummyEmail },
+      // Create Conversation (chat v4 schema)
+      const testConversation = await Conversation.create({
+        userId: userId,
+        status: "open",
+        supportMode: "ai",
+        unreadCount: { user: 0, admin: 0 },
+        version: 1,
+      });
+      await Message.create({
+        conversationId: testConversation._id,
+        senderId: userId,
+        senderType: "user",
+        content: "Hello world",
+        messageType: "text",
+        visibility: "public",
       });
 
       // Simulate deletion cascade
@@ -200,20 +211,18 @@ async function runAccountDeletionTests() {
       check("Reviews deleted", reviewsAfter.length === 0);
       check("Notifications deleted", notifsAfter.length === 0);
 
-      // Step D: Anonymize Conversation
-      await Conversation.updateMany(
-        { "participants.userId": String(userId) },
-        {
-          $pull: { participants: { userId: String(userId) } },
-          $set: {
-            "customerInfo.name": "Khách hàng đã xóa tài khoản",
-            "customerInfo.phone": "",
-            "customerInfo.email": "",
-          },
-        }
+      // Step D: Delete Chat data (conversation + messages + handoff)
+      const convIds = (await Conversation.find({ userId }).select("_id")).map(
+        (c) => c._id
       );
-      const convAfter = await Conversation.findOne({ "customerInfo.email": dummyEmail });
-      check("Conversation customerInfo scrubbed", convAfter === null);
+      if (convIds.length > 0) {
+        await Message.deleteMany({ conversationId: { $in: convIds } });
+        await Conversation.deleteMany({ _id: { $in: convIds } });
+      }
+      const convAfter = await Conversation.findOne({ userId });
+      const msgAfter = await Message.findOne({ conversationId: { $in: convIds } });
+      check("Conversation deleted", convAfter === null);
+      check("Messages deleted", msgAfter === null);
 
       // Step E: Delete User
       await User.findByIdAndDelete(userId);

@@ -9,6 +9,8 @@ import {
   Review,
   Notification,
   Conversation,
+  Message,
+  HandoffRequest,
 } from "../models";
 import { deleteAsset } from "../services/cloudinaryService";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
@@ -272,22 +274,16 @@ export const deleteMyAccount = ah(async (req: Request, res: Response) => {
   // 4.4. Notifications
   await Notification.deleteMany({ userId: userObjectId });
 
-  // 4.5. Conversations (anonymize customerInfo & pull participant, xóa AI channel rỗng)
-  await Conversation.updateMany(
-    { "participants.userId": String(userId) },
-    {
-      $pull: { participants: { userId: String(userId) } },
-      $set: {
-        "customerInfo.name": "Khách hàng đã xóa tài khoản",
-        "customerInfo.phone": "",
-        "customerInfo.email": "",
-      },
-    }
+  // 4.5. Chat (xoá vĩnh viễn — không giữ dữ liệu hội thoại của người đã xoá)
+  const chatConversations = await Conversation.find({ userId: userObjectId }).select(
+    "_id"
   );
-  await Conversation.deleteMany({
-    channel: "AI",
-    "participants.0": { $exists: false },
-  });
+  const chatConversationIds = chatConversations.map((c) => c._id);
+  if (chatConversationIds.length > 0) {
+    await Message.deleteMany({ conversationId: { $in: chatConversationIds } });
+    await HandoffRequest.deleteMany({ conversationId: { $in: chatConversationIds } });
+    await Conversation.deleteMany({ _id: { $in: chatConversationIds } });
+  }
 
   // 5. Xóa user vĩnh viễn (addresses[] là embedded trong User nên tự động cascade)
   await User.findByIdAndDelete(userId);

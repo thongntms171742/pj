@@ -2129,44 +2129,28 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ============================================================
-  # CHAT (UNIFIED MODEL V3)
+  # CHAT (HYBRID AI & HUMAN SUPPORT — V4 / TDD v1.0)
   # ============================================================
   /api/chat/conversations:
     post:
       tags: [Chat]
-      summary: Initialize or retrieve conversation (AI or SUPPORT)
+      summary: Create or retrieve active conversation
       operationId: initChatConversation
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                channel:
-                  type: string
-                  enum: [AI, SUPPORT]
-                  default: AI
-                sessionId:
-                  type: string
-                  description: Guest session ID if not authenticated
-                customerInfo:
-                  type: object
-                  properties:
-                    name: { type: string }
-                    phone: { type: string }
-                    email: { type: string }
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: forceNew
+          schema: { type: boolean, default: false }
+          description: Force a new conversation instead of reusing the active one
       responses:
-        '200':
-          description: OK
+        '201':
+          description: Created
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   conversation: { $ref: '#/components/schemas/ChatConversationDto' }
-                  messages:
-                    type: array
-                    items: { $ref: '#/components/schemas/ChatMessageDto' }
     get:
       tags: [Chat]
       summary: List user's conversations
@@ -2178,7 +2162,10 @@ paths:
           schema: { type: integer, default: 1 }
         - in: query
           name: limit
-          schema: { type: integer, default: 20 }
+          schema: { type: integer, default: 20, maximum: 100 }
+        - in: query
+          name: status
+          schema: { type: string, enum: [all, open, pending, closed], default: all }
       responses:
         '200':
           description: OK
@@ -2187,22 +2174,56 @@ paths:
               schema:
                 type: object
                 properties:
-                  conversations:
+                  items:
                     type: array
                     items: { $ref: '#/components/schemas/ChatConversationDto' }
-                  pagination:
-                    type: object
-                    properties:
-                      page: { type: integer }
-                      limit: { type: integer }
-                      total: { type: integer }
-                      totalPages: { type: integer }
+                  pagination: { $ref: '#/components/schemas/PaginationMeta' }
+
+  /api/chat/conversations/unread-count:
+    get:
+      tags: [Chat]
+      summary: Get total unread messages count for current user
+      operationId: getChatUnreadCount
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unreadCount: { type: integer }
+
+  /api/chat/conversations/{id}:
+    get:
+      tags: [Chat]
+      summary: Get conversation detail
+      operationId: getChatConversation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/chat/conversations/{id}/messages:
     get:
       tags: [Chat]
-      summary: Get paginated conversation messages (cursor before)
+      summary: Get conversation messages (cursor pagination)
       operationId: getChatMessages
+      security: [{ bearerAuth: [] }]
       parameters:
         - in: path
           name: id
@@ -2210,11 +2231,15 @@ paths:
           schema: { type: string }
         - in: query
           name: limit
-          schema: { type: integer, default: 50, maximum: 100 }
+          schema: { type: integer, default: 20, maximum: 50 }
         - in: query
           name: before
           schema: { type: string }
           description: Cursor ID of oldest message currently loaded
+        - in: query
+          name: after
+          schema: { type: string }
+          description: Cursor ID of newest message currently loaded
       responses:
         '200':
           description: OK
@@ -2223,12 +2248,14 @@ paths:
               schema:
                 type: object
                 properties:
-                  messages:
+                  items:
                     type: array
                     items: { $ref: '#/components/schemas/ChatMessageDto' }
-                  hasMore: { type: boolean }
-                  total: { type: integer }
-                  conversationId: { type: string }
+                  pagination:
+                    type: object
+                    properties:
+                      hasMore: { type: boolean }
+                      nextCursor: { type: string, nullable: true }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -2236,6 +2263,7 @@ paths:
       tags: [Chat]
       summary: Send message via REST fallback
       operationId: sendChatMessageRest
+      security: [{ bearerAuth: [] }]
       parameters:
         - in: path
           name: id
@@ -2252,27 +2280,42 @@ paths:
                 content:
                   type: string
                   minLength: 1
-                  maxLength: 2000
-                metadata:
-                  type: object
+                  maxLength: 5000
+                messageType:
+                  type: string
+                  enum: [text, image, file, system]
+                  default: text
+                attachments:
+                  type: array
+                  items: { $ref: '#/components/schemas/ChatAttachmentDto' }
+                clientMessageId:
+                  type: string
+                  description: Idempotency key — resending the same id will not create a duplicate
       responses:
-        '201':
-          description: Created
+        '200':
+          description: OK
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   message: { $ref: '#/components/schemas/ChatMessageDto' }
+                  acknowledged: { type: boolean }
+                  duplicate:
+                    type: boolean
+                    description: True when the message already existed (idempotency hit)
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /api/chat/conversations/{id}/read:
     post:
       tags: [Chat]
       summary: Mark conversation messages as read
       operationId: markChatRead
+      security: [{ bearerAuth: [] }]
       parameters:
         - in: path
           name: id
@@ -2286,14 +2329,78 @@ paths:
               schema:
                 type: object
                 properties:
-                  success: { type: boolean }
-                  conversationId: { type: string }
+                  markedCount: { type: integer }
 
-  /api/chat/conversations/{id}/escalate:
+  /api/chat/conversations/{id}/close:
     post:
       tags: [Chat]
-      summary: Escalate conversation to human support staff
-      operationId: escalateChat
+      summary: Close a conversation
+      operationId: closeChatConversation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+
+  /api/chat/conversations/{id}/reopen:
+    post:
+      tags: [Chat]
+      summary: Reopen a closed conversation (within 24h window)
+      operationId: reopenChatConversation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/chat/conversations/{id}/handoff:
+    get:
+      tags: [Chat]
+      summary: Get current handoff request for a conversation
+      operationId: getChatHandoff
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handoff:
+                    allOf: [{ $ref: '#/components/schemas/HandoffRequestDto' }]
+                    nullable: true
+    post:
+      tags: [Chat]
+      summary: Request human support handoff
+      operationId: createChatHandoff
+      security: [{ bearerAuth: [] }]
       parameters:
         - in: path
           name: id
@@ -2306,23 +2413,32 @@ paths:
               type: object
               properties:
                 reason: { type: string }
+                priority:
+                  type: string
+                  enum: [low, normal, high, urgent]
+                  default: normal
       responses:
-        '200':
-          description: OK
+        '201':
+          description: Created
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  success: { type: boolean }
+                  handoff: { $ref: '#/components/schemas/HandoffRequestDto' }
                   conversation: { $ref: '#/components/schemas/ChatConversationDto' }
-
-  /api/chat/unread:
-    get:
+                  resolvedByAi: { type: boolean }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
       tags: [Chat]
-      summary: Get total unread messages count for current user
-      operationId: getChatUnreadCount
+      summary: Cancel a pending handoff request
+      operationId: cancelChatHandoff
       security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
       responses:
         '200':
           description: OK
@@ -2331,7 +2447,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  unread: { type: integer }
+                  handoff: { $ref: '#/components/schemas/HandoffRequestDto' }
 
   /api/chat/admin/conversations:
     get:
@@ -2341,11 +2457,14 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters:
         - in: query
-          name: channel
-          schema: { type: string, enum: [AI, SUPPORT] }
-        - in: query
           name: status
-          schema: { type: string, enum: [BOT_ACTIVE, WAITING_ADMIN, ADMIN_ACTIVE, RESOLVED] }
+          schema: { type: string, enum: [all, open, pending, closed] }
+        - in: query
+          name: supportMode
+          schema: { type: string, enum: [ai, waiting_admin, human, ai_assisted] }
+        - in: query
+          name: scope
+          schema: { type: string, enum: [all, mine, unassigned], default: all }
         - in: query
           name: page
           schema: { type: integer, default: 1 }
@@ -2360,22 +2479,69 @@ paths:
               schema:
                 type: object
                 properties:
-                  conversations:
+                  items:
                     type: array
                     items: { $ref: '#/components/schemas/ChatConversationDto' }
+                  pagination: { $ref: '#/components/schemas/PaginationMeta' }
+
+  /api/chat/admin/conversations/{id}:
+    get:
+      tags: [Chat, Admin]
+      summary: Get conversation detail (Admin)
+      operationId: adminGetChatConversation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+
+  /api/chat/admin/conversations/{id}/messages:
+    get:
+      tags: [Chat, Admin]
+      summary: Get conversation messages including internal notes (Admin)
+      operationId: adminGetChatMessages
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, maximum: 50 }
+        - in: query
+          name: before
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ChatMessageDto' }
                   pagination:
                     type: object
                     properties:
-                      page: { type: integer }
-                      limit: { type: integer }
-                      total: { type: integer }
-                      totalPages: { type: integer }
-
-  /api/chat/admin/conversations/{id}/status:
-    put:
+                      hasMore: { type: boolean }
+                      nextCursor: { type: string, nullable: true }
+    post:
       tags: [Chat, Admin]
-      summary: Update conversation status (Admin)
-      operationId: adminUpdateChatStatus
+      summary: Send message as admin (public or internal note)
+      operationId: adminSendChatMessage
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -2388,11 +2554,19 @@ paths:
           application/json:
             schema:
               type: object
-              required: [status]
+              required: [content]
               properties:
-                status:
+                content: { type: string, minLength: 1, maxLength: 5000 }
+                messageType:
                   type: string
-                  enum: [BOT_ACTIVE, WAITING_ADMIN, ADMIN_ACTIVE, RESOLVED]
+                  enum: [text, image, file, system]
+                  default: text
+                visibility:
+                  type: string
+                  enum: [public, internal]
+                  default: public
+                  description: Internal messages are never delivered to users
+                clientMessageId: { type: string }
       responses:
         '200':
           description: OK
@@ -2401,7 +2575,30 @@ paths:
               schema:
                 type: object
                 properties:
-                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+                  message: { $ref: '#/components/schemas/ChatMessageDto' }
+                  acknowledged: { type: boolean }
+                  duplicate: { type: boolean }
+
+  /api/chat/admin/conversations/{id}/read:
+    post:
+      tags: [Chat, Admin]
+      summary: Mark conversation messages as read (Admin)
+      operationId: adminMarkChatRead
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  markedCount: { type: integer }
 
   /api/chat/admin/conversations/{id}/assign:
     post:
@@ -2423,6 +2620,483 @@ paths:
                 type: object
                 properties:
                   conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+
+  /api/chat/admin/conversations/{id}/accept:
+    post:
+      tags: [Chat, Admin]
+      summary: Accept a handoff request from the queue
+      operationId: adminAcceptChatHandoff
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+                  handoff: { $ref: '#/components/schemas/HandoffRequestDto' }
+
+  /api/chat/admin/conversations/{id}/close:
+    post:
+      tags: [Chat, Admin]
+      summary: Close a conversation (Admin)
+      operationId: adminCloseChatConversation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+
+  /api/chat/admin/conversations/{id}/reopen:
+    post:
+      tags: [Chat, Admin]
+      summary: Reopen a closed conversation (Admin)
+      operationId: adminReopenChatConversation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+
+  /api/chat/admin/handoffs:
+    get:
+      tags: [Chat, Admin]
+      summary: List handoff requests queue (Admin)
+      operationId: adminListChatHandoffs
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [waiting, accepted, resolved, cancelled] }
+        - in: query
+          name: priority
+          schema: { type: string, enum: [low, normal, high, urgent] }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/HandoffRequestDto' }
+                  pagination: { $ref: '#/components/schemas/PaginationMeta' }
+
+  /api/chat/admin/conversations/{id}/handoff/assign:
+    post:
+      tags: [Chat, Admin]
+      summary: Assign a handoff request to a specific admin
+      operationId: adminAssignChatHandoff
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handoff: { $ref: '#/components/schemas/HandoffRequestDto' }
+
+  /api/chat/admin/conversations/{id}/handoff/resolve:
+    post:
+      tags: [Chat, Admin]
+      summary: Resolve a handoff request (conversation may return to AI)
+      operationId: adminResolveChatHandoff
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handoff: { $ref: '#/components/schemas/HandoffRequestDto' }
+                  conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+
+  /api/chat/admin/unread-count:
+    get:
+      tags: [Chat, Admin]
+      summary: Get total unread messages count for admins
+      operationId: adminGetChatUnreadCount
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unreadCount: { type: integer }
+
+  # ── AI Copilot ────────────────────────────────────────────────────────────
+  /api/chat/admin/copilot/conversations/{id}/summary:
+    get:
+      tags: [Chat, Copilot]
+      summary: AI summary of a conversation
+      operationId: copilotSummarizeConversation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                    properties:
+                      text: { type: string }
+                      sentiment: { type: string }
+                      intent: { type: string }
+                      keyPoints:
+                        type: array
+                        items: { type: string }
+                      suggestedAction: { type: string }
+
+  /api/chat/admin/copilot/conversations/{id}/suggest-reply:
+    post:
+      tags: [Chat, Copilot]
+      summary: AI suggested reply for admin
+      operationId: copilotSuggestReply
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                instruction:
+                  type: string
+                  description: Extra guidance for the AI (e.g. "ask about size")
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggestion:
+                    type: object
+                    properties:
+                      text: { type: string }
+                      alternatives:
+                        type: array
+                        items: { type: string }
+
+  /api/chat/admin/copilot/conversations/{id}/note:
+    post:
+      tags: [Chat, Copilot]
+      summary: AI generates an internal note for a conversation
+      operationId: copilotCreateNote
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  description: If provided, stored verbatim; otherwise AI summarizes
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  note: { $ref: '#/components/schemas/ChatMessageDto' }
+
+  /api/chat/admin/copilot/conversations/{id}/context:
+    get:
+      tags: [Chat, Copilot]
+      summary: Full context bundle for a conversation (no AI cost)
+      operationId: copilotGetContext
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  context:
+                    type: object
+                    properties:
+                      conversation: { $ref: '#/components/schemas/ChatConversationDto' }
+                      messages:
+                        type: array
+                        items: { $ref: '#/components/schemas/ChatMessageDto' }
+                      handoff:
+                        allOf: [{ $ref: '#/components/schemas/HandoffRequestDto' }]
+                        nullable: true
+                      customer: { type: object }
+
+  /api/chat/admin/copilot/policies:
+    get:
+      tags: [Chat, Copilot]
+      summary: Search published policies / knowledge documents
+      operationId: copilotSearchPolicies
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: query
+          schema: { type: string }
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 10 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        title: { type: string }
+                        category: { type: string }
+                        excerpt: { type: string }
+                  count: { type: integer }
+
+  # ── Knowledge Base ────────────────────────────────────────────────────────
+  /api/chat/admin/knowledge:
+    get:
+      tags: [Chat, Knowledge]
+      summary: List knowledge documents
+      operationId: listKnowledgeDocuments
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, maximum: 100 }
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Fuzzy search on title / summary / keywords
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string, enum: [draft, published, archived] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/KnowledgeDocumentDto' }
+                  pagination: { $ref: '#/components/schemas/PaginationMeta' }
+    post:
+      tags: [Chat, Knowledge]
+      summary: Create a knowledge document
+      operationId: createKnowledgeDocument
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content]
+              properties:
+                title: { type: string }
+                content: { type: string }
+                category: { type: string, default: faq }
+                summary: { type: string }
+                keywords:
+                  type: array
+                  items: { type: string }
+                tags:
+                  type: array
+                  items: { type: string }
+                status:
+                  type: string
+                  enum: [draft, published, archived]
+                  default: published
+                priority: { type: integer, default: 0 }
+                isActive: { type: boolean, default: true }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  document: { $ref: '#/components/schemas/KnowledgeDocumentDto' }
+
+  /api/chat/admin/knowledge/{id}:
+    get:
+      tags: [Chat, Knowledge]
+      summary: Get a knowledge document
+      operationId: getKnowledgeDocument
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  document: { $ref: '#/components/schemas/KnowledgeDocumentDto' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Chat, Knowledge]
+      summary: Update a knowledge document
+      operationId: updateKnowledgeDocument
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                content: { type: string }
+                category: { type: string }
+                summary: { type: string }
+                keywords:
+                  type: array
+                  items: { type: string }
+                tags:
+                  type: array
+                  items: { type: string }
+                status:
+                  type: string
+                  enum: [draft, published, archived]
+                priority: { type: integer }
+                isActive: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  document: { $ref: '#/components/schemas/KnowledgeDocumentDto' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Chat, Knowledge]
+      summary: Soft-delete a knowledge document (archive)
+      operationId: deleteKnowledgeDocument
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  document: { $ref: '#/components/schemas/KnowledgeDocumentDto' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
 components:
   securitySchemes:
@@ -2457,6 +3131,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ApiError' }
+    TooManyRequests:
+      description: Too many requests — rate limit exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
     StateMachineViolation:
       description: State machine / business rule violation
       content:
@@ -2479,42 +3158,126 @@ components:
       properties:
         id: { type: string }
         conversationId: { type: string }
-        senderType: { type: string, enum: [USER, BOT, ADMIN, SYSTEM] }
         senderId: { type: string, nullable: true }
-        senderName: { type: string }
+        senderType: { type: string, enum: [user, admin, ai, system] }
         content: { type: string }
-        metadata: { type: object }
-        sentAt: { type: string, format: date-time }
-        isOwn: { type: boolean }
+        messageType: { type: string, enum: [text, image, file, system] }
+        visibility:
+          type: string
+          enum: [public, internal]
+          description: Internal messages are hidden from users
+        attachments:
+          type: array
+          items: { $ref: '#/components/schemas/ChatAttachmentDto' }
+        aiMetadata:
+          allOf: [{ $ref: '#/components/schemas/ChatAiMetadataDto' }]
+          nullable: true
+        clientMessageId: { type: string, nullable: true }
+        userReadAt: { type: string, format: date-time, nullable: true }
+        adminReadAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ChatAttachmentDto:
+      type: object
+      properties:
+        url: { type: string }
+        publicId: { type: string }
+        name: { type: string }
+        mimeType: { type: string }
+        size: { type: integer }
+
+    ChatAiMetadataDto:
+      type: object
+      properties:
+        model: { type: string }
+        promptVersion: { type: string }
+        intent: { type: string }
+        intentConfidence: { type: number }
+        sentiment: { type: string }
+        tokensUsed: { type: integer }
+        latencyMs: { type: integer }
+        toolsUsed:
+          type: array
+          items: { type: string }
+        needsHumanReview: { type: boolean }
 
     ChatConversationDto:
       type: object
       properties:
         id: { type: string }
-        channel: { type: string, enum: [AI, SUPPORT] }
-        status: { type: string, enum: [BOT_ACTIVE, WAITING_ADMIN, ADMIN_ACTIVE, RESOLVED] }
-        peer:
+        userId: { type: string }
+        status: { type: string, enum: [open, pending, closed] }
+        supportMode: { type: string, enum: [ai, waiting_admin, human, ai_assisted] }
+        assignedAdminId: { type: string, nullable: true }
+        assignedAdminName: { type: string, nullable: true }
+        aiConfig:
           type: object
           properties:
-            id: { type: string }
-            name: { type: string }
-            avatarUrl: { type: string }
-            role: { type: string }
-        lastMessage:
+            model: { type: string }
+            promptVersion: { type: string }
+            intent: { type: string }
+            intentConfidence: { type: number }
+            sentiment: { type: string }
+            enabled: { type: boolean }
+        lastMessageId: { type: string, nullable: true }
+        lastMessageAt: { type: string, format: date-time, nullable: true }
+        unreadCount:
           type: object
-          nullable: true
           properties:
-            content: { type: string }
-            sentAt: { type: string, format: date-time }
-            senderType: { type: string }
-        unread: { type: integer }
+            user: { type: integer }
+            admin: { type: integer }
+        version:
+          type: integer
+          description: Optimistic lock token
+        closedAt: { type: string, format: date-time, nullable: true }
+        closedBy: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-        assignedAdmin:
-          type: object
-          nullable: true
-          properties:
-            id: { type: string }
-            name: { type: string }
+
+    HandoffRequestDto:
+      type: object
+      properties:
+        id: { type: string }
+        conversationId: { type: string }
+        userId: { type: string }
+        reason: { type: string }
+        priority: { type: string, enum: [low, normal, high, urgent] }
+        status: { type: string, enum: [waiting, accepted, resolved, cancelled] }
+        summary: { type: string }
+        requestedAt: { type: string, format: date-time }
+        assignedAdminId: { type: string, nullable: true }
+        acceptedAt: { type: string, format: date-time, nullable: true }
+        resolvedAt: { type: string, format: date-time, nullable: true }
+        version: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    KnowledgeDocumentDto:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        slug: { type: string }
+        category: { type: string }
+        content: { type: string }
+        keywords:
+          type: array
+          items: { type: string }
+        status: { type: string, enum: [draft, published, archived] }
+        version: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PaginationMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+        totalPages: { type: integer }
+        hasNext: { type: boolean }
+        hasPrev: { type: boolean }
 
     MediaAsset:
       type: object

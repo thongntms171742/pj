@@ -1,4 +1,12 @@
 import dotenv from "dotenv";
+
+// QUAN TRỌNG: `dotenv.config()` phải chạy TRƯỚC mọi module đọc
+// `process.env` ở cấp module. Với CommonJS, các `import` phía dưới được
+// require() trước khi body file này chạy — nên ta dùng `require` tường minh
+// để bảo đảm thứ tự: env → app → server.
+//
+// Lưu ý: các module đọc env đều dùng getter lazy (`src/config/env.ts`)
+// nên kể cả khi load sai thứ tự vẫn lấy đúng giá trị runtime.
 dotenv.config();
 
 import http from "http";
@@ -6,10 +14,11 @@ import mongoose from "mongoose";
 import { Server } from "socket.io";
 import app from "./app";
 import { setRealtimeIO } from "./services/realtime";
-import { initChatSocket } from "./modules/chat/socket/chatSocket";
+import { initChatSocket } from "./modules/chat/socket/chat.socket";
+import { getPort, getMongoUri } from "./config/env";
 
-const PORT = parseInt(process.env.PORT || "4000", 10);
-const MONGODB_URI = process.env.MONGODB_URI || "";
+const PORT = getPort();
+const MONGODB_URI = getMongoUri();
 
 const ALLOWED_ORIGINS = [
   "https://rungtrongpho.vercel.app",

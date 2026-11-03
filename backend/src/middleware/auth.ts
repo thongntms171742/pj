@@ -2,8 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { sendError, ErrorCode } from "../utils/errors";
 import { User } from "../models/User";
-
-const JWT_SECRET = process.env.JWT_SECRET || "thriftit_super_secret_key_change_me";
+import { getJwtSecret, getJwtExpiresIn } from "../config/env";
 
 export interface JwtPayload {
   id: string;
@@ -32,7 +31,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   try {
     const token = header.slice(7);
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
     
     // Verify user in DB to check accountStatus
     const user = await User.findById(decoded.id).select("accountStatus");
@@ -66,7 +65,7 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
   if (header?.startsWith("Bearer ")) {
     try {
       const token = header.slice(7);
-      const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+      const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
       const user = await User.findById(decoded.id).select("accountStatus");
       if (user && user.accountStatus !== "suspended") {
         req.user = decoded;
@@ -93,6 +92,5 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
  * Create a signed JWT for the given user.
  */
 export function signToken(payload: JwtPayload): string {
-  const expiresIn = process.env.JWT_EXPIRES_IN || "7d";
-  return jwt.sign(payload, JWT_SECRET, { expiresIn } as jwt.SignOptions);
+    return jwt.sign(payload, getJwtSecret(), { expiresIn: getJwtExpiresIn() } as jwt.SignOptions);
 }

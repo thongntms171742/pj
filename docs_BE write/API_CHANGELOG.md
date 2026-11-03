@@ -5,6 +5,60 @@ Track changes to the API contract over time to ensure synchronization between Ba
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Christmas entries (2026-10-07+) là contract hiện tại. Entries cũ (2026-10-06 trở về trước) là **lịch sử marketplace** - chỉ tham khảo context, KHÔNG áp dụng cho code Christmas. Source of truth cho FE = `backend/src/`.
 
 ---
+## 2026-11-04 🤖💬 CHAT V4 — HYBRID AI & HUMAN SUPPORT (TDD v1.0)
+
+> **🚨 BREAKING CHANGE — Toàn bộ hệ thống Chat đã bị XOÁ & CODE LẠI TỪ ĐẦU** (không phải refactor).
+> Backend mới: `modules/chat` (hỗ trợ con người) + `modules/ai` (AI orchestrator, tools, copilot, knowledge base).
+> Chi tiết kiến trúc: `backend/docs/CHAT_HYBRID_API.md` · Hướng dẫn FE: `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md`.
+
+### 🚨 Breaking Changes & Deprecations
+- **Model & collection**: `ChatFaq`, `ChatLog` đã bị xoá hoàn toàn. Thay bằng `Conversation`, `Message`, `HandoffRequest`, `KnowledgeDocument`.
+  Collection `chatfaqs`, `chatlogs` không còn dùng ⇒ **có thể drop an toàn**. Schema `conversations`/`messages` đổi mạnh ⇒ **drop & seed lại**.
+- **Auth**: Bỏ guest mode (`sessionId`, `chat_session_id`, header `x-chat-session-id`). **Bắt buộc** `Authorization: Bearer <token>`.
+- **Trạng thái**: `status: "BOT_ACTIVE" | "WAITING_ADMIN" | "ADMIN_ACTIVE" | "RESOLVED"` ➔ `"open" | "pending" | "closed"`.
+  `channel: "AI" | "SUPPORT"` ➔ `supportMode: "ai" | "waiting_admin" | "human" | "ai_assisted"`.
+- **Sender**: `senderType: "USER" | "BOT" | "ADMIN" | "SYSTEM"` ➔ `"user" | "admin" | "ai" | "system"` (lowercase).
+- **Message schema**: Bỏ `metadata` (`quickReplies`, `suggestedProducts`, `orderInfo`, `route`, `confidence`, `escalationReason`) ⇒ thay bằng `aiMetadata`.
+  Bỏ `isOwn` (client tự tính từ `senderId`), bỏ `sentAt` ⇒ `createdAt`.
+- **Tin nội bộ**: Thêm `visibility: "public" | "internal"`. Tin `internal` **không bao giờ** lọt tới user (lọc 2 tầng: query + broadcast).
+- **Idempotency**: Mọi tin nhắn có `clientMessageId`. Gửi lại cùng id ⇒ `200` + `duplicate: true`, không tạo tin trùng.
+- **Optimistic locking**: Conversation có `version`. Endpoint mutate nhận `expectedVersion`; stale ⇒ `409 CHAT_VERSION_CONFLICT`.
+- **CSAT**: `POST /api/chat/conversations/:id/satisfaction` ➔ **ĐÃ BỎ** (không có trong TDD v1.0).
+
+### 🔌 Socket.IO Events (namespace `/chat`)
+- **C → S**: `conversation:subscribe`, `conversation:unsubscribe`, `message:send`, `message:typing`, `conversation:read`.
+- **S → C**: `chat:connected`, `message:new`, `conversation:updated`, `message:typing`, `conversation:unread`, `handoff:updated`, `ai:status`, `chat:error`.
+- Đã bỏ toàn bộ event cũ: `chat:join`, `chat:send`, `chat:read`, `chat:typing`, `chat:leave`, `chat:message`, `chat:conversation`, `chat:unread`, `chat:status`.
+
+### Added Endpoints
+- `POST /api/chat/conversations` — Tạo / lấy lại conversation active (`?forceNew=true`).
+- `GET /api/chat/conversations` — Danh sách hội thoại (`?page=&limit=&status=`).
+- `GET /api/chat/conversations/unread-count` — Tổng tin chưa đọc.
+- `GET /api/chat/conversations/:id` — Chi tiết hội thoại.
+- `GET /api/chat/conversations/:id/messages` — Cursor pagination (`?before=&after=&limit=`).
+- `POST /api/chat/conversations/:id/messages` — Gửi tin (hỗ trợ `clientMessageId`).
+- `POST /api/chat/conversations/:id/read` — Đánh dấu đã đọc.
+- `POST /api/chat/conversations/:id/close` · `/reopen` — Đóng / mở lại hội thoại.
+- `POST`/`GET`/`DELETE /api/chat/conversations/:id/handoff` — Yêu cầu / xem / huỷ handoff.
+- `GET /api/chat/admin/conversations` — Admin list (`?scope=all|mine|unassigned`).
+- `POST /api/chat/admin/conversations/:id/assign` · `/accept` — Gán / nhận hội thoại.
+- `POST /api/chat/admin/conversations/:id/handoff/assign` · `/resolve` — Gán / đóng handoff.
+- `GET /api/chat/admin/handoffs` — Hàng đợi handoff.
+- `GET /api/chat/admin/unread-count` — Tổng unread phía admin.
+- `GET /api/chat/admin/copilot/conversations/:id/summary` — Tóm tắt hội thoại (AI).
+- `POST /api/chat/admin/copilot/conversations/:id/suggest-reply` — Gợi ý trả lời (AI).
+- `POST /api/chat/admin/copilot/conversations/:id/note` — Sinh ghi chú nội bộ (AI).
+- `GET /api/chat/admin/copilot/conversations/:id/context` — Context đầy đủ cho admin.
+- `GET /api/chat/admin/copilot/policies` — Tra chính sách (AI).
+- `GET`/`POST`/`PATCH`/`DELETE /api/chat/admin/knowledge/documents` — CRUD kho tri thức.
+
+### Added Error Codes
+- `CHAT_CONVERSATION_CLOSED` (409), `CHAT_DUPLICATE_MESSAGE` (409), `CHAT_VERSION_CONFLICT` (409), `CHAT_RATE_LIMITED` (429)
+- `CHAT_AI_UNAVAILABLE` (503), `CHAT_AI_ESCALATED` (503), `CHAT_AI_QUOTA_EXCEEDED` (429)
+- `CHAT_HANDOFF_NOT_FOUND` (404), `CHAT_HANDOFF_ALREADY_EXISTS` (409), `CHAT_HANDOFF_INVALID_TRANSITION` (409)
+- `CHAT_REOPEN_WINDOW_EXPIRED` (409)
+
+---
 ## 2026-10-31 👤 ACCOUNT DELETION (`DELETE /api/users/me`) — GOOGLE PLAY DATA SAFETY
 
 > **Feature added**: API Xoá tài khoản người dùng vĩnh viễn, làm sạch dữ liệu cá nhân (PII) trong đơn hàng, cascade xoá toàn bộ giỏ hàng, thiết kế phòng, đánh giá và thông báo. Giải quyết blocker phát hành ứng dụng lên Google Play.
@@ -17,7 +71,7 @@ Track changes to the API contract over time to ensure synchronization between Ba
 - **Chặn xoá khi có đơn đang xử lý**: Kiểm tra các trạng thái `PENDING_PAYMENT`, `PAID`, `CONFIRMED`, `PACKING`. Nếu còn đơn, trả về `409 ORDER_IN_PROGRESS` kèm danh sách đơn bị chặn.
 - **Scrub PII trong Order**: Giữ lại các trường đối soát tài chính (`orderCode`, `totalAmount`, `status`), nhưng xoá sạch thông tin nhận hàng (`shippingName`, `shippingPhone`, `shippingAddress`, `pickupInfo`), gán `isAnonymized: true`, `userDeletedAt`.
 - **Cascade xoá dữ liệu cá nhân**: Xoá vĩnh viễn `Cart`, `CartItem`, `Design` (kèm ảnh Cloudinary), `Review`, `Notification`, và `User` (kèm embedded `addresses[]`).
-- **Anonymize Chat**: Rút user khỏi danh sách `participants` trong hội thoại, xóa hội thoại AI rỗng.
+    - **Xoá vĩnh viễn Chat**: Xoá `Message`, `HandoffRequest` và `Conversation` thuộc user (không giữ dữ liệu hội thoại của người đã xoá tài khoản).
 - **Idempotent**: Gọi lại endpoint khi tài khoản đã bị xoá sẽ trả `404 NOT_FOUND`.
 
 ### Added Error Codes

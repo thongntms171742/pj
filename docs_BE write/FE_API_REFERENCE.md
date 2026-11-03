@@ -1433,19 +1433,21 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
 
 ---
 
-## 💬 PHẦN 11: HỆ THỐNG CHAT V3 HỢP NHẤT (UNIFIED MODEL)
+## 💬 PHẦN 11: HỆ THỐNG CHAT V4 — HYBRID AI & HUMAN SUPPORT
 
-> 📘 **Tài liệu chi tiết đầy đủ**: `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md` và `backend/docs/CHAT_API.md`.
+> 📘 **Tài liệu chi tiết đầy đủ**: `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md` · `backend/docs/CHAT_API.md` · `backend/docs/CHAT_HYBRID_API.md`.
+>
+> ⚠️ **BREAKING CHANGE v3 → v4:** toàn bộ chat cũ đã bị xoá & code lại từ đầu. Bắt buộc đăng nhập, không còn guest mode.
 
 ### 11.1 Kiến trúc & URL kết nối
 - **Socket.IO Namespace**: `/chat` (BẮT BUỘC, ví dụ: `https://christmas-8ca4.onrender.com/chat`).
+- **Auth**: `Authorization: Bearer <token>` — bắt buộc, không có guest.
 - **Cấu hình Socket Client**:
   ```typescript
   import { io } from "socket.io-client";
   const socket = io("https://christmas-8ca4.onrender.com/chat", {
     auth: {
       token: localStorage.getItem("token") || undefined,
-      sessionId: localStorage.getItem("chat_session_id") || undefined,
     },
     transports: ["websocket", "polling"],
     tryAllTransports: true,
@@ -1456,26 +1458,68 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
 
 | Hướng | Tên Event | Payload | Mô tả |
 | :--- | :--- | :--- | :--- |
-| **C → S** | `chat:join` | `{ conversationId }` | Vào phòng chat để nhận tin realtime |
-| **C → S** | `chat:send` | `{ conversationId, content, metadata? }` | Gửi tin nhắn mới |
-| **C → S** | `chat:read` | `{ conversationId, lastMessageId? }` | Đánh dấu đã đọc tin nhắn |
-| **C → S** | `chat:typing`| `{ conversationId }` | Báo đang gõ văn bản |
-| **C → S** | `chat:leave`| `{ conversationId }` | Rời phòng chat |
-| **S → C** | `chat:message`| `ChatMessageDto` | Nhận tin nhắn mới từ Bot/Admin/User |
-| **S → C** | `chat:conversation` | `ChatConversationDto` | Cập nhật thông tin hội thoại |
-| **S → C** | `chat:unread` | `{ total, byConversation }` | Cập nhật số tin nhắn chưa đọc |
-| **S → C** | `chat:status` | `{ conversationId, status }` | Trạng thái chuyển đổi (vd: WAITING_ADMIN) |
-| **S → C** | `chat:typing` | `{ conversationId, userId, userName }` | Đối phương đang gõ |
+| **C → S** | `conversation:subscribe` | `{ conversationId }` | Vào room conversation để nhận tin realtime |
+| **C → S** | `conversation:unsubscribe` | `{ conversationId }` | Rời room |
+| **C → S** | `message:send` | `{ conversationId, content, messageType?, attachments?, clientMessageId? }` | Gửi tin nhắn mới (kèm `clientMessageId` để chống trùng) |
+| **C → S** | `message:typing` | `{ conversationId, isTyping }` | Báo đang gõ văn bản |
+| **C → S** | `conversation:read` | `{ conversationId }` | Đánh dấu đã đọc tin nhắn |
+| **S → C** | `chat:connected` | `{ userId, roles }` | Xác nhận kết nối thành công |
+| **S → C** | `message:new` | `{ conversationId, message, echo }` | Tin nhắn mới (`echo: true` ⇒ của chính mình, không render lại) |
+| **S → C** | `conversation:updated` | `{ conversationId, conversation }` | Cập nhật trạng thái / `supportMode` / `version` |
+| **S → C** | `message:typing` | `{ conversationId, userId, isTyping }` | Đối phương đang gõ |
+| **S → C** | `conversation:unread` | `{ conversationId, unreadCount: { user, admin } }` | Cập nhật số tin chưa đọc |
+| **S → C** | `handoff:updated` | `{ conversationId, handoff, status }` | Handoff đổi trạng thái (created/accepted/resolved/cancelled) |
+| **S → C** | `ai:status` | `{ conversationId, status, message? }` | AI đang xử lý / đã trả lời / đã escalate |
 | **S → C** | `chat:error` | `{ code, message }` | Lỗi thao tác socket |
 
 ### 11.3 Tóm tắt REST Endpoints
-- `POST /api/chat/conversations` (Optional Auth) — Tạo hoặc lấy hội thoại (`channel: "AI" | "SUPPORT"`).
-- `GET /api/chat/conversations` (Require Auth) — Danh sách hội thoại của tôi.
-- `GET /api/chat/conversations/:id/messages?before=&limit=` (Optional Auth) — Lấy lịch sử tin nhắn (Cursor pagination).
-- `POST /api/chat/conversations/:id/messages` (Optional Auth) — Gửi tin qua REST (fallback khi socket mất mạng).
-- `POST /api/chat/conversations/:id/read` (Optional Auth) — Đánh dấu đã đọc.
-- `POST /api/chat/conversations/:id/escalate` (Optional Auth) — Yêu cầu gặp nhân viên hỗ trợ.
-- `GET /api/chat/unread` (Require Auth) — Đếm tổng số tin chưa đọc.
+
+**User** (`/api/chat`) — Require Auth:
+
+- `POST /api/chat/conversations` — Tạo hoặc lấy lại conversation active (`?forceNew=true` để tạo mới).
+- `GET /api/chat/conversations` — Danh sách hội thoại của tôi (`?page=&limit=&status=`).
+- `GET /api/chat/conversations/unread-count` — Tổng số tin chưa đọc.
+- `GET /api/chat/conversations/:id` — Chi tiết 1 hội thoại.
+- `GET /api/chat/conversations/:id/messages?before=&after=&limit=` — Lịch sử tin nhắn (cursor pagination).
+- `POST /api/chat/conversations/:id/messages` — Gửi tin qua REST (fallback khi socket mất mạng). Cần `clientMessageId`.
+- `POST /api/chat/conversations/:id/read` — Đánh dấu đã đọc.
+- `POST /api/chat/conversations/:id/close` · `/reopen` — Đóng / mở lại hội thoại.
+- `POST /api/chat/conversations/:id/handoff` — Yêu cầu gặp nhân viên hỗ trợ.
+- `GET`/`DELETE /api/chat/conversations/:id/handoff` — Xem / huỷ yêu cầu handoff.
+
+**Admin** (`/api/chat/admin`) — Require Admin:
+
+- `GET /api/chat/admin/conversations` — Danh sách hội thoại (`?scope=all|mine|unassigned`).
+- `GET /api/chat/admin/conversations/:id/messages` — Lịch sử tin nhắn (**bao gồm** tin `internal`).
+- `POST /api/chat/admin/conversations/:id/messages` — Gửi tin (`visibility: "public" | "internal"`).
+- `POST /api/chat/admin/conversations/:id/assign` · `/accept` — Gán / nhận hội thoại.
+- `POST /api/chat/admin/conversations/:id/close` · `/reopen` — Đóng / mở lại.
+- `GET /api/chat/admin/handoffs` — Hàng đợi handoff.
+- `POST /api/chat/admin/conversations/:id/handoff/assign` · `/resolve` — Gán / đóng handoff.
+- `GET /api/chat/admin/unread-count` — Tổng unread phía admin.
+
+**AI Copilot** (`/api/chat/admin/copilot`) — Require Admin:
+
+- `GET /api/chat/admin/copilot/conversations/:id/summary` — Tóm tắt hội thoại.
+- `POST /api/chat/admin/copilot/conversations/:id/suggest-reply` — Gợi ý trả lời (body: `{ instruction? }`).
+- `POST /api/chat/admin/copilot/conversations/:id/note` — Sinh ghi chú nội bộ (body: `{ note? }`).
+- `GET /api/chat/admin/copilot/conversations/:id/context` — Context đầy đủ cho admin.
+- `GET /api/chat/admin/copilot/policies?query=` — Tra chính sách.
+
+**Knowledge Base** (`/api/chat/admin/knowledge`) — Require Admin:
+
+- `GET /api/chat/admin/knowledge` — Danh sách tài liệu tri thức.
+- `GET /api/chat/admin/knowledge/:id` — Chi tiết 1 tài liệu.
+- `POST /api/chat/admin/knowledge` — Tạo tài liệu.
+- `PUT /api/chat/admin/knowledge/:id` — Cập nhật tài liệu.
+- `DELETE /api/chat/admin/knowledge/:id` — Xoá **mềm** (archive).
+
+> **Mã lỗi chat**: `CHAT_CONVERSATION_NOT_FOUND` (404) · `CHAT_FORBIDDEN` (403) · `CHAT_INVALID_ID` (400) ·
+> `CHAT_EMPTY_CONTENT` / `CHAT_MESSAGE_TOO_LONG` (400) · `CHAT_CONVERSATION_CLOSED` (409) ·
+> `CHAT_DUPLICATE_MESSAGE` (409) · `CHAT_VERSION_CONFLICT` (409) · `CHAT_RATE_LIMITED` (429) ·
+> `CHAT_AI_UNAVAILABLE` (503) · `CHAT_AI_ESCALATED` (503) · `CHAT_AI_QUOTA_EXCEEDED` (429) ·
+> `CHAT_HANDOFF_NOT_FOUND` (404) · `CHAT_HANDOFF_ALREADY_EXISTS` (409) · `CHAT_HANDOFF_INVALID_TRANSITION` (409) ·
+> `CHAT_REOPEN_WINDOW_EXPIRED` (409).
 
 ---
 
