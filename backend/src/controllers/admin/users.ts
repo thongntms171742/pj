@@ -7,8 +7,9 @@ import { ok } from "../../utils/respond";
 // ── Admin user management ────────────────────────────────────────────────────
 
 export const getAllUsers = ah(async (req, res) => {
-  const page = parseInt((req.query.page as string) || "1", 10);
-  const limit = parseInt((req.query.limit as string) || "20", 10);
+  const page = Math.max(1, parseInt((req.query.page as string) || "1", 10) || 1);
+  // Cap limit để tránh query quá nặng (admin list có thể có hàng chục nghìn user).
+  const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || "20", 10) || 20));
   const search = req.query.search as string | undefined;
   const query: Record<string, unknown> = {};
   if (search) {
