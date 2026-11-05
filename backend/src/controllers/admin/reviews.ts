@@ -35,7 +35,7 @@ export async function adminListReviews(req: Request, res: Response): Promise<voi
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("buyerId", "name email avatar")
+        .populate("buyerId", "name email avatarUrl")
         .populate("productId", "name coverImage slug")
         .populate("variantId", "name size sku bareImage")
         .populate("orderId", "orderCode status totalAmount")

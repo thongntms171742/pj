@@ -240,7 +240,7 @@ export async function getProductReviews(
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("buyerId", "name avatar")
+      .populate("buyerId", "name avatarUrl")
       .populate("variantId", "name size bareImage")
       .lean(),
     Review.countDocuments(filter),
@@ -293,9 +293,10 @@ export async function getProductReviews(
         ? {
             _id: r.buyerId._id,
             name: r.buyerId.name || "Khách hàng",
-            avatar: r.buyerId.avatar || "",
+            // `avatarUrl` là field thật trong User model (`avatar` không tồn tại).
+            avatarUrl: r.buyerId.avatarUrl || "",
           }
-        : { name: "Khách hàng", avatar: "" },
+        : { name: "Khách hàng", avatarUrl: "" },
       orderId: r.orderId,
       rating: r.rating,
       comment: r.comment,
@@ -338,6 +339,7 @@ export async function getUserReviews(
       .populate("productId", "name coverImage slug")
       .populate("variantId", "name size bareImage")
       .populate("orderId", "orderCode status")
+      .populate("buyerId", "name avatarUrl")
       .lean(),
     Review.countDocuments(filter),
   ]);
@@ -366,6 +368,13 @@ export async function getUserReviews(
             _id: r.orderId._id,
             orderCode: r.orderId.orderCode,
             status: r.orderId.status,
+          }
+        : null,
+      buyer: r.buyerId
+        ? {
+            _id: r.buyerId._id,
+            name: r.buyerId.name || "Khách hàng",
+            avatarUrl: r.buyerId.avatarUrl || "",
           }
         : null,
       rating: r.rating,
@@ -405,15 +414,38 @@ export async function getOrderReviewableItems(orderId: string, buyerId: string) 
 
   const isEligibleStatus = ["DELIVERED", "COMPLETED"].includes(order.status);
 
+  // Lấy tên + ảnh sản phẩm để FE/Mobile hiển thị trong modal đánh giá.
+  const productIds = Array.from(
+    new Set(
+      order.items
+        .map((item) => item.variant?.productId)
+        .filter((pid): pid is string => Boolean(pid))
+        .map((pid) => String(pid))
+    )
+  );
+  const validProductIds = productIds.filter((id) => Types.ObjectId.isValid(id));
+  const products = validProductIds.length
+    ? await TreeProduct.find({
+        _id: { $in: validProductIds.map((id) => new Types.ObjectId(id)) },
+      })
+        .select("name coverImage images")
+        .lean()
+    : [];
+  const productMap = new Map(products.map((p) => [String(p._id), p]));
+
   const items = order.items.map((item) => {
     const pId = item.variant?.productId ? String(item.variant.productId) : null;
     const isReviewed = pId ? reviewedProductIds.has(pId) : false;
     const review = isReviewed
       ? existingReviews.find((r) => r.productId.toString() === pId)
       : null;
+    const product = pId ? productMap.get(pId) : undefined;
 
     return {
       productId: pId,
+      variantId: item.variant?._id ? String(item.variant._id) : undefined,
+      productName: product?.name || item.variant?.name || "Sản phẩm",
+      previewImage: product?.coverImage || product?.images?.[0] || item.variant?.bareImage || "",
       variantName: item.variant?.name,
       variantSize: item.variant?.size,
       canReview: isEligibleStatus && !isReviewed && Boolean(pId),
