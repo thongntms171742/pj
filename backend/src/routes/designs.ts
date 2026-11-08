@@ -7,6 +7,7 @@ import {
   getMyDesigns,
   getDesignById,
   deleteDesign,
+  updateDesignConfiguration,
   generateImage,
   confirmDesign,
   uploadCompositeResult,
@@ -32,6 +33,7 @@ router.post(
 router.post("/", requireAuth, createDesign);
 router.get("/mine", requireAuth, getMyDesigns);
 router.get("/:id", requireAuth, getDesignById);
+router.put("/:id/configuration", requireAuth, updateDesignConfiguration);
 router.delete("/:id", requireAuth, deleteDesign);
 
 // Composite upload: Client tự tách nền + ghép cây vào phòng rồi gửi ảnh kết quả.

@@ -6,6 +6,16 @@ import type { DeliveryOption } from "../config/business";
 // còn designId / designName / previewImage / lines. Variant đã chứa đủ thông
 // tin (size, price, sku, bareImage).
 
+export interface IOrderDecorationItem {
+  accessoryId: string;
+  name: string;
+  sku: string;
+  image: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+}
+
 export interface IOrderItem {
   variant: {
     _id: string;
@@ -19,6 +29,8 @@ export interface IOrderItem {
     bareImage: string;
   };
   deliveryOption: DeliveryOption;
+  /** Snapshot trang trí tại lúc đặt hàng — đóng băng tên/ảnh/SKU/đơn giá. */
+  decorations?: IOrderDecorationItem[];
   unitTotal: number;
   quantity: number;
   lineTotal: number;
@@ -160,6 +172,19 @@ export interface IOrder extends Document {
   userDeletedAt?: Date | null;
 }
 
+const OrderDecorationSchema = new Schema<IOrderDecorationItem>(
+  {
+    accessoryId: { type: String, required: true },
+    name: { type: String, required: true },
+    sku: { type: String, default: "" },
+    image: { type: String, default: "" },
+    unitPrice: { type: Number, required: true, min: 0 },
+    quantity: { type: Number, required: true, min: 1 },
+    lineTotal: { type: Number, required: true, min: 0 },
+  },
+  { _id: false }
+);
+
 const OrderItemSchema = new Schema<IOrderItem>(
   {
     variant: {
@@ -178,6 +203,7 @@ const OrderItemSchema = new Schema<IOrderItem>(
       enum: ["READY_TO_DISPLAY", "DIY_KIT", "SEPARATE"],
       required: true,
     },
+    decorations: { type: [OrderDecorationSchema], default: [] },
     unitTotal: { type: Number, required: true, min: 0 },
     quantity: { type: Number, required: true, min: 1, default: 1 },
     lineTotal: { type: Number, required: true, min: 0 },

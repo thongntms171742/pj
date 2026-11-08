@@ -24,9 +24,20 @@ export interface OrderItemVariantDto {
   bareImage: string;
 }
 
+export interface OrderDecorationDto {
+  accessoryId: string;
+  name: string;
+  sku: string;
+  image: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+}
+
 export interface OrderItemDto {
   variant: OrderItemVariantDto;
   deliveryOption: string;
+  decorations: OrderDecorationDto[];
   unitTotal: number;
   quantity: number;
   lineTotal: number;
@@ -119,6 +130,15 @@ export function orderToDto(o: any): OrderDto {
     items: (o.items || []).map((it: any) => ({
       variant: it.variant ?? it.tree,
       deliveryOption: it.deliveryOption,
+      decorations: (it.decorations ?? []).map((d: any) => ({
+        accessoryId: String(d.accessoryId ?? ""),
+        name: d.name ?? "",
+        sku: d.sku ?? "",
+        image: d.image ?? "",
+        unitPrice: d.unitPrice ?? 0,
+        quantity: d.quantity ?? 0,
+        lineTotal: d.lineTotal ?? 0,
+      })),
       unitTotal: it.unitTotal,
       quantity: it.quantity,
       lineTotal: it.lineTotal,

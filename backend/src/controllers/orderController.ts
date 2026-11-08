@@ -4,7 +4,7 @@ import { Order, VALID_TRANSITIONS, OrderStatus } from "../models/Order";
 import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { Notification } from "../models/Notification";
-import { restoreTreeStock } from "../services/inventoryService";
+import { restoreTreeStock, restoreAccessoryStock } from "../services/inventoryService";
 import { SHIPPING_FEE } from "../config/business";
 import { calculateShippingQuote } from "../services/shippingService";
 import {
@@ -115,9 +115,15 @@ export const createOrder = async (
     // (Đã bỏ check `designConfirmed` — checkout không cần design confirmed nữa.)
 
     // 3) Resolve items source (direct body or cart)
-    let rawItems = Array.isArray(directItems) && directItems.length > 0
-      ? directItems
-      : await resolveOrderItems(userId, cartItemIds);
+    // Direct body dùng shape { config: PricingInput, quantity } — chuẩn hóa
+    // về OrderItemInput { pricingInput, quantity } cho buildOrderItems.
+    let rawItems: Array<{ pricingInput?: PricingInput; quantity?: number }> =
+      Array.isArray(directItems) && directItems.length > 0
+        ? directItems.map((d: any) => ({
+            pricingInput: d?.pricingInput ?? d?.config,
+            quantity: d?.quantity,
+          }))
+        : await resolveOrderItems(userId, cartItemIds);
     if (rawItems.length === 0) {
       const hasCart = await Cart.findOne({ userId });
       if (!hasCart) {
@@ -169,16 +175,16 @@ export const createOrder = async (
       throw err;
     }
 
-    // 6) Reserve stock atomically
+    // 6) Reserve stock atomically (TREE + ACCESSORY)
     try {
       const { reserveStock } = await import("../services/inventoryService");
       await reserveStock(stockToReserve);
     } catch (stockErr) {
       const msg = (stockErr as Error).message || "";
-      if (msg.startsWith("OUT_OF_STOCK")) {
+      if (msg.startsWith("OUT_OF_STOCK") || msg.startsWith("ACCESSORY_OUT_OF_STOCK")) {
         sendError(
           res,
-          ErrorCode.OUT_OF_STOCK,
+          msg.startsWith("ACCESSORY") ? ErrorCode.ACCESSORY_OUT_OF_STOCK : ErrorCode.OUT_OF_STOCK,
           "Một hoặc nhiều món đã hết hàng trong lúc đặt"
         );
         return;
@@ -214,7 +220,7 @@ export const createOrder = async (
       }
     }
 
-    // Decoration fee has been removed: 0 VND
+    // Decoration fee = tổng phụ kiện (đã nằm trong subtotal qua unitTotal).
     const totalAmount = Math.max(
       0,
       subtotal + shippingFee - appliedDiscount
@@ -233,7 +239,7 @@ export const createOrder = async (
       items: built,
       subtotal,
       shippingFee,
-      decorationFee: 0,
+      decorationFee: decorationFeeTotal,
       discount: appliedDiscount,
       discountCode: appliedCouponCode,
       discountAmount: appliedDiscount,
@@ -411,10 +417,19 @@ export const updateOrderStatus = async (
     }
 
     if (nextStatus === "CANCELLED") {
-      // Restore stock for every variant (Tree SKU) trong đơn
+      // Restore stock cho cây + phụ kiện trang trí (theo snapshot lúc đặt).
+      const { restoreAccessoryStock } = await import("../services/inventoryService");
       for (const item of order.items) {
         if (item.variant && item.variant._id) {
           await restoreTreeStock(new Types.ObjectId(String(item.variant._id)), item.quantity);
+        }
+        for (const d of (item as any).decorations ?? []) {
+          if (d.accessoryId) {
+            await restoreAccessoryStock(
+              new Types.ObjectId(String(d.accessoryId)),
+              d.quantity
+            );
+          }
         }
       }
     }

@@ -2,8 +2,9 @@
 // Importing this module once ensures every model is registered before
 // controllers/services try to populate it.
 //
-// NOTE: Accessory / Style / Category / AIDesign đã bị purge trong refactor
-// phụ kiện. Style/Accessory info giờ nằm gọn trong TreeProduct.description.
+// NOTE: Accessory đã được tái sinh ở Phase 1 Tree Customizer dưới dạng mặt
+// hàng tồn kho độc lập (collection `accessories`). Style/Category info vẫn
+// nằm gọn trong TreeProduct.description.
 // AI render dùng TreeProduct.coverImage + description làm reference.
 export * from "./User";
 export { Tree } from "./Tree";
@@ -12,6 +13,11 @@ export { TreeProduct } from "./TreeProduct";
 export type { ITreeProduct } from "./TreeProduct";
 export { TreeCode } from "./TreeCode";
 export type { ITreeCode } from "./TreeCode";
+export { Accessory } from "./Accessory";
+export type { IAccessory, AccessorySlotType } from "./Accessory";
+export { SlotMap } from "./SlotMap";
+export type { ISlotMap, ISlotDefinition } from "./SlotMap";
+export { ACCESSORY_SLOT_TYPES } from "./Accessory";
 export * from "./Design";
 export * from "./Cart";
 export * from "./CartItem";

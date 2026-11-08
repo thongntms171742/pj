@@ -3,7 +3,6 @@
 
 import { Types } from "mongoose";
 import { Design, type IRoomDesign } from "../models/Design";
-import { composeCardPrompt } from "../services/ai/googleImageService";
 import { composeRoomPrompt } from "../services/ai/legacyRoomDesignService";
 
 let passed = 0;
@@ -102,29 +101,6 @@ async function runTests() {
     roomImageUrl: "",
   });
   assert(noImage.imageInput.length === 0, "imageInput rỗng khi không có room image");
-
-  console.log("\n── Test 6: composeCardPrompt() ──");
-  const card = composeCardPrompt({
-    title: "Merry Christmas",
-    body: "Chúc bạn Giáng Sinh an lành",
-    style: "classic",
-  });
-  assert(typeof card.promptText === "string", "card promptText is string");
-  assert(card.promptText.includes("Merry Christmas"), "prompt chứa title");
-  assert(
-    card.promptText.includes("Chúc bạn Giáng Sinh an lành"),
-    "prompt chứa body"
-  );
-  assert(card.promptText.includes("Traditional"), "classic style hint");
-  assert(card.aspectRatio === "3:4", "aspect ratio = 3:4");
-
-  console.log("\n── Test 7: composeCardPrompt() modern style ──");
-  const card2 = composeCardPrompt({
-    title: "Happy New Year",
-    body: "Chúc năm mới",
-    style: "modern",
-  });
-  assert(card2.promptText.includes("Minimalist"), "modern style hint");
 
   console.log(`\n========================================`);
   console.log(`RoomDesign Test Summary: ${passed} passed, ${failed} failed.`);

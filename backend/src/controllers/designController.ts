@@ -423,6 +423,74 @@ export const generateImage = async (
   }
 };
 
+// ── PUT /api/designs/:id/configuration — Tree Customizer ────────────────────
+// Body: { placements: [{ slotId, accessoryId, x, y, rotation?, scale? }] }
+// Validate: slot thuộc slotMap đang publish, 1 slot = 1 instance, phụ kiện
+// tương thích loại slot, tọa độ chuẩn hóa 0–1. Mỗi lần lưu tăng configVersion.
+export const updateDesignConfiguration = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (!Types.ObjectId.isValid(String(id))) {
+      sendError(res, ErrorCode.INVALID_INPUT, "ID thiết kế không hợp lệ", 400);
+      return;
+    }
+    const design = await Design.findById(id);
+    if (!design) {
+      sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
+      return;
+    }
+    const isOwner =
+      design.ownerId && req.user?.id
+        ? String(design.ownerId) === String(req.user.id)
+        : false;
+    const isAdmin = req.user?.roles?.includes("admin") ?? false;
+    if (!isOwner && !isAdmin) {
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền sửa thiết kế này");
+      return;
+    }
+    const { validatePlacements } = await import("../services/customizerService");
+    const { placements } = req.body as { placements?: unknown };
+    const checked = await validatePlacements(String(design.treeVariantId), placements);
+    if (!checked.ok) {
+      sendError(
+        res,
+        (checked.errorCode as any) || ErrorCode.INVALID_INPUT,
+        checked.error || "Placements không hợp lệ"
+      );
+      return;
+    }
+    const variant = await Tree.findById(design.treeVariantId).lean();
+    const prevVersion = (design.configuration as any)?.configVersion ?? 0;
+    design.configuration = {
+      configVersion: prevVersion + 1,
+      slotMapVersion: checked.slotMapVersion ?? 0,
+      variantSnapshot: {
+        variantId: design.treeVariantId as any,
+        sku: (variant as any)?.sku ?? "",
+        name: (variant as any)?.name ?? "",
+        price: (variant as any)?.price ?? 0,
+      },
+      placements: (checked.value ?? []).map((p) => ({
+        slotId: p.slotId,
+        accessoryId: new Types.ObjectId(p.accessoryId) as any,
+        x: p.x,
+        y: p.y,
+        rotation: p.rotation ?? 0,
+        scale: p.scale ?? 1,
+      })),
+    } as any;
+    await design.save();
+    const refreshed = await Design.findById(id).lean();
+    const resolved = await resolveRoomDesign(refreshed as any);
+    ok(res, { design: buildRoomDesignResponse(resolved) });
+  } catch (err) {
+    handleInternalError(res, err, "[designs] updateDesignConfiguration error");
+  }
+};
+
 // ── Backward-compat stub: confirmDesign ──────────────────────────────────────
 // Checkout không còn yêu cầu design confirmed. Endpoint giữ để tránh 404
 // cho FE cũ, nhưng trả về no-op success.

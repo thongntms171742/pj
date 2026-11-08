@@ -3,9 +3,8 @@ import { DELIVERY_OPTIONS, type DeliveryOption } from "../config/business";
 import { sendError, ErrorCode, type ErrorCodeValue } from "../utils/errors";
 
 // ── Lean shapes (only the fields pricing needs) ──────────────────────────────
-// Sau refactor phụ kiện: chỉ còn Tree variant (size × code combo) + delivery
-// option. Style / accessories không còn tách bảng; mọi thông tin đã nằm trong
-// TreeProduct.description.
+// Phase Customizer: accessories là mặt hàng tồn kho độc lập, tính phí trang
+// trí động = tổng unitPrice × số slot dùng.
 export interface TreeLean {
   _id: string;
   productId: string;
@@ -15,10 +14,22 @@ export interface TreeLean {
   price: number;
   stockQuantity: number;
   isActive: boolean;
+  sku?: string;
+  bareImage?: string;
+}
+
+export interface AccessoryPricingLean {
+  _id: string;
+  sku: string;
+  name: string;
+  image: string;
+  unitPrice: number;
+  isActive: boolean;
 }
 
 export interface CatalogSnapshot {
   tree: TreeLean;
+  accessories?: AccessoryPricingLean[];
 }
 
 // ── Output của priceDesign — gọn, không còn style/lines phức tạp ─────────────
@@ -33,10 +44,13 @@ export interface PriceBreakdown {
   warnings: string[];
 }
 
-// Input mới của pricing: chỉ variantId (Tree) + deliveryOption.
+// Input mới của pricing: variantId (Tree) + deliveryOption + phụ kiện tùy chọn.
+// accessories: [{ accessoryId, quantity }] — quantity = số slot dùng phụ kiện
+// đó (1 slot = 1 instance). Bỏ trống = cây trơn (tương thích flow cũ).
 export interface PricingInput {
   variantId: string;
   deliveryOption: DeliveryOption;
+  accessories?: Array<{ accessoryId: string; quantity: number }>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -87,14 +101,45 @@ export function priceDesign(
     );
   }
 
-  // 3) Tính giá đơn giản: chỉ treePrice + shippingFee. Decoration fee = 0 vì
-  // phụ kiện không còn là bảng riêng — concept đã có sẵn trong TreeProduct.
+  // 3) Phí trang trí động = tổng unitPrice × số slot dùng.
+  // Không có accessories ⇒ decorationFee = 0 (flow cây trơn cũ).
+  let decorationFee = 0;
+  const requested = Array.isArray(input.accessories) ? input.accessories : [];
+  if (requested.length > 0) {
+    const accById = new Map(
+      (catalog.accessories ?? []).map((a) => [String(a._id), a])
+    );
+    for (const line of requested) {
+      const qty = Math.floor(Number(line.quantity));
+      if (!Number.isFinite(qty) || qty < 1) {
+        throw new DesignValidationError(
+          ErrorCode.INVALID_INPUT,
+          `Số lượng phụ kiện không hợp lệ`
+        );
+      }
+      const acc = accById.get(String(line.accessoryId));
+      if (!acc) {
+        throw new DesignValidationError(
+          ErrorCode.ACCESSORY_NOT_FOUND,
+          "Không tìm thấy phụ kiện trong catalog"
+        );
+      }
+      if (!acc.isActive) {
+        throw new DesignValidationError(
+          ErrorCode.ACCESSORY_UNAVAILABLE,
+          `Phụ kiện "${acc.name}" hiện ngừng bán`
+        );
+      }
+      decorationFee += acc.unitPrice * qty;
+    }
+  }
+
   const shippingFee = 20_000;
-  const unitTotal = tree.price + shippingFee;
+  const unitTotal = tree.price + decorationFee + shippingFee;
 
   return {
     tree: { id: tree._id, name: tree.name, size: tree.size, unitPrice: tree.price },
-    decorationFee: 0,
+    decorationFee,
     shippingFee,
     unitTotal,
     productionDays: 0,

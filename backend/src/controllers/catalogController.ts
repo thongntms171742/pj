@@ -4,6 +4,10 @@ import { TreeCode } from "../models/TreeCode";
 import { Tree } from "../models/Tree";
 import { safelyBuildPricedDesign } from "../services/catalogService";
 import { loadGroupedTreeCatalog } from "../services/catalogService";
+import {
+  getPublishedSlotMap,
+  listAccessories,
+} from "../services/customizerService";
 import { DELIVERY_OPTIONS, DECORATION_FEE_BY_SIZE, SHIPPING_FEE } from "../config/business";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { ok } from "../utils/respond";
@@ -77,6 +81,47 @@ export const getVariantsForCode = async (
   }
 };
 
+// ── GET /api/catalog/accessories — Tree Customizer (Phase 1) ───────────────
+// Query: ?slotType=ball (lọc theo loại slot) — chỉ trả phụ kiện đang bán.
+export const getAccessories = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const slotType =
+      typeof req.query.slotType === "string" && req.query.slotType.trim()
+        ? req.query.slotType.trim()
+        : undefined;
+    const accessories = await listAccessories({ slotType });
+    ok(res, { accessories });
+  } catch (err) {
+    handleInternalError(res, err, "[catalog] getAccessories error");
+  }
+};
+
+// ── GET /api/catalog/variants/:variantId/slotmap ────────────────────────────
+// Trả bản SlotMap đang phát hành. Không có ⇒ variant chưa hỗ trợ tùy chỉnh.
+export const getVariantSlotMap = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { variantId } = req.params;
+    const slotMap = await getPublishedSlotMap(String(variantId));
+    if (!slotMap) {
+      sendError(
+        res,
+        ErrorCode.SLOTMAP_NOT_FOUND,
+        "Biến thể này chưa có bảng slot tùy chỉnh"
+      );
+      return;
+    }
+    ok(res, { slotMap });
+  } catch (err) {
+    handleInternalError(res, err, "[catalog] getVariantSlotMap error");
+  }
+};
+
 // ── GET /api/catalog/trees (LEGACY — flat list, read-only) ──────────────────
 export const getTrees = async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -124,20 +169,31 @@ export const getDeliveryOptions = async (
 };
 
 // ── POST /api/catalog/quote ──────────────────────────────────────────────────
-// Body: { variantId, deliveryOption } — không còn styleId / accessories.
+// Body: { variantId, deliveryOption, accessories? } — accessories [{ accessoryId, quantity }].
+// Không accessories = báo giá cây trơn (tương thích flow cũ).
 export const quoteDesign = async (req: Request, res: Response): Promise<void> => {
-  const { variantId, deliveryOption } = req.body as {
+  const { variantId, deliveryOption, accessories } = req.body as {
     variantId?: string;
     deliveryOption?: string;
+    accessories?: Array<{ accessoryId?: string; quantity?: number }>;
   };
   if (!variantId || !deliveryOption) {
     sendError(res, ErrorCode.MISSING_FIELD, "Thiếu `variantId` hoặc `deliveryOption`");
     return;
   }
   try {
+    const cleanAccessories = Array.isArray(accessories)
+      ? accessories
+          .filter((a) => a && typeof a.accessoryId === "string")
+          .map((a) => ({
+            accessoryId: String(a.accessoryId),
+            quantity: Math.max(1, Math.floor(Number(a.quantity) || 1)),
+          }))
+      : undefined;
     const result = await safelyBuildPricedDesign(res, {
       variantId: String(variantId),
       deliveryOption: deliveryOption as any,
+      ...(cleanAccessories && cleanAccessories.length > 0 ? { accessories: cleanAccessories } : {}),
     });
     if (!result) return;
     ok(res, { pricing: result.pricing });

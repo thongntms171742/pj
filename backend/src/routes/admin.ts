@@ -17,6 +17,13 @@ import {
   updateTreeVariant,
   deleteTreeVariant,
   bulkUpdateTreeVariants,
+  // customizer — accessories + slot maps
+  listAccessoriesAdmin,
+  createAccessoryAdmin,
+  updateAccessoryAdmin,
+  deleteAccessoryAdmin,
+  listSlotMapsAdmin,
+  publishSlotMapAdmin,
   // orders / users
   listAllOrders,
   getAdminStats,
@@ -65,7 +72,15 @@ router.delete("/tree-variants/:variantId", deleteTreeVariant);
 // Shopee "Áp dụng cho tất cả phân loại" — bulk update variants.
 router.patch("/tree-variants/bulk", bulkUpdateTreeVariants);
 
-// Sau refactor phụ kiện: bỏ /styles, /accessories, /presets (đã purge).
+// ── Tree Customizer: Accessories (Phase 1) ───────────────────────────────────
+router.get("/accessories", listAccessoriesAdmin);
+router.post("/accessories", createAccessoryAdmin);
+router.patch("/accessories/:accessoryId", updateAccessoryAdmin);
+router.delete("/accessories/:accessoryId", deleteAccessoryAdmin);
+
+// ── Tree Customizer: SlotMap publish (Phase 1) ──────────────────────────────
+router.get("/tree-variants/:variantId/slotmaps", listSlotMapsAdmin);
+router.post("/tree-variants/:variantId/slotmaps/publish", publishSlotMapAdmin);
 
 // ── Orders ───────────────────────────────────────────────────────────────────
 router.get("/orders", listAllOrders);

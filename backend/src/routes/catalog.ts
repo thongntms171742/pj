@@ -5,6 +5,8 @@ import {
   getVariantsForCode,
   getDeliveryOptions,
   quoteDesign,
+  getAccessories,
+  getVariantSlotMap,
 } from "../controllers/catalogController";
 import { getReviewsForProduct } from "../controllers/reviewController";
 
@@ -21,6 +23,10 @@ router.get("/products/:productId/reviews", getReviewsForProduct);
 
 // Legacy flat list (kept for back-compat)
 router.get("/trees", getTrees);
+
+// ── Tree Customizer (Phase 1) ───────────────────────────────────────────────
+router.get("/accessories", getAccessories);
+router.get("/variants/:variantId/slotmap", getVariantSlotMap);
 
 // Sau refactor phụ kiện: bỏ /styles, /accessories, /presets (đã purge).
 

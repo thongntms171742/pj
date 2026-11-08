@@ -11,6 +11,8 @@ export * from "./treesLegacy";
 export * from "./treeProducts";
 export * from "./treeCodes";
 export * from "./treeVariants";
+export * from "./accessories";
+export * from "./slotMaps";
 export * from "./orders";
 export * from "./users";
 export * from "./stats";

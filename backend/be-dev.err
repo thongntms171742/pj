@@ -1,0 +1,29 @@
+[req=b6287b2f-d5ff-42ff-96c8-f44c36374509] [cart] deleteCartItem error: CastError: Cast to ObjectId failed for value "clear" (type string) at path "_id" for model "CartItem"
+    at SchemaObjectId.cast (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\schema\objectId.js:253:11)
+    at SchemaObjectId.SchemaType.applySetters (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\schemaType.js:1288:12)
+    at SchemaObjectId.SchemaType.castForQuery (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\schemaType.js:1718:17)
+    at cast (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\cast.js:390:32)
+    at model.Query.Query.cast (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\query.js:5055:12)
+    at model.Query.Query._castConditions (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\query.js:2374:10)
+    at model.Query._findOneAndDelete (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\query.js:3611:8)
+    at model.Query.exec (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\query.js:4622:80)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at deleteCartItem (D:\FPTU\FALL2026\EXE201\pj\backend\src\controllers\cartController.ts:366:18) {
+  stringValue: '"clear"',
+  messageFormat: undefined,
+  kind: 'ObjectId',
+  value: 'clear',
+  path: '_id',
+  reason: BSONError: input must be a 24 character hex string, 12 byte Uint8Array, or an integer
+      at new ObjectId (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\bson\src\objectid.ts:120:15)
+      at castObjectId (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\cast\objectid.js:25:12)
+      at SchemaObjectId.cast (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\schema\objectId.js:251:12)
+      at SchemaObjectId.SchemaType.applySetters (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\schemaType.js:1288:12)
+      at SchemaObjectId.SchemaType.castForQuery (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\schemaType.js:1718:17)
+      at cast (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\cast.js:390:32)
+      at model.Query.Query.cast (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\query.js:5055:12)
+      at model.Query.Query._castConditions (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\query.js:2374:10)
+      at model.Query._findOneAndDelete (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\query.js:3611:8)
+      at model.Query.exec (D:\FPTU\FALL2026\EXE201\pj\backend\node_modules\mongoose\lib\query.js:4622:80),
+  valueType: 'string'
+}

@@ -2,6 +2,30 @@ import mongoose, { Schema, Document, Types } from "mongoose";
 import type { DeliveryOption } from "../config/business";
 import { slugify } from "../utils/slug";
 
+export interface IDesignPlacement {
+  slotId: string;
+  accessoryId: Types.ObjectId;
+  /** Tọa độ chuẩn hóa 0–1 theo bounding-box cây (KHÔNG lưu pixel màn hình). */
+  x: number;
+  y: number;
+  rotation?: number;
+  scale?: number;
+}
+
+export interface IDesignVariantSnapshot {
+  variantId: Types.ObjectId;
+  sku: string;
+  name: string;
+  price: number;
+}
+
+export interface IDesignConfiguration {
+  configVersion: number;
+  slotMapVersion: number;
+  variantSnapshot: IDesignVariantSnapshot;
+  placements: IDesignPlacement[];
+}
+
 export type RoomDesignStatus = "DRAFT" | "AI_PENDING" | "AI_COMPLETED" | "FAILED";
 
 export const ROOM_DESIGN_STATUSES: ReadonlyArray<RoomDesignStatus> = [
@@ -26,9 +50,38 @@ export interface IRoomDesign extends Document {
   deliveryOption: DeliveryOption;
   compositeSource?: "CLIENT" | "AI";
   clientPrompt?: string;
+  /** Cấu hình Customizer — optional để tương thích design cũ (chưa tùy chỉnh). */
+  configuration?: IDesignConfiguration;
   createdAt: Date;
   updatedAt: Date;
 }
+
+const DesignPlacementSchema = new Schema<IDesignPlacement>(
+  {
+    slotId: { type: String, required: true, trim: true },
+    accessoryId: { type: Schema.Types.ObjectId, ref: "Accessory", required: true },
+    x: { type: Number, required: true, min: 0, max: 1 },
+    y: { type: Number, required: true, min: 0, max: 1 },
+    rotation: { type: Number, default: 0 },
+    scale: { type: Number, default: 1 },
+  },
+  { _id: false }
+);
+
+const DesignConfigurationSchema = new Schema<IDesignConfiguration>(
+  {
+    configVersion: { type: Number, required: true, default: 1, min: 1 },
+    slotMapVersion: { type: Number, required: true, default: 0, min: 0 },
+    variantSnapshot: {
+      variantId: { type: Schema.Types.ObjectId, ref: "Tree", required: true },
+      sku: { type: String, default: "" },
+      name: { type: String, default: "" },
+      price: { type: Number, default: 0, min: 0 },
+    },
+    placements: { type: [DesignPlacementSchema], default: [] },
+  },
+  { _id: false }
+);
 
 const RoomDesignSchema = new Schema<IRoomDesign>(
   {
@@ -77,6 +130,7 @@ const RoomDesignSchema = new Schema<IRoomDesign>(
       default: "CLIENT",
     },
     clientPrompt: { type: String, trim: true, default: "" },
+    configuration: { type: DesignConfigurationSchema, required: false },
   },
   { timestamps: true }
 );

@@ -39,6 +39,9 @@ export interface BuildOrderResult {
 }
 
 // ── resolveOrderItems ────────────────────────────────────────────────────────
+// CartItem tùy chỉnh mang frozenConfig: chuyển placements đóng băng thành
+// accessories [{ accessoryId, quantity }] để pricing lại đúng snapshot lúc
+// thêm giỏ (không bị ảnh hưởng khi Design sửa sau đó).
 export async function resolveOrderItems(
   userId: string,
   cartItemIds?: string[]
@@ -54,13 +57,26 @@ export async function resolveOrderItems(
   const cartItems = await CartItem.find(query);
   return cartItems.map((ci) => {
     const cfg = ci.config as any;
+    if (!cfg) return { pricingInput: undefined, quantity: ci.quantity };
+    const frozen = cfg.frozenConfig;
+    let accessories: PricingInput["accessories"];
+    if (frozen && Array.isArray(frozen.placements) && frozen.placements.length > 0) {
+      const countByAcc = new Map<string, number>();
+      for (const p of frozen.placements) {
+        const id = String((p as any).accessoryId);
+        countByAcc.set(id, (countByAcc.get(id) ?? 0) + 1);
+      }
+      accessories = [...countByAcc.entries()].map(([accessoryId, quantity]) => ({
+        accessoryId,
+        quantity,
+      }));
+    }
     return {
-      pricingInput: cfg
-        ? {
-            variantId: String(cfg.variantId),
-            deliveryOption: cfg.deliveryOption,
-          }
-        : undefined,
+      pricingInput: {
+        variantId: String(cfg.variantId),
+        deliveryOption: cfg.deliveryOption,
+        ...(accessories ? { accessories } : {}),
+      },
       quantity: ci.quantity,
     };
   });
@@ -93,6 +109,40 @@ export async function buildOrderItems(
       quantity,
     });
 
+    // ── Snapshot decorations: đóng băng tên/ảnh/SKU/đơn giá lúc đặt hàng ──
+    const accById = new Map((catalog.accessories ?? []).map((a) => [String(a._id), a]));
+    const requested = Array.isArray(pricingInput.accessories) ? pricingInput.accessories : [];
+    const decorations: Array<{
+      accessoryId: string;
+      name: string;
+      sku: string;
+      image: string;
+      unitPrice: number;
+      quantity: number;
+      lineTotal: number;
+    }> = [];
+    for (const line of requested) {
+      const acc = accById.get(String(line.accessoryId));
+      if (!acc) continue;
+      const perUnitQty = Math.max(1, Math.floor(Number(line.quantity) || 0));
+      const totalQty = perUnitQty * quantity;
+      decorations.push({
+        accessoryId: String(acc._id),
+        name: acc.name,
+        sku: acc.sku,
+        image: (acc as any).image ?? "",
+        unitPrice: acc.unitPrice,
+        quantity: totalQty,
+        lineTotal: acc.unitPrice * totalQty,
+      });
+      stockToReserve.push({
+        refId: new Types.ObjectId(String(acc._id)),
+        kind: "ACCESSORY",
+        quantity: totalQty,
+      });
+    }
+    decorations.sort((a, b) => a.accessoryId.localeCompare(b.accessoryId));
+
     const variantSnapshot = {
       _id: String(catalog.tree._id),
       productId: catalog.tree.productId,
@@ -101,27 +151,50 @@ export async function buildOrderItems(
       name: catalog.tree.name,
       price: catalog.tree.price,
       unitPrice: catalog.tree.price,
-      sku: "",
-      bareImage: "",
+      sku: (catalog.tree as any).sku ?? "",
+      bareImage: (catalog.tree as any).bareImage ?? "",
     };
 
     const itemUnitTotal = pricing.unitTotal;
     const itemLineTotal = itemUnitTotal * quantity;
+    const decorTotal = decorations.reduce((s, d) => s + d.lineTotal, 0);
 
+    const decorSig = JSON.stringify(
+      decorations.map((d) => [d.accessoryId, d.quantity])
+    );
     const existingBuilt = built.find((b) => {
       const sameVariant =
         String(b.variant._id) === String(variantSnapshot._id);
       const sameDelivery = b.deliveryOption === pricingInput.deliveryOption;
-      return sameVariant && sameDelivery;
+      const sameDecor =
+        JSON.stringify((b.decorations ?? []).map((d: any) => [d.accessoryId, d.quantity])) ===
+        decorSig;
+      return sameVariant && sameDelivery && sameDecor;
     });
 
     if (existingBuilt) {
       existingBuilt.quantity += quantity;
       existingBuilt.lineTotal += itemLineTotal;
+      // Gộp decorations theo accessoryId khi trùng cấu hình.
+      if (!existingBuilt.decorations) existingBuilt.decorations = [];
+      for (const d of decorations) {
+        const prev = (existingBuilt.decorations as Array<{
+          accessoryId: string;
+          quantity: number;
+          lineTotal: number;
+        }>).find((x) => x.accessoryId === d.accessoryId);
+        if (prev) {
+          prev.quantity += d.quantity;
+          prev.lineTotal += d.lineTotal;
+        } else {
+          existingBuilt.decorations.push({ ...d });
+        }
+      }
     } else {
       built.push({
         variant: variantSnapshot as any,
         deliveryOption: pricingInput.deliveryOption as DeliveryOption,
+        decorations,
         unitTotal: itemUnitTotal,
         quantity,
         lineTotal: itemLineTotal,
@@ -130,7 +203,7 @@ export async function buildOrderItems(
     }
 
     subtotal += itemLineTotal;
-    decorationFee += 0; // đã purge
+    decorationFee += decorTotal;
   }
 
   return {

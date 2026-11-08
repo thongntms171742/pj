@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import { Tree } from "../models/Tree";
+import { Accessory } from "../models/Accessory";
 import { TreeProduct } from "../models/TreeProduct";
 import { TreeCode } from "../models/TreeCode";
 import {
@@ -43,6 +44,31 @@ export async function loadCatalogForPricingInput(
       404
     );
   }
+  // Phụ kiện yêu cầu tính giá: load để priceDesign đối chiếu giá/khả dụng.
+  // Không yêu cầu ⇒ accessories = [] (flow cây trơn cũ).
+  const requested = Array.isArray(input.accessories) ? input.accessories : [];
+  let accessories: CatalogSnapshot["accessories"] = [];
+  if (requested.length > 0) {
+    const ids = [...new Set(requested.map((l) => String(l.accessoryId)))].filter((id) =>
+      Types.ObjectId.isValid(id)
+    );
+    if (ids.length !== requested.length) {
+      throw makeServiceError(
+        ErrorCode.ACCESSORY_NOT_FOUND,
+        "accessoryId không hợp lệ",
+        400
+      );
+    }
+    const docs = await Accessory.find({ _id: { $in: ids } }).lean();
+    accessories = docs.map((d) => ({
+      _id: String(d._id),
+      sku: d.sku,
+      name: d.name,
+      image: (d as any).image ?? "",
+      unitPrice: d.unitPrice,
+      isActive: d.isActive,
+    }));
+  }
   return {
     tree: {
       _id: String(tree._id),
@@ -53,7 +79,10 @@ export async function loadCatalogForPricingInput(
       price: tree.price,
       stockQuantity: tree.stockQuantity,
       isActive: tree.isActive,
+      sku: (tree as any).sku ?? "",
+      bareImage: (tree as any).bareImage ?? "",
     },
+    accessories,
   };
 }
 

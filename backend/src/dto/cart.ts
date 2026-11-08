@@ -8,12 +8,26 @@ export { buildRoomDesignResponse } from "../services/designService";
 export type { RoomDesignResponse } from "../services/designService";
 
 /**
- * Cart item DTO. Sau refactor RoomDesign: bỏ `designId` và `design` field —
- * cart chỉ lưu variantId + deliveryOption. Không còn reference tới Design.
+ * Cart item DTO. Phase Customizer: config có thêm designId + frozenConfig
+ * (bản đóng băng placements lúc thêm vào giỏ). Sửa Design sau đó không làm
+ * đổi item cũ — checkout preview báo DESIGN_UPDATED nếu lệch version.
  */
 export interface CartItemConfig {
   variantId: string;
   deliveryOption: "READY_TO_DISPLAY" | "DIY_KIT" | "SEPARATE";
+  designId?: string;
+  frozenConfig?: {
+    configVersion: number;
+    slotMapVersion: number;
+    placements: Array<{
+      slotId: string;
+      accessoryId: string;
+      x: number;
+      y: number;
+      rotation?: number;
+      scale?: number;
+    }>;
+  } | null;
 }
 
 export interface CartItemDto {
@@ -25,6 +39,7 @@ export interface CartItemDto {
   priceChanged: boolean;
   checked: boolean;
   config: CartItemConfig;
+  designStale?: boolean;
   warning?: string;
 }
 
@@ -40,9 +55,11 @@ export interface CartResponse {
 
 export function cartItemToDto(
   item: any,
-  pricing: PriceBreakdown | null
+  pricing: PriceBreakdown | null,
+  opts?: { designStale?: boolean }
 ): CartItemDto {
   const cfg = item.config || {};
+  const frozen = cfg.frozenConfig ?? null;
   return {
     _id: toStr(item._id),
     cartId: toStr(item.cartId),
@@ -54,9 +71,29 @@ export function cartItemToDto(
     config: {
       variantId: toStr(cfg.variantId),
       deliveryOption: cfg.deliveryOption,
+      ...(cfg.designId ? { designId: toStr(cfg.designId) } : {}),
+      ...(frozen
+        ? {
+            frozenConfig: {
+              configVersion: frozen.configVersion,
+              slotMapVersion: frozen.slotMapVersion,
+              placements: (frozen.placements ?? []).map((p: any) => ({
+                slotId: String(p.slotId),
+                accessoryId: toStr(p.accessoryId),
+                x: Number(p.x),
+                y: Number(p.y),
+                rotation: p.rotation ?? 0,
+                scale: p.scale ?? 1,
+              })),
+            },
+          }
+        : {}),
     },
+    ...(opts?.designStale ? { designStale: true } : {}),
     ...(pricing
-      ? {}
+      ? opts?.designStale
+        ? { warning: "Thiết kế đã được cập nhật — giá có thể thay đổi" }
+        : {}
       : { warning: "Cấu hình không còn hợp lệ với catalog hiện tại" }),
   };
 }

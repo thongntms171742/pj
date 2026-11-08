@@ -22,6 +22,7 @@ export interface RoomDesignLean {
   resultImagePublicId: string;
   status: string;
   deliveryOption: string;
+  configuration?: unknown;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -54,6 +55,24 @@ export interface RoomDesignResponse {
   resultImageUrl: string;
   status: string;
   deliveryOption: string;
+  configuration?: {
+    configVersion: number;
+    slotMapVersion: number;
+    variantSnapshot: {
+      variantId: string;
+      sku: string;
+      name: string;
+      price: number;
+    };
+    placements: Array<{
+      slotId: string;
+      accessoryId: string;
+      x: number;
+      y: number;
+      rotation?: number;
+      scale?: number;
+    }>;
+  } | null;
   variant: {
     _id: string;
     name: string;
@@ -80,10 +99,29 @@ export function buildRoomDesignResponse(
     resultImageUrl: string;
     status: string;
     deliveryOption: string;
+    configuration?: {
+      configVersion: number;
+      slotMapVersion: number;
+      variantSnapshot: {
+        variantId: unknown;
+        sku: string;
+        name: string;
+        price: number;
+      };
+      placements: Array<{
+        slotId: string;
+        accessoryId: unknown;
+        x: number;
+        y: number;
+        rotation?: number;
+        scale?: number;
+      }>;
+    } | null;
     createdAt?: Date;
     updatedAt?: Date;
   };
 
+  const cfg = (d as any).configuration as any;
   return {
     id: String(d._id),
     ownerId: d.ownerId ? String(d.ownerId) : null,
@@ -95,6 +133,26 @@ export function buildRoomDesignResponse(
     resultImageUrl: d.resultImageUrl,
     status: d.status,
     deliveryOption: d.deliveryOption,
+    configuration: cfg
+      ? {
+          configVersion: cfg.configVersion,
+          slotMapVersion: cfg.slotMapVersion,
+          variantSnapshot: {
+            variantId: String(cfg.variantSnapshot?.variantId ?? ""),
+            sku: cfg.variantSnapshot?.sku ?? "",
+            name: cfg.variantSnapshot?.name ?? "",
+            price: cfg.variantSnapshot?.price ?? 0,
+          },
+          placements: (cfg.placements ?? []).map((p: any) => ({
+            slotId: String(p.slotId),
+            accessoryId: String(p.accessoryId),
+            x: Number(p.x),
+            y: Number(p.y),
+            rotation: p.rotation ?? 0,
+            scale: p.scale ?? 1,
+          })),
+        }
+      : null,
     variant: resolved.variant
       ? {
           _id: String(resolved.variant._id),
