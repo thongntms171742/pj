@@ -1,5 +1,9 @@
 import type { TreeSize } from "../models/Tree";
-import { DELIVERY_OPTIONS, type DeliveryOption } from "../config/business";
+import {
+  DELIVERY_OPTIONS,
+  SHIPPING_FEE,
+  type DeliveryOption,
+} from "../config/business";
 import { sendError, ErrorCode, type ErrorCodeValue } from "../utils/errors";
 
 // ── Lean shapes (only the fields pricing needs) ──────────────────────────────
@@ -32,12 +36,29 @@ export interface CatalogSnapshot {
   accessories?: AccessoryPricingLean[];
 }
 
-// ── Output của priceDesign — gọn, không còn style/lines phức tạp ─────────────
+// ── Output của priceDesign ────────────────────────────────────────────────────
+// `unitTotal` = giá của 1 cây ĐÃ BAO GỒM phí trang trí, KHÔNG gồm phí ship.
+// (Phí ship được Order layer cộng 1 lần duy nhất khi checkout — trước đây
+// `unitTotal` đã chứa sẵn shippingFee khiến phí ship bị tính 2 lần.)
 export interface PriceBreakdown {
   tree: { id: string; name: string; size: TreeSize; unitPrice: number };
   decorationFee: number;
   shippingFee: number;
+  /** Giá 1 cây + phí trang trí (KHÔNG gồm shipping). */
   unitTotal: number;
+  /** Tiện ích: unitTotal + shippingFee — dùng cho màn hình báo giá. */
+  grandTotal: number;
+  /** Chi tiết từng dòng trang trí (đã tính theo số slot dùng). */
+  decorations: Array<{
+    accessoryId: string;
+    sku: string;
+    name: string;
+    image: string;
+    unitPrice: number;
+    /** Số slot đã dùng phụ kiện này. */
+    quantity: number;
+    lineTotal: number;
+  }>;
   productionDays: number;
   hasPersonalization: boolean;
   hasService: boolean;
@@ -103,7 +124,14 @@ export function priceDesign(
 
   // 3) Phí trang trí động = tổng unitPrice × số slot dùng.
   // Không có accessories ⇒ decorationFee = 0 (flow cây trơn cũ).
+  //
+  // LƯU Ý NGHIỆP VỤ (per-slot pricing):
+  //   Mỗi placement = 1 slot đã dùng = 1 lần phí trang trí.
+  //   `accessories` ở đây là dạng rút gọn { accessoryId, quantity } — quantity
+  //   chính là SỐ SLOT đã dùng phụ kiện đó. Cùng 1 phụ kiện dùng 15 slot ⇒
+  //   quantity = 15 ⇒ phí = 15 × unitPrice. KHÔNG được tính theo số id duy nhất.
   let decorationFee = 0;
+  const decorations: PriceBreakdown["decorations"] = [];
   const requested = Array.isArray(input.accessories) ? input.accessories : [];
   if (requested.length > 0) {
     const accById = new Map(
@@ -130,18 +158,32 @@ export function priceDesign(
           `Phụ kiện "${acc.name}" hiện ngừng bán`
         );
       }
-      decorationFee += acc.unitPrice * qty;
+      const lineTotal = acc.unitPrice * qty;
+      decorationFee += lineTotal;
+      decorations.push({
+        accessoryId: String(acc._id),
+        sku: acc.sku,
+        name: acc.name,
+        image: acc.image ?? "",
+        unitPrice: acc.unitPrice,
+        quantity: qty,
+        lineTotal,
+      });
     }
   }
 
-  const shippingFee = 20_000;
-  const unitTotal = tree.price + decorationFee + shippingFee;
+  // Phí ship là fallback (đơn thật sẽ tính theo địa chỉ ở Order layer).
+  const shippingFee = SHIPPING_FEE;
+  // unitTotal KHÔNG chứa shipping — tránh tính phí ship 2 lần khi checkout.
+  const unitTotal = tree.price + decorationFee;
 
   return {
     tree: { id: tree._id, name: tree.name, size: tree.size, unitPrice: tree.price },
     decorationFee,
     shippingFee,
     unitTotal,
+    grandTotal: unitTotal + shippingFee,
+    decorations,
     productionDays: 0,
     hasPersonalization: false,
     hasService: false,

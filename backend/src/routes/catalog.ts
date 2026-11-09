@@ -7,6 +7,7 @@ import {
   quoteDesign,
   getAccessories,
   getVariantSlotMap,
+  getCustomizerBaseTrees,
 } from "../controllers/catalogController";
 import { getReviewsForProduct } from "../controllers/reviewController";
 
@@ -27,6 +28,8 @@ router.get("/trees", getTrees);
 // ── Tree Customizer (Phase 1) ───────────────────────────────────────────────
 router.get("/accessories", getAccessories);
 router.get("/variants/:variantId/slotmap", getVariantSlotMap);
+// Danh sách cây BASE (ảnh trơn, có SlotMap) cho màn hình chọn cây.
+router.get("/customizer/base-trees", getCustomizerBaseTrees);
 
 // Sau refactor phụ kiện: bỏ /styles, /accessories, /presets (đã purge).
 

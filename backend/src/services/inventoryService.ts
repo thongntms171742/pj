@@ -1,11 +1,13 @@
 import { Types } from "mongoose";
-import { Accessory } from "../models/Accessory";
 import { Tree } from "../models/Tree";
 
 // ── Stock reservation ────────────────────────────────────────────────────────
-// Phase Customizer: tồn kho gồm Tree variant + Accessory. Tùy chỉnh / Cart /
-// Preview KHÔNG trừ kho — chỉ Checkout/Order mới reserve nguyên tử, rollback
-// nếu bất kỳ món nào hết.
+// Phase Customizer: chỉ CÂY (Tree variant) mới quản lý tồn kho.
+// Phụ kiện trang trí là "vật liệu thiết kế" — không có tồn kho, không được
+// reserve, không được restore (guardrail: DesignAccessory tách khỏi hàng hoá).
+//
+// Tùy chỉnh / Save Design / Add Cart / Checkout Preview → KHÔNG trừ kho.
+// Chỉ Create Order mới reserve nguyên tử, rollback nếu bất kỳ cây nào hết.
 
 export interface StockReservation {
   refId: Types.ObjectId;
@@ -26,13 +28,8 @@ export async function reserveStock(items: StockReservation[]): Promise<void> {
           throw new Error(`OUT_OF_STOCK: TREE ${item.refId}`);
         }
       } else {
-        const updated = await Accessory.updateOne(
-          { _id: item.refId, stockQuantity: { $gte: item.quantity }, isActive: true },
-          { $inc: { stockQuantity: -item.quantity } }
-        );
-        if (!updated.acknowledged || updated.matchedCount === 0) {
-          throw new Error(`ACCESSORY_OUT_OF_STOCK: ACCESSORY ${item.refId}`);
-        }
+        // ACCESSORY không quản lý tồn kho → bỏ qua (không trừ, không rollback).
+        continue;
       }
       decremented.push(item);
     }
@@ -47,8 +44,6 @@ async function rollback(decremented: StockReservation[]): Promise<void> {
     try {
       if (item.kind === "TREE") {
         await Tree.updateOne({ _id: item.refId }, { $inc: { stockQuantity: item.quantity } });
-      } else {
-        await Accessory.updateOne({ _id: item.refId }, { $inc: { stockQuantity: item.quantity } });
       }
     } catch (rollbackErr) {
       console.error(`[inventory] rollback failed for ${item.kind} ${item.refId}:`, rollbackErr);
@@ -56,7 +51,8 @@ async function rollback(decremented: StockReservation[]): Promise<void> {
   }
 }
 
-// ── Restore stock when an order is cancelled ──────────────────────────────────
+// ── Restore stock when an order is cancelled / refunded ──────────────────────
+// Chỉ hoàn kho cây. Idempotency được đảm bảo ở tầng Order (`stockRestored`).
 export async function restoreTreeStock(
   treeId: Types.ObjectId,
   quantity: number
@@ -66,18 +62,5 @@ export async function restoreTreeStock(
     await Tree.updateOne({ _id: treeId }, { $inc: { stockQuantity: quantity } });
   } catch (err) {
     console.error(`[inventory] restoreTreeStock failed for ${treeId}:`, err);
-  }
-}
-
-// ── Restore accessory stock (gọi kèm restoreTreeStock khi hủy đơn có decor) ──
-export async function restoreAccessoryStock(
-  accessoryId: Types.ObjectId,
-  quantity: number
-): Promise<void> {
-  if (!accessoryId || !quantity) return;
-  try {
-    await Accessory.updateOne({ _id: accessoryId }, { $inc: { stockQuantity: quantity } });
-  } catch (err) {
-    console.error(`[inventory] restoreAccessoryStock failed for ${accessoryId}:`, err);
   }
 }

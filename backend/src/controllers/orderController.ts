@@ -4,7 +4,7 @@ import { Order, VALID_TRANSITIONS, OrderStatus } from "../models/Order";
 import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { Notification } from "../models/Notification";
-import { restoreTreeStock, restoreAccessoryStock } from "../services/inventoryService";
+import { restoreTreeStock } from "../services/inventoryService";
 import { SHIPPING_FEE } from "../config/business";
 import { calculateShippingQuote } from "../services/shippingService";
 import {
@@ -416,22 +416,26 @@ export const updateOrderStatus = async (
       order.cancelRequestedAt = new Date();
     }
 
-    if (nextStatus === "CANCELLED") {
-      // Restore stock cho cây + phụ kiện trang trí (theo snapshot lúc đặt).
-      const { restoreAccessoryStock } = await import("../services/inventoryService");
+    // ── Hoàn kho (idempotent) ────────────────────────────────────────────────
+    // Hoàn kho khi đơn bị hủy (CANCELLED) hoặc hoàn tiền (REFUNDED).
+    // Dùng cờ `stockRestored` để CHỈ hoàn kho đúng 1 lần — tránh hoàn kho
+    // trùng khi webhook thanh toán và thao tác hủy chạy gần nhau.
+    //
+    // LƯU Ý INVENTORY (guardrail #4):
+    //   Chỉ hoàn kho CÂY. Phụ kiện trang trí là vật liệu thiết kế, không có
+    //   tồn kho ⇒ không có gì để hoàn.
+    const shouldRestoreStock =
+      nextStatus === "CANCELLED" || nextStatus === "REFUNDED";
+    if (shouldRestoreStock && !order.stockRestored) {
       for (const item of order.items) {
         if (item.variant && item.variant._id) {
-          await restoreTreeStock(new Types.ObjectId(String(item.variant._id)), item.quantity);
-        }
-        for (const d of (item as any).decorations ?? []) {
-          if (d.accessoryId) {
-            await restoreAccessoryStock(
-              new Types.ObjectId(String(d.accessoryId)),
-              d.quantity
-            );
-          }
+          await restoreTreeStock(
+            new Types.ObjectId(String(item.variant._id)),
+            item.quantity
+          );
         }
       }
+      order.stockRestored = true;
     }
 
     if (nextStatus === "DELIVERED") {

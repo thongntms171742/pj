@@ -30,6 +30,17 @@ export interface ITreeProduct extends Document {
   reviewCount?: number;
   isActive: boolean;
   sortOrder: number;
+  /**
+   * Đánh dấu product là "cây base" cho Tree Customizer.
+   *
+   * Cây base KHÁC với cây thương mại:
+   *   - Cây thương mại: bán sẵn, ảnh đã trang trí sẵn, KHÔNG mở điểm chạm.
+   *   - Cây base: ảnh cây TRƠN, admin upload + khai báo SlotMap để khách
+   *     kéo phụ kiện lên trên đó.
+   *
+   * Chỉ product có cờ này mới xuất hiện trong `/customizer/pick`.
+   */
+  isCustomizerBase?: boolean;
 }
 
 const TreeProductSchema = new Schema<ITreeProduct>(
@@ -53,6 +64,8 @@ const TreeProductSchema = new Schema<ITreeProduct>(
     reviewCount: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true, index: true },
     sortOrder: { type: Number, default: 0 },
+    // Cây base cho Tree Customizer (ảnh trơn + SlotMap do admin khai báo).
+    isCustomizerBase: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

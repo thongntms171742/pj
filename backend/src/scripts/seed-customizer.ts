@@ -1,5 +1,6 @@
 // ── Build Your Christmas — seed dữ liệu Tree Customizer ─────────────────────
 // Run: npm run seed:customizer
+// Run (dry-run, chỉ báo cáo): npm run seed:customizer -- --dry-run
 //
 // Mục đích:
 //   1. Tạo `Accessory` từ các nhóm sản phẩm phụ kiện đã có sẵn trong catalog
@@ -11,6 +12,13 @@
 // Script idempotent: chạy lại nhiều lần không tạo bản ghi trùng.
 // Phụ kiện upsert theo `sku`; slotmap publish tăng `version` (bản cũ giữ lại
 // để Design/Cart/Order còn đối chiếu được version).
+//
+// CHÍNH SÁCH AN TOÀN (spec §7.3):
+//   - KHÔNG ghi đè SlotMap do admin đã chỉnh sửa (chỉ publish khi chưa có
+//     bản published, hoặc bản published giống hệt bản seed).
+//   - Kiểm tra slotId trùng, toạ độ nằm trong 0–1 trước khi ghi.
+//   - Có `--dry-run` để xem báo cáo mà không ghi gì.
+//   - Báo cáo số variant thành công / bỏ qua / lỗi.
 
 import mongoose from "mongoose";
 import dotenv from "dotenv";
@@ -21,6 +29,15 @@ import { TreeCode } from "../models/TreeCode";
 import { TreeProduct } from "../models/TreeProduct";
 
 dotenv.config();
+
+// Chế độ dry-run: chỉ báo cáo, KHÔNG ghi gì vào DB.
+// Dùng: npm run seed:customizer -- --dry-run
+const DRY_RUN = process.argv.includes("--dry-run");
+
+// Chế độ chỉ đánh dấu cây base (bỏ qua seed Accessory + SlotMap).
+// Dùng khi chỉ cần bật/tắt cờ isCustomizerBase cho các product cây.
+// Dùng: npm run seed:customizer -- --base-only
+const BASE_ONLY = process.argv.includes("--base-only");
 
 const MONGO_URI = process.env.MONGODB_URI;
 if (!MONGO_URI) {
@@ -148,6 +165,12 @@ async function seedAccessories(): Promise<number> {
           sortOrder: variant.sortOrder ?? 0,
         };
 
+        if (DRY_RUN) {
+          if (existing) updated += 1;
+          else created += 1;
+          continue;
+        }
+
         if (existing) {
           await Accessory.updateOne({ sku }, { $set: doc });
           updated += 1;
@@ -159,21 +182,88 @@ async function seedAccessories(): Promise<number> {
     }
   }
 
+  const mode = DRY_RUN ? " [DRY-RUN — không ghi]" : "";
   console.log(
-    `[seed:customizer] Accessory: ${created} tạo mới, ${updated} cập nhật.`
+    `[seed:customizer] Accessory${mode}: ${created} tạo mới, ${updated} cập nhật.`
   );
   return created + updated;
 }
 
-// ── 2. Seed SlotMap cho các cây TREE ─────────────────────────────────────────
+// ── 2. Đánh dấu cây BASE ─────────────────────────────────────────────────────
+// Cây base = cây TRƠN dùng làm nền cho Tree Customizer.
+//
+// Hiện tại cây base được nhận diện bằng slug/name "base" (product cha, có các
+// code S/M/L với variant BASE-TIÊU CHUẨN / BASE-M-... / BASE-L-...).
+// Tất cả product cây thương mại (đã trang trí sẵn) bị TẮT cờ base.
+async function markBaseProducts(): Promise<number> {
+  const trees = await TreeProduct.find({ category: "TREE" }).lean();
+
+  // Ưu tiên product có slug "base" — đây là cây trơn của customizer.
+  const baseProducts = trees.filter(
+    (p) =>
+      p.slug?.toLowerCase() === "base" ||
+      p.name?.trim().toLowerCase() === "base"
+  );
+
+  if (baseProducts.length === 0) {
+    console.log(
+      "[seed:customizer] Không tìm thấy product 'base' — cây base cần được tạo thủ công trong Admin."
+    );
+    return 0;
+  }
+
+  const baseIds = new Set(baseProducts.map((p) => String(p._id)));
+  let marked = 0;
+
+  for (const p of trees) {
+    const shouldBeBase = baseIds.has(String(p._id));
+    if ((p.isCustomizerBase === true) !== shouldBeBase) {
+      marked += 1;
+      if (!DRY_RUN) {
+        await TreeProduct.updateOne(
+          { _id: p._id },
+          { $set: { isCustomizerBase: shouldBeBase } }
+        );
+      }
+    }
+  }
+
+  const mode = DRY_RUN ? " [DRY-RUN — không ghi]" : "";
+  console.log(
+    `[seed:customizer] Cây base${mode}: ${baseProducts.length} product được bật (${baseProducts
+      .map((p) => p.name)
+      .join(", ")}), ${marked} thay đổi cờ.`
+  );
+  return baseProducts.length;
+}
+
+// ── 3. Seed SlotMap cho các cây BASE ─────────────────────────────────────────
+// CHỈ publish cho variant thuộc product có cờ `isCustomizerBase` — cây thương
+// mại KHÔNG mở điểm chạm (ảnh đã trang trí sẵn, không có cây trơn để gắn).
+//
+// Variant đã có SlotMap do admin chỉnh sửa (nội dung KHÁC bản seed) sẽ được
+// BỎ QUA — không ghi đè.
 async function seedSlotMaps(): Promise<number> {
-  const treeProducts = await TreeProduct.find({
+  let treeProducts = await TreeProduct.find({
     isActive: true,
-    category: "TREE",
+    isCustomizerBase: true,
   }).lean();
 
+  // Chưa đánh dấu base nào → fallback tìm product "base" theo tên.
   if (treeProducts.length === 0) {
-    console.log("[seed:customizer] Không tìm thấy nhóm cây TREE — bỏ qua slotmap.");
+    treeProducts = await TreeProduct.find({
+      isActive: true,
+      $or: [
+        { slug: "base" },
+        { name: /^base$/i },
+      ],
+    }).lean();
+  }
+
+  if (treeProducts.length === 0) {
+    console.log(
+      "[seed:customizer] Không tìm thấy cây base — bỏ qua slotmap."
+    );
     return 0;
   }
 
@@ -183,41 +273,100 @@ async function seedSlotMaps(): Promise<number> {
   const variants = await Tree.find({ codeId: { $in: codeIds } }).lean();
 
   const slots = buildSlots();
+
+  // Kiểm tra tính toàn vẹn của bộ slot trước khi ghi bất cứ variant nào.
+  const slotError = validateSlotSet(slots);
+  if (slotError) {
+    console.error(`[seed:customizer] Bộ slot không hợp lệ — dừng: ${slotError}`);
+    return 0;
+  }
+
   let published = 0;
+  let skipped = 0;
+  let failed = 0;
+  const failures: string[] = [];
 
   for (const variant of variants) {
-    // Không publish lại nếu đã có bản published với cùng nội dung slot.
     const current = await SlotMap.findOne({
       variantId: variant._id,
       isPublished: true,
     }).lean();
 
-    if (current && sameSlots(current.slots as any, slots)) {
+    // Đã có bản published:
+    //   - nội dung GIỐNG bản seed → không cần làm gì (idempotent).
+    //   - nội dung KHÁC → admin đã chỉnh sửa → TUYỆT ĐỐI KHÔNG ghi đè.
+    if (current) {
+      if (sameSlots(current.slots as any, slots)) {
+        skipped += 1;
+        continue;
+      }
+      skipped += 1;
+      console.log(
+        `[seed:customizer] BỎ QUA "${variant.sku}" — đang có slotmap v${current.version} do admin chỉnh sửa.`
+      );
       continue;
     }
 
-    const latest = await SlotMap.findOne({ variantId: variant._id }).sort({
-      version: -1,
-    });
-    const nextVersion = latest ? latest.version + 1 : 1;
+    try {
+      const latest = await SlotMap.findOne({ variantId: variant._id }).sort({
+        version: -1,
+      });
+      const nextVersion = latest ? latest.version + 1 : 1;
 
-    await SlotMap.updateMany(
-      { variantId: variant._id },
-      { $set: { isPublished: false } }
-    );
-    await SlotMap.create({
-      variantId: variant._id,
-      version: nextVersion,
-      isPublished: true,
-      slots,
-    });
-    published += 1;
+      if (!DRY_RUN) {
+        await SlotMap.updateMany(
+          { variantId: variant._id },
+          { $set: { isPublished: false } }
+        );
+        await SlotMap.create({
+          variantId: variant._id,
+          version: nextVersion,
+          isPublished: true,
+          slots,
+        });
+      }
+      published += 1;
+    } catch (err) {
+      failed += 1;
+      failures.push(`${variant.sku}: ${(err as Error).message}`);
+      console.error(
+        `[seed:customizer] LỖI publish slotmap cho "${variant.sku}":`,
+        err
+      );
+    }
   }
 
+  const mode = DRY_RUN ? " [DRY-RUN — không ghi]" : "";
   console.log(
-    `[seed:customizer] SlotMap: ${published}/${variants.length} biến thể được publish (${slots.length} slot mỗi cây).`
+    `[seed:customizer] SlotMap${mode}: ${published}/${variants.length} biến thể được publish, ${skipped} bỏ qua, ${failed} lỗi (${slots.length} slot mỗi cây).`
   );
+  if (failures.length > 0) {
+    console.error("[seed:customizer] Danh sách lỗi:");
+    for (const f of failures) console.error(`  - ${f}`);
+  }
   return published;
+}
+
+/**
+ * Kiểm tra tính toàn vẹn bộ slot: slotId không trùng, toạ độ trong 0–1,
+ * radius hợp lệ. Trả về thông báo lỗi hoặc null nếu OK.
+ */
+function validateSlotSet(slots: ISlotDefinition[]): string | null {
+  const seen = new Set<string>();
+  for (const s of slots) {
+    if (seen.has(s.slotId)) return `slotId trùng: ${s.slotId}`;
+    seen.add(s.slotId);
+    if (!Number.isFinite(s.x) || s.x < 0 || s.x > 1) {
+      return `slot ${s.slotId} có x = ${s.x} ngoài 0–1`;
+    }
+    if (!Number.isFinite(s.y) || s.y < 0 || s.y > 1) {
+      return `slot ${s.slotId} có y = ${s.y} ngoài 0–1`;
+    }
+    if (!Number.isFinite(s.radius) || s.radius <= 0 || s.radius > 1) {
+      return `slot ${s.slotId} có radius = ${s.radius} không hợp lệ`;
+    }
+  }
+  return null;
 }
 
 function sameSlots(a: any[], b: ISlotDefinition[]): boolean {
@@ -240,7 +389,15 @@ async function main() {
   await mongoose.connect(MONGO_URI as string);
   console.log("[seed:customizer] Connected. Running idempotent seed...");
 
+  if (BASE_ONLY) {
+    await markBaseProducts();
+    console.log("[seed:customizer] Done (--base-only)!");
+    await mongoose.disconnect();
+    return;
+  }
+
   await seedAccessories();
+  await markBaseProducts();
   await seedSlotMaps();
 
   console.log("[seed:customizer] Done!");

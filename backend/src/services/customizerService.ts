@@ -257,8 +257,15 @@ export async function validatePlacements(
     if (!accessory || !accessory.isActive) {
       return { ok: false, errorCode: "ACCESSORY_UNAVAILABLE", error: `Phụ kiện tại slot ${slotId} đã ngừng bán` };
     }
-    // Tương thích loại slot: accessory.slotTypes phải chứa slot.slotType,
-    // trừ khi slot.allowedAccessoryTypes liệt kê rõ sku/_id của phụ kiện.
+    // Tương thích loại slot:
+    //   - Nếu slot có `allowedAccessoryTypes` (whitelist do admin cấu hình) thì
+    //     phụ kiện PHẢI nằm trong whitelist đó.
+    //   - Nếu slot KHÔNG có whitelist (mảng rỗng) thì fallback theo loại:
+    //     accessory.slotTypes phải chứa slot.slotType (hoặc "generic").
+    //
+    // LƯU Ý: logic cũ đảo ngược — `allowed.length === 0` lại cho `explicitlyAllowed
+    // = true`, tức là slot KHÔNG whitelist lại chấp nhận MỌI phụ kiện, và
+    // whitelist lại bị bỏ qua khi phụ kiện cũng khớp slotType. Sai cả 2 chiều.
     const slotType = String(slot.slotType);
     const allowed: string[] = Array.isArray(slot.allowedAccessoryTypes)
       ? slot.allowedAccessoryTypes.map(String)
@@ -266,13 +273,22 @@ export async function validatePlacements(
     const accSlotTypes: string[] = Array.isArray((accessory as any).slotTypes)
       ? (accessory as any).slotTypes.map(String)
       : [];
-    const explicitlyAllowed =
-      allowed.length === 0 ||
-      allowed.includes(accessory.sku) ||
-      allowed.includes(String(accessory._id)) ||
-      allowed.some((a) => accSlotTypes.includes(a));
-    const typeCompatible = accSlotTypes.includes(slotType) || accSlotTypes.includes("generic");
-    if (!explicitlyAllowed && !typeCompatible) {
+    const typeCompatible =
+      accSlotTypes.includes(slotType) || accSlotTypes.includes("generic");
+
+    if (allowed.length > 0) {
+      const explicitlyAllowed =
+        allowed.includes(accessory.sku) ||
+        allowed.includes(String(accessory._id)) ||
+        allowed.some((a) => accSlotTypes.includes(a));
+      if (!explicitlyAllowed) {
+        return {
+          ok: false,
+          errorCode: "ACCESSORY_UNAVAILABLE",
+          error: `Phụ kiện ${accessory.name} không được phép gắn vào slot ${slotId}`,
+        };
+      }
+    } else if (!typeCompatible) {
       return {
         ok: false,
         errorCode: "ACCESSORY_UNAVAILABLE",

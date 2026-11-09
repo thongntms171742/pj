@@ -110,8 +110,14 @@ export async function buildOrderItems(
     });
 
     // ── Snapshot decorations: đóng băng tên/ảnh/SKU/đơn giá lúc đặt hàng ──
-    const accById = new Map((catalog.accessories ?? []).map((a) => [String(a._id), a]));
-    const requested = Array.isArray(pricingInput.accessories) ? pricingInput.accessories : [];
+    // Dùng `pricing.decorations` (đã tính sẵn theo per-slot pricing ở
+    // pricingService) để KHÔNG tự tính lại ở đây — tránh lệch giá.
+    //
+    // LƯU Ý INVENTORY (guardrail #4):
+    //   Phụ kiện trang trí là "vật liệu thiết kế", KHÔNG quản lý tồn kho.
+    //   Chỉ TREE mới được reserve. Không push kind:"ACCESSORY" vào
+    //   stockToReserve — nếu không, mỗi lần đặt cây trang trí sẽ trừ kho
+    //   phụ kiện dù phụ kiện không phải hàng hoá bán được.
     const decorations: Array<{
       accessoryId: string;
       name: string;
@@ -121,24 +127,17 @@ export async function buildOrderItems(
       quantity: number;
       lineTotal: number;
     }> = [];
-    for (const line of requested) {
-      const acc = accById.get(String(line.accessoryId));
-      if (!acc) continue;
-      const perUnitQty = Math.max(1, Math.floor(Number(line.quantity) || 0));
-      const totalQty = perUnitQty * quantity;
+    for (const d of pricing.decorations ?? []) {
+      // quantity = số slot dùng trên 1 cây; nhân thêm số lượng cây trong đơn.
+      const totalQty = d.quantity * quantity;
       decorations.push({
-        accessoryId: String(acc._id),
-        name: acc.name,
-        sku: acc.sku,
-        image: (acc as any).image ?? "",
-        unitPrice: acc.unitPrice,
+        accessoryId: d.accessoryId,
+        name: d.name,
+        sku: d.sku,
+        image: d.image,
+        unitPrice: d.unitPrice,
         quantity: totalQty,
-        lineTotal: acc.unitPrice * totalQty,
-      });
-      stockToReserve.push({
-        refId: new Types.ObjectId(String(acc._id)),
-        kind: "ACCESSORY",
-        quantity: totalQty,
+        lineTotal: d.lineTotal * quantity,
       });
     }
     decorations.sort((a, b) => a.accessoryId.localeCompare(b.accessoryId));

@@ -49,10 +49,13 @@ export async function loadCatalogForPricingInput(
   const requested = Array.isArray(input.accessories) ? input.accessories : [];
   let accessories: CatalogSnapshot["accessories"] = [];
   if (requested.length > 0) {
-    const ids = [...new Set(requested.map((l) => String(l.accessoryId)))].filter((id) =>
-      Types.ObjectId.isValid(id)
-    );
-    if (ids.length !== requested.length) {
+    // Dùng Set để loại trùng — 1 phụ kiện dùng ở nhiều slot là hợp lệ
+    // (per-slot pricing). `ids.length` vì thế KHÔNG được so sánh với
+    // `requested.length` (sai khi FE gửi cùng 1 accessoryId nhiều lần).
+    const ids = [
+      ...new Set(requested.map((l) => String(l.accessoryId))),
+    ].filter((id) => Types.ObjectId.isValid(id));
+    if (ids.length === 0) {
       throw makeServiceError(
         ErrorCode.ACCESSORY_NOT_FOUND,
         "accessoryId không hợp lệ",
@@ -169,6 +172,8 @@ export interface TreeProductGrouped {
     images: string[];
     isActive: boolean;
     sortOrder: number;
+    /** Cây base cho Tree Customizer (ảnh trơn + SlotMap). */
+    isCustomizerBase: boolean;
   };
   codes: TreeCodeSummary[];
 }
@@ -225,6 +230,7 @@ export async function loadGroupedTreeCatalog(opts?: {
       images: p.images,
       isActive: p.isActive,
       sortOrder: p.sortOrder,
+      isCustomizerBase: p.isCustomizerBase === true,
     },
     codes: (codesByProduct.get(String(p._id)) ?? []).map((c) => ({
       _id: String(c._id),

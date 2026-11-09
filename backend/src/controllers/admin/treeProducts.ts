@@ -34,6 +34,8 @@ export const createTreeProduct = ah(async (req, res) => {
     videoUrl: req.body.videoUrl ?? req.body.video ?? "",
     isActive: req.body.isActive ?? true,
     sortOrder: req.body.sortOrder ?? 0,
+    // Cây base cho Tree Customizer (ảnh trơn + SlotMap do admin khai báo).
+    isCustomizerBase: req.body.isCustomizerBase === true,
   });
   created(res, { treeProduct: product });
 });
@@ -60,6 +62,10 @@ export const updateTreeProduct = ah(async (req, res) => {
   else if (typeof body.video === "string") product.videoUrl = body.video;
   if (typeof body.isActive === "boolean") product.isActive = body.isActive;
   if (typeof body.sortOrder === "number") product.sortOrder = body.sortOrder;
+  // Admin bật/tắt cây base cho Tree Customizer.
+  if (typeof body.isCustomizerBase === "boolean") {
+    product.isCustomizerBase = body.isCustomizerBase;
+  }
   await product.save();
   ok(res, { treeProduct: product });
 });

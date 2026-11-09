@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { TreeProduct } from "../models/TreeProduct";
 import { TreeCode } from "../models/TreeCode";
 import { Tree } from "../models/Tree";
+import { SlotMap } from "../models/SlotMap";
 import { safelyBuildPricedDesign } from "../services/catalogService";
 import { loadGroupedTreeCatalog } from "../services/catalogService";
 import {
@@ -119,6 +120,89 @@ export const getVariantSlotMap = async (
     ok(res, { slotMap });
   } catch (err) {
     handleInternalError(res, err, "[catalog] getVariantSlotMap error");
+  }
+};
+
+// ── GET /api/catalog/customizer/base-trees ──────────────────────────────────
+// Danh sách cây BASE cho màn hình chọn cây của Tree Customizer.
+//
+// CHỈ trả cây base (product có `isCustomizerBase = true`) — cây thương mại
+// KHÔNG mở điểm chạm (ảnh đã trang trí sẵn, không có cây trơn để gắn).
+//
+// Mỗi variant kèm:
+//   - `slotCount` / `slotMapVersion`: thông tin SlotMap đang phát hành.
+//   - `hasSlotMap`: biết ngay variant nào đã sẵn sàng để trang trí.
+//   - `bareImage`: ảnh cây TRƠN do admin upload (nền tảng của canvas).
+export const getCustomizerBaseTrees = async (
+  _req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const products = await TreeProduct.find({
+      isActive: true,
+      isCustomizerBase: true,
+    })
+      .sort({ sortOrder: 1, name: 1 })
+      .lean();
+
+    if (products.length === 0) {
+      ok(res, { baseTrees: [] });
+      return;
+    }
+
+    const codes = await TreeCode.find({
+      productId: { $in: products.map((p) => p._id) },
+      isActive: true,
+    })
+      .sort({ sortOrder: 1, name: 1 })
+      .lean();
+
+    const variants = codes.length
+      ? await Tree.find({ codeId: { $in: codes.map((c) => c._id) }, isActive: true })
+          .sort({ sortOrder: 1, size: 1 })
+          .lean()
+      : [];
+
+    const codeById = new Map(codes.map((c) => [String(c._id), c]));
+    const productById = new Map(products.map((p) => [String(p._id), p]));
+
+    // Lấy SlotMap đang phát hành của tất cả variant trong 1 lần truy vấn.
+    const slotMaps = await SlotMap.find({
+      variantId: { $in: variants.map((v) => v._id) },
+      isPublished: true,
+    }).lean();
+    const slotByVariant = new Map(
+      slotMaps.map((s) => [
+        String(s.variantId),
+        { version: s.version, count: (s.slots || []).length },
+      ])
+    );
+
+    const baseTrees = variants.map((v) => {
+      const code = codeById.get(String(v.codeId));
+      const product = code ? productById.get(String(code.productId)) : undefined;
+      const sm = slotByVariant.get(String(v._id));
+      return {
+        _id: String(v._id),
+        sku: v.sku,
+        size: v.size,
+        name: v.name,
+        price: v.price,
+        stockQuantity: v.stockQuantity,
+        bareImage: v.bareImage || "",
+        productId: product ? String(product._id) : "",
+        productName: product?.name || "Cây base",
+        codeId: code ? String(code._id) : "",
+        codeName: code?.name || "",
+        hasSlotMap: Boolean(sm),
+        slotCount: sm?.count ?? 0,
+        slotMapVersion: sm?.version ?? 0,
+      };
+    });
+
+    ok(res, { baseTrees });
+  } catch (err) {
+    handleInternalError(res, err, "[catalog] getCustomizerBaseTrees error");
   }
 };
 
