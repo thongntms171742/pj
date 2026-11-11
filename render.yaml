@@ -37,7 +37,8 @@ services:
         sync: false
       
       - key: GEMINI_CHAT_MODEL
-        value: gemini-2.5-flash
+        value: false
+        
 
   # ── Frontend Static Site ───────────────────────────────────
   # NOTE: FE sẽ build ở repo/folder khác. Khi có FE, uncomment block này
