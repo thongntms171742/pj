@@ -1,8 +1,7 @@
 # 🎬 HƯỚNG DẪN TRIỂN KHAI MEDIA — FE (WEB) & MOBILE
 
 > **Ngày**: 2026-10-30 · **Nhánh BE**: `christmas` · **Trạng thái BE**: ✅ Hoàn tất & đã merge
-> **Đối tượng**: Team Frontend (Web) & Team Mobile (Expo/React Native)
-> **Phạm vi**: Backend đã hoàn tất. Tài liệu này mô tả contract API + hướng triển khai phía client.
+> **Đối tượng**: Team Frontend (`christmas_UI/frontend`) & Team Mobile (`christmas_UI/mobile`)
 > **Mục tiêu**: Tích hợp 3 tính năng cảm xúc — **Video nền Hero**, **Story feed dọc (Reels)**, **Nhạc nền toàn app**
 
 ---
@@ -112,10 +111,8 @@ const formData = new FormData();
 formData.append('file', file);   // File (web) hoặc {uri,name,type} (mobile)
 
 const res = await api.post('/uploads', formData);   // ⚠️ KHÔNG set Content-Type thủ công
-// res.data = { url, publicId, format, size, kind, duration, posterUrl? }
+// res.data = { url, publicId, format, size, kind, duration }
 ```
-
-> 💡 **Video**: BE tự sinh `posterUrl` (Cloudinary trích frame đầu tiên) → FE dùng làm `poster` / thumbnail, **không cần admin upload ảnh riêng**.
 
 > 🔴 **QUAN TRỌNG — Web**: axios interceptor đã tự xóa `Content-Type` khi body là `FormData` (để browser tự set boundary). Nếu bạn set `Content-Type: multipart/form-data` thủ công → **mất boundary → BE trả 400 `MISSING_FIELD`**. Cứ `api.post('/uploads', formData)` là đủ.
 
@@ -150,7 +147,16 @@ const res = await api.post('/uploads', formData);   // ⚠️ KHÔNG set Content
 
 ## 4. HƯỚNG DẪN CHO FRONTEND (WEB)
 
-> Stack web: React + Vite + TypeScript. Không cần thêm thư viện mới — video dùng HTML5 `<video>` native, nhạc dùng HTML5 `<audio>` native.
+> Repo: `christmas_UI/frontend` · React + Vite + TypeScript + Tailwind
+
+### 4.1. Kiểm tra dependency
+
+```bash
+cd christmas_UI/frontend
+cat package.json | grep -E "axios|zustand|react-router"
+```
+
+Không cần thêm thư viện mới — video dùng HTML5 `<video>` native, nhạc dùng HTML5 `<audio>` native.
 
 ### 4.2. Bước 1 — Type & API layer
 
@@ -603,19 +609,18 @@ Tạo `src/pages/admin/MediaManager.tsx` — bảng list + form upload:
 | Xóa | `DELETE /api/admin/media/:id` |
 | Danh sách | `GET /api/admin/media` |
 
-> Trang admin media gồm: bảng list asset (checkbox bật/tắt, xóa) + form upload file (chọn `kind`, `placement`, `title`, `caption`, `ctaLabel`, `ctaLink`, `linkType`, `linkId`, `sortOrder`).
->
-> Flow upload 2 bước (xem §3): chọn file → `POST /api/uploads` → lấy `url`/`publicId` → `POST /api/admin/media` với các field còn lại.
+> Chi tiết component đã có sẵn (tham khảo): `pj_UI/frontend/src/pages/admin/MediaManager.tsx` — có thể copy & chỉnh lại cho design system của `christmas_UI/frontend`.
 
 ---
 
 ## 5. HƯỚNG DẪN CHO MOBILE (EXPO)
 
-> Stack mobile: Expo (SDK 52) + React Native.
+> Repo: `christmas_UI/mobile` · Expo SDK 52 · React Native
 
 ### 5.1. Bước 1 — Cài dependency
 
 ```bash
+cd christmas_UI/mobile
 npx expo install expo-av
 ```
 
@@ -655,8 +660,10 @@ export const mediaApi = {
 ```tsx
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Colors, Radius } from '../theme/colors';
 import { useBackgroundMusic } from '../hooks/useMedia';
 
 const VOLUME_KEY = 'byc_music_volume';
@@ -733,7 +740,7 @@ export function BackgroundMusic({ enabled = true }: { enabled?: boolean }) {
       }}
       accessibilityLabel={muted ? 'Bật nhạc nền' : 'Tắt nhạc nền'}
     >
-      <Text style={styles.icon}>{muted ? '🔇' : '🎵'}</Text>
+      <Ionicons name={muted ? 'volume-mute' : 'musical-notes'} size={20} color={Colors.textLight} />
     </Pressable>
   );
 }
@@ -741,17 +748,16 @@ export function BackgroundMusic({ enabled = true }: { enabled?: boolean }) {
 const styles = StyleSheet.create({
   fab: {
     position: 'absolute', right: 16, bottom: 24,
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: 'rgba(12,56,35,0.9)',
+    width: 48, height: 48, borderRadius: Radius.full ?? 24,
+    backgroundColor: Colors.primaryDarker,
     alignItems: 'center', justifyContent: 'center',
     elevation: 6, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8,
   },
-  icon: { fontSize: 20 },
 });
 ```
 
-> 🎨 Áp dụng **design token / theme của app** (màu thương hiệu, bo góc, typography) thay vì hardcode màu — chỉnh theo hệ thống style sẵn có trong repo mobile.
-> ⚠️ iOS: `playsInSilentModeIOS: true` là bắt buộc, nếu không nhạc sẽ không phát khi user đang im lặng máy.
+> 🎨 Dùng **design token** của app (`Colors`, `Radius`, `Spacing`, `Typography`) thay vì hardcode màu — repo đã có sẵn trong `src/theme/colors.ts`.
+> ⚠️ `Radius.full` có thể không tồn tại → dùng `borderRadius: 24` nếu cần.
 
 **Gắn vào root navigation** (nơi chứa `NavigationContainer` / bottom tabs):
 

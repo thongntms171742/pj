@@ -11,6 +11,14 @@ import mongoose, { Schema, Document, Types } from "mongoose";
 // - radius: bán kính snap chuẩn hóa (0–1, tương đối theo chiều rộng cây).
 // - z: thứ tự xếp lớp render.
 // - allowedAccessoryTypes: loại phụ kiện được gắn vào slot này.
+// - depth: lớp chiều sâu ('behind' | 'front'). 'behind' ⇒ phụ kiện bị cành
+//   trước che (chỉ có tác dụng khi variant có `foregroundMask`).
+// - scaleHint: gợi ý kích thước authored của phụ kiện tại slot này.
+
+/** Lớp chiều sâu của slot. */
+export type SlotDepth = "behind" | "front";
+
+export const SLOT_DEPTH_TYPES = ["behind", "front"] as const;
 
 export interface ISlotDefinition {
   slotId: string;
@@ -20,6 +28,10 @@ export interface ISlotDefinition {
   radius: number;
   z: number;
   allowedAccessoryTypes: string[];
+  /** Mặc định 'front'. */
+  depth?: SlotDepth;
+  /** Mặc định 1. */
+  scaleHint?: number;
 }
 
 export interface ISlotMap extends Document {
@@ -38,6 +50,12 @@ const SlotDefinitionSchema = new Schema<ISlotDefinition>(
     radius: { type: Number, required: true, min: 0, max: 1 },
     z: { type: Number, default: 0 },
     allowedAccessoryTypes: { type: [String], default: [] },
+    depth: {
+      type: String,
+      enum: SLOT_DEPTH_TYPES,
+      default: "front",
+    },
+    scaleHint: { type: Number, min: 0.01, max: 10, default: 1 },
   },
   { _id: false }
 );

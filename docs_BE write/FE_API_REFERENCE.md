@@ -1113,7 +1113,7 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
 | `caption` | string | Mô tả ngắn hiển thị dưới story |
 | `url` | string | **Bắt buộc** — URL Cloudinary (https) |
 | `publicId` | string | Cloudinary publicId để xóa/thay file sau này |
-| `posterUrl` | string | Ảnh poster/thumbnail cho video (BE tự sinh từ Cloudinary) |
+| `posterUrl` | string | Ảnh poster (thumbnail) cho video |
 | `format` | string | `mp4`, `mp3`, `m4a`... |
 | `size` | number | Byte |
 | `duration` | number | Giây |
@@ -1192,12 +1192,9 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
   "format": "mp4",
   "size": 8421376,
   "kind": "video",
-  "duration": 12,
-  "posterUrl": "https://res.cloudinary.com/xxx/video/upload/so_0s/c_limit,f_auto,q_auto,w_720/v1/buildyourchristmas/story1.jpg"
+  "duration": 12
 }
 ```
-> 💡 **`posterUrl` được BE tự sinh** cho video (Cloudinary trích frame đầu tiên on-the-fly).
-> FE/Mobile dùng làm `poster` của `<video>` / `thumbnail` của story bubble → không cần admin upload ảnh riêng.
 - **Lỗi**:
   - `400 MISSING_FIELD` — thiếu file
   - `400 UNSUPPORTED_MEDIA_TYPE` — sai định dạng
@@ -1275,7 +1272,7 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
       "buyer": {
         "_id": "6701...",
         "name": "Nguyễn Văn A",
-        "avatar": "https://..."
+        "avatarUrl": "https://..."
       },
       "orderId": "670d...",
       "rating": 5,
@@ -1360,8 +1357,8 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
   "items": [
     {
       "productId": "670a...",
-      "designId": "670e...",
-      "designName": "Cây Giáng Sinh Ấm Cúng",
+      "variantId": "670b...",
+      "productName": "Cây Giáng Sinh Ấm Cúng",
       "previewImage": "https://...",
       "variantName": "Cây thông Noel — Xanh — M",
       "variantSize": "M",
@@ -1401,6 +1398,11 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
         "orderCode": "BYC-12345678",
         "status": "COMPLETED"
       },
+      "buyer": {
+        "_id": "6701...",
+        "name": "Nguyễn Văn A",
+        "avatarUrl": "https://..."
+      },
       "rating": 5,
       "comment": "Cây đẹp lắm ạ!",
       "images": [],
@@ -1417,6 +1419,16 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
 ### 5. Quản lý đánh giá (Dành cho Admin)
 - **Auth**: `Bearer <admin_token>`
 
+> ⚠️ **Lưu ý về shape populate (admin):** `GET /api/admin/reviews` populate vào
+> **chính các field id** (`productId`, `variantId`, `buyerId`, `orderId` mỗi field
+> là **object** đã populate), khác với `GET /api/products/:id/reviews` và
+> `GET /api/reviews/my` (populate vào field riêng `buyer` / `variant` / `product` / `order`).
+> FE & Mobile đọc qua helper chuẩn hóa — xem `frontend/src/lib/reviewDisplayResolver.ts`
+> và `mobile/src/lib/reviewDisplayResolver.ts`.
+
+> 🔧 **Avatar:** User model lưu ở field `avatarUrl`. Review response trả
+> `buyer.avatarUrl` (không phải `avatar`). FE đọc cả hai để tương thích ngược.
+
 #### Lấy danh sách đánh giá
 - `GET /api/admin/reviews?page=1&limit=20&status=APPROVED&rating=5&productId=...`
 
@@ -1431,157 +1443,4 @@ Cả 2 endpoint `GET` legacy đều ghi log mức `warn` mỗi lần được g�
 #### Xóa đánh giá
 - `DELETE /api/admin/reviews/:id`
 
----
 
-## 💬 PHẦN 11: HỆ THỐNG CHAT V4 — HYBRID AI & HUMAN SUPPORT
-
-> 📘 **Tài liệu chi tiết đầy đủ**: `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md` · `backend/docs/CHAT_API.md` · `backend/docs/CHAT_HYBRID_API.md`.
->
-> ⚠️ **BREAKING CHANGE v3 → v4:** toàn bộ chat cũ đã bị xoá & code lại từ đầu. Bắt buộc đăng nhập, không còn guest mode.
-
-### 11.1 Kiến trúc & URL kết nối
-- **Socket.IO Namespace**: `/chat` (BẮT BUỘC, ví dụ: `https://christmas-8ca4.onrender.com/chat`).
-- **Auth**: `Authorization: Bearer <token>` — bắt buộc, không có guest.
-- **Cấu hình Socket Client**:
-  ```typescript
-  import { io } from "socket.io-client";
-  const socket = io("https://christmas-8ca4.onrender.com/chat", {
-    auth: {
-      token: localStorage.getItem("token") || undefined,
-    },
-    transports: ["websocket", "polling"],
-    tryAllTransports: true,
-  });
-  ```
-
-### 11.2 Bảng tra cứu Socket Events
-
-| Hướng | Tên Event | Payload | Mô tả |
-| :--- | :--- | :--- | :--- |
-| **C → S** | `conversation:subscribe` | `{ conversationId }` | Vào room conversation để nhận tin realtime |
-| **C → S** | `conversation:unsubscribe` | `{ conversationId }` | Rời room |
-| **C → S** | `message:send` | `{ conversationId, content, messageType?, attachments?, clientMessageId? }` | Gửi tin nhắn mới (kèm `clientMessageId` để chống trùng) |
-| **C → S** | `message:typing` | `{ conversationId, isTyping }` | Báo đang gõ văn bản |
-| **C → S** | `conversation:read` | `{ conversationId }` | Đánh dấu đã đọc tin nhắn |
-| **S → C** | `chat:connected` | `{ userId, roles }` | Xác nhận kết nối thành công |
-| **S → C** | `message:new` | `{ conversationId, message, echo }` | Tin nhắn mới (`echo: true` ⇒ của chính mình, không render lại) |
-| **S → C** | `conversation:updated` | `{ conversationId, conversation }` | Cập nhật trạng thái / `supportMode` / `version` |
-| **S → C** | `message:typing` | `{ conversationId, userId, isTyping }` | Đối phương đang gõ |
-| **S → C** | `conversation:unread` | `{ conversationId, unreadCount: { user, admin } }` | Cập nhật số tin chưa đọc |
-| **S → C** | `handoff:updated` | `{ conversationId, handoff, status }` | Handoff đổi trạng thái (created/accepted/resolved/cancelled) |
-| **S → C** | `ai:status` | `{ conversationId, status, message? }` | AI đang xử lý / đã trả lời / đã escalate |
-| **S → C** | `chat:error` | `{ code, message }` | Lỗi thao tác socket |
-
-### 11.3 Tóm tắt REST Endpoints
-
-**User** (`/api/chat`) — Require Auth:
-
-- `POST /api/chat/conversations` — Tạo hoặc lấy lại conversation active (`?forceNew=true` để tạo mới).
-- `GET /api/chat/conversations` — Danh sách hội thoại của tôi (`?page=&limit=&status=`).
-- `GET /api/chat/conversations/unread-count` — Tổng số tin chưa đọc.
-- `GET /api/chat/conversations/:id` — Chi tiết 1 hội thoại.
-- `GET /api/chat/conversations/:id/messages?before=&after=&limit=` — Lịch sử tin nhắn (cursor pagination).
-- `POST /api/chat/conversations/:id/messages` — Gửi tin qua REST (fallback khi socket mất mạng). Cần `clientMessageId`.
-- `POST /api/chat/conversations/:id/read` — Đánh dấu đã đọc.
-- `POST /api/chat/conversations/:id/close` · `/reopen` — Đóng / mở lại hội thoại.
-- `POST /api/chat/conversations/:id/handoff` — Yêu cầu gặp nhân viên hỗ trợ.
-- `GET`/`DELETE /api/chat/conversations/:id/handoff` — Xem / huỷ yêu cầu handoff.
-
-**Admin** (`/api/chat/admin`) — Require Admin:
-
-- `GET /api/chat/admin/conversations` — Danh sách hội thoại (`?scope=all|mine|unassigned`).
-- `GET /api/chat/admin/conversations/:id/messages` — Lịch sử tin nhắn (**bao gồm** tin `internal`).
-- `POST /api/chat/admin/conversations/:id/messages` — Gửi tin (`visibility: "public" | "internal"`).
-- `POST /api/chat/admin/conversations/:id/assign` · `/accept` — Gán / nhận hội thoại.
-- `POST /api/chat/admin/conversations/:id/close` · `/reopen` — Đóng / mở lại.
-- `GET /api/chat/admin/handoffs` — Hàng đợi handoff.
-- `POST /api/chat/admin/conversations/:id/handoff/assign` · `/resolve` — Gán / đóng handoff.
-- `GET /api/chat/admin/unread-count` — Tổng unread phía admin.
-
-**AI Copilot** (`/api/chat/admin/copilot`) — Require Admin:
-
-- `GET /api/chat/admin/copilot/conversations/:id/summary` — Tóm tắt hội thoại.
-- `POST /api/chat/admin/copilot/conversations/:id/suggest-reply` — Gợi ý trả lời (body: `{ instruction? }`).
-- `POST /api/chat/admin/copilot/conversations/:id/note` — Sinh ghi chú nội bộ (body: `{ note? }`).
-- `GET /api/chat/admin/copilot/conversations/:id/context` — Context đầy đủ cho admin.
-- `GET /api/chat/admin/copilot/policies?query=` — Tra chính sách.
-
-**Knowledge Base** (`/api/chat/admin/knowledge`) — Require Admin:
-
-- `GET /api/chat/admin/knowledge` — Danh sách tài liệu tri thức.
-- `GET /api/chat/admin/knowledge/:id` — Chi tiết 1 tài liệu.
-- `POST /api/chat/admin/knowledge` — Tạo tài liệu.
-- `PUT /api/chat/admin/knowledge/:id` — Cập nhật tài liệu.
-- `DELETE /api/chat/admin/knowledge/:id` — Xoá **mềm** (archive).
-
-> **Mã lỗi chat**: `CHAT_CONVERSATION_NOT_FOUND` (404) · `CHAT_FORBIDDEN` (403) · `CHAT_INVALID_ID` (400) ·
-> `CHAT_EMPTY_CONTENT` / `CHAT_MESSAGE_TOO_LONG` (400) · `CHAT_CONVERSATION_CLOSED` (409) ·
-> `CHAT_DUPLICATE_MESSAGE` (409) · `CHAT_VERSION_CONFLICT` (409) · `CHAT_RATE_LIMITED` (429) ·
-> `CHAT_AI_UNAVAILABLE` (503) · `CHAT_AI_ESCALATED` (503) · `CHAT_AI_QUOTA_EXCEEDED` (429) ·
-> `CHAT_HANDOFF_NOT_FOUND` (404) · `CHAT_HANDOFF_ALREADY_EXISTS` (409) · `CHAT_HANDOFF_INVALID_TRANSITION` (409) ·
-> `CHAT_REOPEN_WINDOW_EXPIRED` (409).
-
----
-
-## 🎨 PHẦN 12: PHỐI CẢNH PHÒNG TỰ GHÉP (CLIENT-SIDE COMPOSITING)
-
-> 📘 **Tài liệu chi tiết & Code mẫu Canvas / React Native Skia**: `docs_BE write/FE_ROOM_DESIGN_COMPOSITE_GUIDE.md`.
-
-### 12.1 Thay đổi luồng từ AI Render sang Ghép ảnh Client
-- **Trước đây**: Gọi `POST /api/designs/:id/generate-image` và chờ server render 40s (hay bị timeout 504).
-- **Hiện tại**:
-  1. Client upload ảnh căn phòng: `POST /api/designs/upload-room` (nhận `roomImageUrl`).
-  2. Tạo thiết kế: `POST /api/designs`.
-  3. Client dùng Canvas (Web) hoặc Skia (Mobile) để cho khách hàng tự kéo thả, phóng to, xoay cây thông vào góc phòng.
-  4. Client xuất ảnh đã ghép và upload trực tiếp lên Cloudinary: `POST /api/designs/:id/result`.
-  5. Backend phản hồi `200 OK` đồng bộ với `status: "AI_COMPLETED"`. **Không cần polling kiểm tra trạng thái nữa**.
-
-### 12.2 Chi tiết Endpoint `POST /api/designs/:id/result`
-- **Auth**: `Bearer <token>` (Chủ sở hữu hoặc Admin).
-- **Content-Type**: `multipart/form-data`
-- **Fields**:
-  - `compositeImage` *(bắt buộc)*: File ảnh kết quả (JPEG, PNG, WebP — tối đa 8 MB).
-  - `clientPrompt` *(tùy chọn)*: Ghi chú vị trí hoặc mô tả phối cảnh của khách.
-- **Response mẫu (200 OK)**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "designId": "6724b1029102...",
-      "status": "AI_COMPLETED",
-      "imageUrl": "https://res.cloudinary.com/byc/image/upload/v1/.../result_123.jpg",
-      "imagePublicId": "buildyourchristmas/room-designs/results/result_123",
-      "compositeSource": "CLIENT"
-    }
-  }
-  ```
-
----
-
-## 👤 PHẦN 13: XOÁ TÀI KHOẢN (ACCOUNT DELETION — GOOGLE PLAY COMPLIANCE)
-
-> 📘 **Tài liệu bàn giao chi tiết**: `docs_BE write/BE_HANDOFF_ACCOUNT_DELETION.md`.
-> **Mục tiêu**: Đáp ứng chính sách Google Play Data Safety và quyền riêng tư người dùng.
-
-### 13.1 Đặc tả `DELETE /api/users/me`
-- **Method**: `DELETE`
-- **Path**: `/api/users/me`
-- **Auth**: `Bearer <token>` (Token của chính user cần xoá)
-- **Request Body**: Không có
-- **Rate Limit**: 1 request / 60 giây / user
-- **Response Thành Công**: `204 No Content` (không có body)
-
-### 13.2 Cơ chế xử lý & Mã lỗi
-
-| HTTP Status | `error.code` | Ý nghĩa | Hành động của Mobile / Web |
-| :--- | :--- | :--- | :--- |
-| **204** | *(None)* | Xoá thành công | Xoá token local, clear state, điều hướng về màn hình đăng nhập hoặc trang chủ. |
-| **401** | `UNAUTHORIZED` | Token thiếu / không hợp lệ | Đăng xuất người dùng. |
-| **404** | `NOT_FOUND` | User đã bị xoá (idempotent) | Coi như đã xoá thành công, clear token local. |
-| **409** | `ORDER_IN_PROGRESS` | User còn đơn hàng đang xử lý | Hiển thị thông báo: "Bạn còn đơn hàng đang xử lý. Vui lòng hoàn tất hoặc huỷ đơn trước khi xoá tài khoản" (kèm danh sách đơn trong `error.details.blockingOrders`). |
-| **429** | `CONFLICT` | Gửi request quá nhanh (< 60s) | Báo người dùng thử lại sau 1 phút. |
-
-### 13.3 Cascade dữ liệu tự động
-- **Xoá vĩnh viễn**: Document `User` (kèm `addresses[]`), `Cart` & `CartItem`, `Design`, `Review`, `Notification`.
-- **Làm sạch PII trong Order**: Giữ lại `orderCode`, `totalAmount`, `status` để đối soát tài chính nhưng xoá sạch tên, số điện thoại, địa chỉ nhận hàng (`shippingName`, `shippingPhone`, `shippingAddress`), đánh dấu `isAnonymized: true`.
-- **Token**: Ngay sau khi xoá, JWT cũ lập tức mất hiệu lực vì user không còn trong hệ thống.

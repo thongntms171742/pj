@@ -14,6 +14,7 @@ import {
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB for images
 const MAX_VIDEO_SIZE = 30 * 1024 * 1024; // 30MB for MP4 videos
 const MAX_AUDIO_SIZE = 15 * 1024 * 1024; // 15MB for background music tracks
+const MAX_RAW_SIZE = 30 * 1024 * 1024; // 30MB for raw files (model 3D .glb/.gltf)
 const ALLOWED_EXTENSIONS = [
   ".png",
   ".jpg",
@@ -26,6 +27,9 @@ const ALLOWED_EXTENSIONS = [
   ".aac",
   ".wav",
   ".ogg",
+  // Model 3D — binary (resource_type "raw")
+  ".glb",
+  ".gltf",
 ];
 const ALLOWED_MIME_TYPES = [
   "image/png",
@@ -43,33 +47,42 @@ const ALLOWED_MIME_TYPES = [
   "audio/x-wav",
   "audio/wave",
   "audio/ogg",
+  // Model 3D
+  "model/gltf-binary",
+  "model/gltf+json",
 ];
 
 /**
  * Phân loại media theo MIME type.
  * Cloudinary xử lý audio dưới resource_type "video" (raw chỉ dành cho file
  * không cần transform), nên audio cũng đi qua resourceType "video".
+ *
+ * Model 3D (.glb/.gltf) dùng resource_type "raw" — không transform, giữ
+ * nguyên binary để browser tải trực tiếp.
  */
-export function classifyMedia(mime: string): "image" | "video" | "audio" {
+export function classifyMedia(mime: string): "image" | "video" | "audio" | "raw" {
   if (mime.startsWith("image/")) return "image";
   if (mime.startsWith("audio/")) return "audio";
+  if (mime === "model/gltf-binary" || mime === "model/gltf+json") return "raw";
   return "video";
 }
 
-function maxSizeFor(kind: "image" | "video" | "audio"): number {
+function maxSizeFor(kind: "image" | "video" | "audio" | "raw"): number {
   if (kind === "audio") return MAX_AUDIO_SIZE;
   if (kind === "video") return MAX_VIDEO_SIZE;
+  if (kind === "raw") return MAX_RAW_SIZE;
   return MAX_IMAGE_SIZE;
 }
 
-function sizeErrorMessage(kind: "image" | "video" | "audio"): string {
+function sizeErrorMessage(kind: "image" | "video" | "audio" | "raw"): string {
   if (kind === "audio") return "Dung lượng audio vượt quá giới hạn 15MB";
   if (kind === "video") return "Dung lượng video vượt quá giới hạn 30MB";
+  if (kind === "raw") return "Dung lượng file vượt quá giới hạn 30MB";
   return "Dung lượng ảnh vượt quá giới hạn 5MB";
 }
 
 const UNSUPPORTED_MEDIA_MESSAGE =
-  "Định dạng tệp không được hỗ trợ (chỉ nhận ảnh PNG, JPG, WebP, SVG, video MP4 hoặc audio MP3/M4A/AAC/WAV/OGG)";
+  "Định dạng tệp không được hỗ trợ (chỉ nhận ảnh PNG, JPG, WebP, SVG, video MP4, audio MP3/M4A/AAC/WAV/OGG hoặc model 3D GLB/GLTF)";
 
 // Ensure uploads directory exists for local development fallback
 const UPLOADS_DIR = path.resolve(__dirname, "../../uploads");
@@ -118,7 +131,8 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
         if (isCloudinaryEnabled()) {
           const uploaded = await uploadFromDataUrl(raw, {
             folder: process.env.CLOUDINARY_FOLDER || "buildyourchristmas",
-            resourceType: kind === "image" ? "image" : "video",
+            resourceType:
+              kind === "image" ? "image" : kind === "raw" ? "raw" : "video",
           });
 
           created(res, {
@@ -157,10 +171,21 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
                     : mime === "audio/ogg"
                       ? ".ogg"
                       : ".mp3"
-              : mime === "image/jpeg"
-                ? ".jpg"
-                : `.${mime.split("/")[1]}`;
-        const prefix = kind === "video" ? "vid_" : kind === "audio" ? "aud_" : "img_";
+              : kind === "raw"
+                ? mime === "model/gltf+json"
+                  ? ".gltf"
+                  : ".glb"
+                : mime === "image/jpeg"
+                  ? ".jpg"
+                  : `.${mime.split("/")[1]}`;
+        const prefix =
+          kind === "video"
+            ? "vid_"
+            : kind === "audio"
+              ? "aud_"
+              : kind === "raw"
+                ? "raw_"
+                : "img_";
         const filename = `${prefix}${Date.now()}_${crypto.randomBytes(6).toString("hex")}${ext}`;
         const filePath = path.join(UPLOADS_DIR, filename);
 
@@ -225,7 +250,7 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
         publicId: string;
         format: string;
         size: number;
-        kind: "image" | "video" | "audio";
+        kind: "image" | "video" | "audio" | "raw";
         duration?: number;
         /** Auto-generated thumbnail (video only) — dùng làm poster cho FE. */
         posterUrl?: string;
@@ -251,12 +276,14 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
             return;
           }
 
-          const kind =
+          const kind: "image" | "video" | "audio" | "raw" =
             ext === ".mp4"
               ? "video"
               : [".mp3", ".m4a", ".aac", ".wav", ".ogg"].includes(ext)
                 ? "audio"
-                : "image";
+                : [".glb", ".gltf"].includes(ext)
+                  ? "raw"
+                  : "image";
           const maxLimit = maxSizeFor(kind);
           if (cleanContent.length > maxLimit) {
             sendError(res, ErrorCode.FILE_TOO_LARGE, sizeErrorMessage(kind));
@@ -267,7 +294,12 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
           if (isCloudinaryEnabled()) {
             const uploaded = await uploadFromBuffer(cleanContent, {
               folder: process.env.CLOUDINARY_FOLDER || "buildyourchristmas",
-              resourceType: kind === "image" ? "image" : "video",
+              resourceType:
+                kind === "image"
+                  ? "image"
+                  : kind === "raw"
+                    ? "raw"
+                    : "video",
             });
 
             savedFile = {
@@ -294,7 +326,14 @@ export const uploadMedia = async (req: Request, res: Response): Promise<void> =>
           }
 
           // Ưu tiên 2: Fallback lưu local disk khi chạy môi trường dev chưa có key Cloudinary
-          const prefix = kind === "video" ? "vid_" : kind === "audio" ? "aud_" : "upload_";
+          const prefix =
+            kind === "video"
+              ? "vid_"
+              : kind === "audio"
+                ? "aud_"
+                : kind === "raw"
+                  ? "raw_"
+                  : "upload_";
           const filename = `${prefix}${Date.now()}_${crypto.randomBytes(6).toString("hex")}${ext}`;
           const filePath = path.join(UPLOADS_DIR, filename);
 

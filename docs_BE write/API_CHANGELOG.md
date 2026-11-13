@@ -5,121 +5,56 @@ Track changes to the API contract over time to ensure synchronization between Ba
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Christmas entries (2026-10-07+) là contract hiện tại. Entries cũ (2026-10-06 trở về trước) là **lịch sử marketplace** - chỉ tham khảo context, KHÔNG áp dụng cho code Christmas. Source of truth cho FE = `backend/src/`.
 
 ---
-## 2026-11-04 🤖💬 CHAT V4 — HYBRID AI & HUMAN SUPPORT (TDD v1.0)
+## 2026-11-13 🎨 CONTEXT-AWARE COMPOSITING (4 LỚP) — BE HANDOFF ĐÃ TRIỂN KHAI
 
-> **🚨 BREAKING CHANGE — Toàn bộ hệ thống Chat đã bị XOÁ & CODE LẠI TỪ ĐẦU** (không phải refactor).
-> Backend mới: `modules/chat` (hỗ trợ con người) + `modules/ai` (AI orchestrator, tools, copilot, knowledge base).
-> Chi tiết kiến trúc: `backend/docs/CHAT_HYBRID_API.md` · Hướng dẫn FE: `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md`.
+> **Feature added**: Hệ thống ghép ảnh 4 lớp cho Tree Customizer: cây trơn → phụ kiện **sau cành** → phụ kiện **trước cành** → cành trước cảnh (che phụ kiện).
+> **Hợp đồng đầy đủ**: `docs_BE write/BE_HANDOFF_COMPOSITING.md` · **Hướng dẫn ảnh**: `docs_BE write/ASSET_PREPARATION_GUIDE.md`.
+>
+> ⚠️ **Tất cả field mới đều `optional`** ⇒ dữ liệu cũ chạy nguyên vẹn, FE fallback về hành vi cũ khi BE chưa có field.
 
-### 🚨 Breaking Changes & Deprecations
-- **Model & collection**: `ChatFaq`, `ChatLog` đã bị xoá hoàn toàn. Thay bằng `Conversation`, `Message`, `HandoffRequest`, `KnowledgeDocument`.
-  Collection `chatfaqs`, `chatlogs` không còn dùng ⇒ **có thể drop an toàn**. Schema `conversations`/`messages` đổi mạnh ⇒ **drop & seed lại**.
-- **Auth**: Bỏ guest mode (`sessionId`, `chat_session_id`, header `x-chat-session-id`). **Bắt buộc** `Authorization: Bearer <token>`.
-- **Trạng thái**: `status: "BOT_ACTIVE" | "WAITING_ADMIN" | "ADMIN_ACTIVE" | "RESOLVED"` ➔ `"open" | "pending" | "closed"`.
-  `channel: "AI" | "SUPPORT"` ➔ `supportMode: "ai" | "waiting_admin" | "human" | "ai_assisted"`.
-- **Sender**: `senderType: "USER" | "BOT" | "ADMIN" | "SYSTEM"` ➔ `"user" | "admin" | "ai" | "system"` (lowercase).
-- **Message schema**: Bỏ `metadata` (`quickReplies`, `suggestedProducts`, `orderInfo`, `route`, `confidence`, `escalationReason`) ⇒ thay bằng `aiMetadata`.
-  Bỏ `isOwn` (client tự tính từ `senderId`), bỏ `sentAt` ⇒ `createdAt`.
-- **Tin nội bộ**: Thêm `visibility: "public" | "internal"`. Tin `internal` **không bao giờ** lọt tới user (lọc 2 tầng: query + broadcast).
-- **Idempotency**: Mọi tin nhắn có `clientMessageId`. Gửi lại cùng id ⇒ `200` + `duplicate: true`, không tạo tin trùng.
-- **Optimistic locking**: Conversation có `version`. Endpoint mutate nhận `expectedVersion`; stale ⇒ `409 CHAT_VERSION_CONFLICT`.
-- **CSAT**: `POST /api/chat/conversations/:id/satisfaction` ➔ **ĐÃ BỎ** (không có trong TDD v1.0).
+### Added endpoints
+- `GET /api/design-accessories` — Public catalog phụ kiện **riêng cho Customizer** (query: `slotType`). Phụ kiện thiết kế ⇒ không tồn kho, giá tính theo từng slot.
+  - Response: `{ "accessories": [{ _id, code, name, description, image, previewImage, decorationPrice, slotTypes, isActive, sortOrder, model3dUrl, model3dScale, model3dRotation, anchor, shadow, defaultScale }] }`
+  - Field mapping: `code` ↔ `sku`, `decorationPrice` ↔ `unitPrice` (collection cũ `/api/catalog/accessories`).
 
-### 🔌 Socket.IO Events (namespace `/chat`)
-- **C → S**: `conversation:subscribe`, `conversation:unsubscribe`, `message:send`, `message:typing`, `conversation:read`.
-- **S → C**: `chat:connected`, `message:new`, `conversation:updated`, `message:typing`, `conversation:unread`, `handoff:updated`, `ai:status`, `chat:error`.
-- Đã bỏ toàn bộ event cũ: `chat:join`, `chat:send`, `chat:read`, `chat:typing`, `chat:leave`, `chat:message`, `chat:conversation`, `chat:unread`, `chat:status`.
+### Added fields (optional — toàn bộ có fallback an toàn)
 
-### Added Endpoints
-- `POST /api/chat/conversations` — Tạo / lấy lại conversation active (`?forceNew=true`).
-- `GET /api/chat/conversations` — Danh sách hội thoại (`?page=&limit=&status=`).
-- `GET /api/chat/conversations/unread-count` — Tổng tin chưa đọc.
-- `GET /api/chat/conversations/:id` — Chi tiết hội thoại.
-- `GET /api/chat/conversations/:id/messages` — Cursor pagination (`?before=&after=&limit=`).
-- `POST /api/chat/conversations/:id/messages` — Gửi tin (hỗ trợ `clientMessageId`).
-- `POST /api/chat/conversations/:id/read` — Đánh dấu đã đọc.
-- `POST /api/chat/conversations/:id/close` · `/reopen` — Đóng / mở lại hội thoại.
-- `POST`/`GET`/`DELETE /api/chat/conversations/:id/handoff` — Yêu cầu / xem / huỷ handoff.
-- `GET /api/chat/admin/conversations` — Admin list (`?scope=all|mine|unassigned`).
-- `POST /api/chat/admin/conversations/:id/assign` · `/accept` — Gán / nhận hội thoại.
-- `POST /api/chat/admin/conversations/:id/handoff/assign` · `/resolve` — Gán / đóng handoff.
-- `GET /api/chat/admin/handoffs` — Hàng đợi handoff.
-- `GET /api/chat/admin/unread-count` — Tổng unread phía admin.
-- `GET /api/chat/admin/copilot/conversations/:id/summary` — Tóm tắt hội thoại (AI).
-- `POST /api/chat/admin/copilot/conversations/:id/suggest-reply` — Gợi ý trả lời (AI).
-- `POST /api/chat/admin/copilot/conversations/:id/note` — Sinh ghi chú nội bộ (AI).
-- `GET /api/chat/admin/copilot/conversations/:id/context` — Context đầy đủ cho admin.
-- `GET /api/chat/admin/copilot/policies` — Tra chính sách (AI).
-- `GET`/`POST`/`PATCH`/`DELETE /api/chat/admin/knowledge/documents` — CRUD kho tri thức.
+| Model / Endpoint | Field | Mục đích | Fallback khi thiếu |
+|---|---|---|---|
+| `TreeVariant` | `foregroundMask` | Ảnh **cành trước cảnh** (PNG alpha) — lớp 4 che phụ kiện `depth: 'behind'` | Không có lớp 4 ⇒ mọi phụ kiện nằm trước cây (hành vi cũ) |
+| `Accessory` | `anchor` | Điểm neo chuẩn hoá 0–1 trong bbox của `image` (móc treo / nút thắt nơ / tâm vật) | `{ x: 0.5, y: 0.5 }` |
+| `Accessory` | `shadow` | Kiểu bóng: `none` \| `soft` \| `contact` | `'soft'` |
+| `Accessory` | `defaultScale` | Tỉ lệ mặc định khi gắn (0.3–3) | `1` |
+| `SlotMap.slots[]` | `depth` | Lớp chiều sâu của slot: `behind` \| `front` | `'front'` |
+| `SlotMap.slots[]` | `scaleHint` | Gợi ý kích thước authored tại slot | `1` |
+| `Design.configuration.placements[]` | `depth` | **Snapshot** lớp chiều sâu tại lúc khách gắn | Lấy `depth` hiện tại của slot |
+| `CartItem.config.frozenConfig.placements[]` | `depth` | Copy nguyên vẹn snapshot từ `Design` | — |
 
-### Added Error Codes
-- `CHAT_CONVERSATION_CLOSED` (409), `CHAT_DUPLICATE_MESSAGE` (409), `CHAT_VERSION_CONFLICT` (409), `CHAT_RATE_LIMITED` (429)
-- `CHAT_AI_UNAVAILABLE` (503), `CHAT_AI_ESCALATED` (503), `CHAT_AI_QUOTA_EXCEEDED` (429)
-- `CHAT_HANDOFF_NOT_FOUND` (404), `CHAT_HANDOFF_ALREADY_EXISTS` (409), `CHAT_HANDOFF_INVALID_TRANSITION` (409)
-- `CHAT_REOPEN_WINDOW_EXPIRED` (409)
+> **Vì sao cần snapshot `depth` trong `placements[]`:** admin có thể đổi `depth` của slot **sau khi** khách đã đặt hàng. Không snapshot ⇒ bản đơn render khác hình khách đã chọn ⇒ sai ảnh giao hàng.
 
----
-## 2026-10-31 👤 ACCOUNT DELETION (`DELETE /api/users/me`) — GOOGLE PLAY DATA SAFETY
+### Changed endpoints
+- `GET /api/catalog/variants/:variantId/slotmap` — Mỗi slot giờ trả kèm `depth` + `scaleHint`.
+- `GET /api/admin/tree-variants/:variantId/slotmaps` — Mỗi slot trả kèm `depth` + `scaleHint`.
+- `POST /api/admin/tree-variants/:variantId/slotmaps/publish` — Nhận & persist `depth` / `scaleHint`. Giá trị sai ⇒ **bỏ qua field, không reject request**. `version` tăng sau mỗi lần publish.
+- `GET /api/catalog/customizer/base-trees` — Mỗi variant trả kèm `foregroundMask`.
+- `GET /api/catalog/tree-products` & `GET /api/catalog/tree-products/:productId/codes/:codeId/variants` & `GET /api/catalog/trees` — Variant trả kèm `foregroundMask`.
+- `POST /api/designs` — Nhận thêm `configuration` (optional) kèm `placements[]` (bao gồm `depth`).
+- `PATCH /api/admin/accessories/:id` — Nhận thêm `anchor`, `shadow`, `defaultScale`, `previewImage`, `model3dUrl`, `model3dScale`, `model3dRotation`. **Partial update**: chỉ set field có mặt trong body (FE gửi từng field riêng).
+- `POST /api/admin/accessories` — Nhận thêm 7 field metadata ở trên.
+- `PATCH /api/admin/tree-variants/:id` — Nhận thêm `foregroundMask`.
 
-> **Feature added**: API Xoá tài khoản người dùng vĩnh viễn, làm sạch dữ liệu cá nhân (PII) trong đơn hàng, cascade xoá toàn bộ giỏ hàng, thiết kế phòng, đánh giá và thông báo. Giải quyết blocker phát hành ứng dụng lên Google Play.
-> Chi tiết kỹ thuật: `docs_BE write/BE_HANDOFF_ACCOUNT_DELETION.md`.
+### Changed — Upload file nhị phân (model 3D)
+- `POST /api/uploads` — Hỗ trợ `.glb` / `.gltf` với `resource_type: "raw"` (Cloudinary không transform, giữ nguyên binary). Response có `kind: "raw"`.
+  - Giới hạn 30MB. Khuyến nghị dùng `.glb` (gói trọn) để không phụ thuộc file phụ.
+  - Không áp `e_background_removal` cho `foregroundMask` (PNG alpha đã cắt sẵn).
 
-### Added Endpoints
-- `DELETE /api/users/me` — Yêu cầu Bearer token của chính user. Trả về `204 No Content`. Rate limit: 1 request / 60 giây / user.
+### Added error codes
+- Không có error code mới. Các lỗi dùng chung: `INVALID_INPUT` (metadata sai giá trị), `UNSUPPORTED_MEDIA_TYPE` (định dạng file không hỗ trợ), `FILE_TOO_LARGE`.
 
-### Business Rules & Data Cascade
-- **Chặn xoá khi có đơn đang xử lý**: Kiểm tra các trạng thái `PENDING_PAYMENT`, `PAID`, `CONFIRMED`, `PACKING`. Nếu còn đơn, trả về `409 ORDER_IN_PROGRESS` kèm danh sách đơn bị chặn.
-- **Scrub PII trong Order**: Giữ lại các trường đối soát tài chính (`orderCode`, `totalAmount`, `status`), nhưng xoá sạch thông tin nhận hàng (`shippingName`, `shippingPhone`, `shippingAddress`, `pickupInfo`), gán `isAnonymized: true`, `userDeletedAt`.
-- **Cascade xoá dữ liệu cá nhân**: Xoá vĩnh viễn `Cart`, `CartItem`, `Design` (kèm ảnh Cloudinary), `Review`, `Notification`, và `User` (kèm embedded `addresses[]`).
-    - **Xoá vĩnh viễn Chat**: Xoá `Message`, `HandoffRequest` và `Conversation` thuộc user (không giữ dữ liệu hội thoại của người đã xoá tài khoản).
-- **Idempotent**: Gọi lại endpoint khi tài khoản đã bị xoá sẽ trả `404 NOT_FOUND`.
-
-### Added Error Codes
-- `ORDER_IN_PROGRESS` (409) — User còn đơn hàng đang xử lý, không thể xoá tài khoản.
-
----
-## 2026-10-31 💬 CHAT V3 UNIFIED (SINGLE MODEL) & 🎨 ROOM DESIGN CLIENT COMPOSITING
-
-> **🚨 BREAKING CHANGES**: 
-> 1. Hợp nhất hoàn toàn hệ thống Chat (Chatbot AI + Hỗ trợ Khách hàng 1-1) thành 1 model duy nhất (Single Source of Truth), chuyển toàn bộ Socket sang namespace `/chat`. Chi tiết di chuyển xem tại `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md`.
-> 2. Chuyển đổi phối cảnh phòng từ cơ chế AI render chậm (KIE/SDXL trên server) sang **Client-side Compositing (Ghép ảnh tức thì)** qua endpoint `POST /api/designs/:id/result`. Chi tiết xem tại `docs_BE write/FE_ROOM_DESIGN_COMPOSITE_GUIDE.md`.
-
-### 🚨 Breaking Changes & Deprecations
-- **Chat Endpoints Bãi Bỏ:**
-  - `POST /api/chat/ai/conversations`, `GET /api/chat/ai/conversations`, `GET /api/chat/ai/conversations/:id/messages`, `POST /api/chat/ai/conversations/:id/messages`, `POST /api/chat/ai/conversations/:id/escalate` ➔ **ĐÃ BỎ**.
-  - `GET /api/chat/conversations/:peerId/messages`, `POST /api/chat/conversations/:peerId/messages`, `POST /api/chat/conversations/:peerId/markRead` ➔ **ĐÃ BỎ**.
-  - Không còn sử dụng chuỗi ghép định danh hội thoại `c_<a>__<b>`. Mọi hội thoại giờ định danh bằng ObjectId chuẩn trong collection `conversations`.
-- **Chat Socket Namespaces & Events:**
-  - Gỡ bỏ socket chat trên root namespace `/`. Chuyển toàn bộ sang namespace **`/chat`**.
-  - Thay thế hệ event phân mảnh cũ (`join_conversation`, `new_message`, `send_message`) bằng chuẩn mới: `chat:join`, `chat:send`, `chat:read`, `chat:typing`, `chat:leave` (C → S) và `chat:message`, `chat:conversation`, `chat:unread`, `chat:status`, `chat:typing`, `chat:error` (S → C).
-- **Chat Message Schema:**
-  - Bỏ `role: "buyer" | "admin"` (khắc phục triệt để lỗi admin bị map nhầm thành buyer). Thay bằng `senderType: "USER" | "BOT" | "ADMIN" | "SYSTEM"` và trường boolean `isOwn`.
-  - Bỏ cờ `isRead` phẳng trên Message. Trạng thái đọc tin được tính toán theo mốc thời gian `participants[].lastReadAt` của từng người dùng.
-- **Room Design AI Render:**
-  - `POST /api/designs/:id/generate-image` bị deprecate (trả mã lỗi 410 `ENDPOINT_GONE` khi feature flag tắt). FE chuyển sang ghép ảnh trên Canvas và upload kết quả qua `POST /api/designs/:id/result`.
-
-### Added Endpoints
-- `POST /api/chat/conversations` — Mở hoặc tạo hội thoại (`channel: "AI" | "SUPPORT"`, hỗ trợ khách vãng lai qua `sessionId`).
-- `GET /api/chat/conversations` — Danh sách hội thoại của user hiện tại.
-- `GET /api/chat/conversations/:id/messages` — Cursor pagination lấy lịch sử tin nhắn (`before=<messageId>`, `limit=`).
-- `POST /api/chat/conversations/:id/messages` — Gửi tin nhắn qua REST (dự phòng khi socket gián đoạn).
-- `POST /api/chat/conversations/:id/read` — Đánh dấu đã đọc tin nhắn hội thoại.
-- `POST /api/chat/conversations/:id/escalate` — Chuyển giao hội thoại sang nhân viên tư vấn trực ca.
-- `GET /api/chat/unread` — Lấy tổng số tin nhắn chưa đọc của người dùng.
-- `GET /api/chat/admin/conversations` — Admin: Danh sách hội thoại toàn sàn (`channel`, `status`, phân trang).
-- `PUT /api/chat/admin/conversations/:id/status` — Admin: Cập nhật trạng thái hội thoại (`BOT_ACTIVE`, `WAITING_ADMIN`, `ADMIN_ACTIVE`, `RESOLVED`).
-- `POST /api/chat/admin/conversations/:id/assign` — Admin: Tiếp nhận ca trực hỗ trợ hội thoại.
-- `POST /api/designs/:id/result` — Upload ảnh ghép hoàn chỉnh từ Client lên Cloudinary, đồng bộ trạng thái `AI_COMPLETED` lập tức.
-
-### Added Error Codes
-- `CHAT_CONVERSATION_NOT_FOUND` (404)
-- `CHAT_STATUS_INVALID` (400)
-- `CHAT_FORBIDDEN` (403)
-- `CHAT_INVALID_ID` (400)
-- `CHAT_EMPTY_CONTENT` (400)
-- `CHAT_MESSAGE_TOO_LONG` (400)
-- `COMPOSITE_IMAGE_REQUIRED` (400)
-- `ENDPOINT_GONE` (410)
+### Notes
+- `foregroundMask` **phải cùng pixel size** với `bareImage` của cùng variant (admin UI đã cảnh báo khi lệch).
+- `anchor` đo trên `image`, **KHÔNG** phải `previewImage` — nếu 2 ảnh khác tỉ lệ thì neo sẽ lệch.
+- Deploy an toàn: FE đã triển khai đầy đủ & chạy đúng khi BE chưa có field nào trong bảng trên.
 
 ---
 ## 2026-10-30 🎬 MEDIA ASSETS (VIDEO HERO / STORY FEED / NHẠC NỀN)
@@ -137,7 +72,6 @@ Track changes to the API contract over time to ensure synchronization between Ba
 
 ### Changed
 - `POST /api/uploads` — Mở rộng hỗ trợ **audio** (mp3/mp4/m4a/aac/wav/ogg), giới hạn 15MB (ảnh 5MB, video 30MB). Response có thêm trường `kind: "audio"` và `duration`. Audio upload lên Cloudinary dùng `resourceType: "video"` (Cloudinary xử lý audio như video).
-- `POST /api/uploads` & `POST /api/admin/media` & `PATCH /api/admin/media/:id` — **Tự sinh `posterUrl` cho video**. Cloudinary trích frame đầu tiên on-the-fly (`so_0s`), nên FE/Mobile luôn có thumbnail mà admin không cần upload ảnh riêng. Các asset VIDEO cũ (đã tạo trước tính năng này) cũng được backfill `posterUrl` khi đọc qua `GET /api/media*`.
 - `POST /api/admin/banners` & `PATCH /api/admin/banners/:id` — **Fix bug**: trước đây các field `subtitle`, `aspectRatio`, `placement`, `ctaLabel`, `ctaLink`, `overlayColor` bị bỏ qua khi lưu. Giờ đã persist đầy đủ.
 
 ### New model

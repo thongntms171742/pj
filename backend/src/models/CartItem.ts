@@ -15,6 +15,12 @@ export interface ICartDesignFrozenConfig {
     y: number;
     rotation?: number;
     scale?: number;
+    /**
+     * Snapshot lớp chiều sâu tại lúc khách gắn phụ kiện.
+     * Copy nguyên vẹn từ `Design.configuration.placements[]` để đơn hàng
+     * render đúng hình khách đã chọn.
+     */
+    depth?: "behind" | "front";
   }>;
 }
 
@@ -41,6 +47,11 @@ const FrozenPlacementSchema = new Schema(
     y: { type: Number, required: true, min: 0, max: 1 },
     rotation: { type: Number, default: 0 },
     scale: { type: Number, default: 1 },
+    depth: {
+      type: String,
+      enum: ["behind", "front"],
+      required: false,
+    },
   },
   { _id: false }
 );

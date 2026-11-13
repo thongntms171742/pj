@@ -18,6 +18,22 @@
 12. [Admin](#admin)
 13. [Health](#health)
 
+### Tài liệu liên quan — Context-aware Compositing (4 lớp, 2026-11-13)
+
+| Tài liệu | Nội dung |
+|---|---|
+| [`BE_HANDOFF_COMPOSITING.md`](BE_HANDOFF_COMPOSITING.md) | Hợp đồng handoff BE cho hệ thống ghép 4 lớp: schema Mongoose đề xuất, payload mẫu, bảng fallback, checklist triển khai |
+| [`ASSET_PREPARATION_GUIDE.md`](ASSET_PREPARATION_GUIDE.md) | Hướng dẫn chuẩn bị ảnh cho đội designer/ops: cây trơn, mask cành trước, PNG phụ kiện, checklist theo nhóm phụ kiện |
+
+**Tóm tắt các field MỚI (đều `optional`, BE chưa triển khai ⇒ FE tự fallback):**
+
+| Nơi | Field | Mục đích |
+|---|---|---|
+| `TreeVariant` | `foregroundMask` | Ảnh cành trước cảnh (PNG alpha) — lớp 4 che phụ kiện `behind` |
+| `Accessory` / `DesignAccessory` | `anchor`, `shadow`, `defaultScale` | Điểm neo, kiểu bóng, kích thước authored |
+| `SlotMap.slots[]` | `depth`, `scaleHint` | Lớp chiều sâu & kích thước gợi ý của slot |
+| `Design.configuration.placements[]` | `depth` | Snapshot lớp chiều sâu tại lúc khách gắn |
+
 ---
 
 ## Quy ước chung
@@ -211,33 +227,7 @@
 
 ---
 
-## Users (Profile & Saved addresses)
-
-### DELETE `/api/users/me`
-
-**Mục đích**: Xoá vĩnh viễn tài khoản người dùng và cascade làm sạch dữ liệu cá nhân (Google Play Data Safety compliance).
-
-**Auth**: Required (Bearer token của chính user).
-
-**Rate Limit**: 1 request / 60 giây / user.
-
-**Request body**: Không có.
-
-**Success (204)**: `204 No Content` (không body).
-
-**Ràng buộc & Hành vi**:
-- **Chặn xoá khi có đơn hàng đang xử lý**: Nếu còn đơn ở trạng thái `PENDING_PAYMENT`, `PAID`, `CONFIRMED`, `PACKING`, API trả `409 ORDER_IN_PROGRESS` kèm danh sách đơn bị chặn trong `details.blockingOrders`.
-- **Scrub PII trong Order**: Giữ lại các trường đối soát tài chính (`orderCode`, `totalAmount`, `status`), nhưng làm sạch thông tin cá nhân (`shippingName`, `shippingPhone`, `shippingAddress`, `pickupInfo`, gán `isAnonymized: true`, `userDeletedAt`).
-- **Cascade xoá**: Xoá `Cart`, `CartItem`, `Design`, `Review`, `Notification`, và document `User` (kèm embedded `addresses[]`).
-- **Idempotency**: Gọi lần thứ hai khi user đã bị xoá sẽ trả `404 NOT_FOUND`.
-
-**Errors**:
-- `401 UNAUTHORIZED` / `TOKEN_INVALID`
-- `404 NOT_FOUND` — User không tồn tại hoặc đã bị xoá (idempotent)
-- `409 ORDER_IN_PROGRESS` — Còn đơn hàng đang xử lý
-- `429 CONFLICT` — Gọi quá nhanh (< 60s)
-
----
+## Users (Saved addresses)
 
 > Embedded trong `User.addresses[]`. Không tách collection riêng.
 
@@ -566,6 +556,141 @@ Trả về danh sách variants phẳng (flat). Giữ lại cho back-compat, KHÔ
 
 ---
 
+### ★ GET `/api/design-accessories` (Tree Customizer — Design Catalog)
+
+**Auth**: Public.
+
+> **Bổ sung 2026-11-13** — endpoint này đã có trong FE (`frontend/src/lib/api.ts` → `getDesignAccessories()`) nhưng **thiếu mô tả trong contract**. Đây là collection phụ kiện riêng cho Customizer: phụ kiện **thiết kế** (không phải hàng hóa thương mại) ⇒ **KHÔNG có tồn kho**, giá tính **theo từng slot** (mỗi placement = 1 slot = 1 lần phí).
+>
+> ✅ **BE đã triển khai** (2026-11-13) — `backend/src/routes/designAccessories.ts`.
+
+**Query params** (optional):
+- `slotType` — lọc theo loại slot, ví dụ `ball`, `bow`, `star`, `garland`.
+
+**Success (200)**:
+```json
+{
+  "accessories": [
+    {
+      "_id": "string",
+      "code": "BAUBLE-RED-01",
+      "name": "Quả châu đỏ",
+      "description": "string",
+      "image": "https://res.cloudinary.com/.../bauble-red.png",
+      "previewImage": "https://res.cloudinary.com/.../bauble-red-hi.png",
+      "decorationPrice": 25000,
+      "slotTypes": ["ball"],
+      "isActive": true,
+      "sortOrder": 10,
+
+      "anchor": { "x": 0.5, "y": 0.06 },
+      "shadow": "contact",
+      "defaultScale": 1.2
+    }
+  ]
+}
+```
+
+**Field mapping** (collection mới ↔ collection cũ) — FE tự chuẩn hoá qua `normalizeDesignAccessory()`:
+
+| Collection mới (`/design-accessories`) | Collection cũ (`/catalog/accessories`) | Ghi chú |
+|---|---|---|
+| `code` | `sku` | Mã phụ kiện |
+| `decorationPrice` | `unitPrice` | Giá cho **1 slot** |
+| *(không có)* | `stock` | Phụ kiện thiết kế ⇒ không giới hạn tồn kho |
+| `image` | `image` | Ảnh PNG alpha được KÉO lên cây |
+
+**★ Field metadata ghép ảnh (optional — bổ sung 2026-11-13):**
+
+| Field | Kiểu | Ý nghĩa | Bắt buộc? |
+|---|---|---|---|
+| `anchor` | `{ x: number; y: number }` | Điểm neo chuẩn hoá **0–1 trong bbox của `image`** — móc treo / nút thắt nơ / tâm vật. Khi render, điểm này được đặt **trùng vị trí slot** ⇒ phụ kiện "móc" vào cành thay vì lơ lửng. | Không (default `{ x: 0.5, y: 0.5 }`) |
+| `shadow` | `'none' \| 'soft' \| 'contact'` | Kiểu bóng: `contact` = có bóng tiếp xúc (ellipse tố dưới vật) + bóng đổ nhẹ; `soft` = chỉ bóng đổ; `none` = không bóng (vật phẳng như dây đèn neon). | Không (default `'soft'`) |
+| `defaultScale` | `number` | Tỉ lệ mặc định khi gắn (0.3–3). Nhân với `scaleHint` của slot ⇒ kích thước authored sát ảnh thật. | Không (default `1`) |
+
+> ⚠️ **`anchor` đo trên `image`, KHÔNG phải `previewImage`.** Nếu 2 ảnh khác tỉ lệ ⇒ neo sẽ lệch.
+
+**Fallback phía FE (đã triển khai):** nếu endpoint trả `404 / 403 / 405` ⇒ FE tự gọi `GET /api/catalog/accessories` (collection cũ). ⇒ **Endpoint này KHÔNG bắt buộc phải có**; thiếu thì FE vẫn chạy bình thường.
+
+---
+
+### ★ GET `/api/catalog/variants/:variantId/slotmap` (Tree Customizer)
+
+**Auth**: Public.
+
+**Success (200)**:
+```json
+{
+  "variantId": "string",
+  "version": 7,
+  "slots": [
+    {
+      "slotId": "ball-left-01",
+      "slotType": "ball",
+      "x": 0.32,
+      "y": 0.44,
+      "radius": 0.05,
+      "z": 10,
+      "allowedAccessoryTypes": ["BAUBLE"],
+      "depth": "behind",
+      "scaleHint": 1.15
+    }
+  ]
+}
+```
+
+**★ Field mới (optional — bổ sung 2026-11-13):**
+
+| Field | Kiểu | Ý nghĩa | Bắt buộc? |
+|---|---|---|---|
+| `depth` | `'behind' \| 'front'` | Lớp chiều sâu của slot. `behind` ⇒ phụ kiện nằm **sau tán cây**, bị cành trước che (chỉ có tác dụng khi variant có `foregroundMask`). `front` ⇒ nằm trước tán cây. | Không (default `'front'`) |
+| `scaleHint` | `number` | Gợi ý kích thước authored của phụ kiện tại slot này (mặc định `1`). Nhân với `defaultScale` của phụ kiện ⇒ kích thước thực tế trên cây. | Không (default `1`) |
+
+> **Lưu ý về `z`:** trước đây `z` là field không ai đọc. Từ 2026-11-13 nó là **thứ tự vẽ thật** — trong mỗi nhóm lớp (`behind` / `front`), slot có `z` nhỏ hơn được vẽ trước. SlotMap cũ (không khai `z`) vẫn hợp lệ.
+
+---
+
+### ★ GET `/api/catalog/customizer/base-trees` (Tree Customizer)
+
+**Auth**: Public.
+
+Trả về danh sách cây **BASE** (ảnh trơn, có SlotMap đang phát hành). Cây thương mại (`isCustomizerBase !== true`) không xuất hiện.
+
+**Success (200)**:
+```json
+{
+  "baseTrees": [
+    {
+      "_id": "string",
+      "sku": "TREE-GREEN-M",
+      "size": "M",
+      "name": "Cây thông Noel trang trí",
+      "price": 249000,
+      "stockQuantity": 80,
+      "bareImage": "https://res.cloudinary.com/.../tree-green-m.png",
+      "foregroundMask": "https://res.cloudinary.com/.../tree-green-m-mask.png",
+      "productId": "string",
+      "productName": "string",
+      "codeId": "string",
+      "codeName": "string",
+      "hasSlotMap": true,
+      "slotCount": 24,
+      "slotMapVersion": 7
+    }
+  ]
+}
+```
+
+**★ Field mới (optional — bổ sung 2026-11-13):**
+
+| Field | Kiểu | Ý nghĩa | Bắt buộc? |
+|---|---|---|---|
+| `foregroundMask` | `string` | URL ảnh **cành tiền cảnh** (PNG alpha) — lớp overlay che phụ kiện `depth: 'behind'` ⇒ tạo cảm giác phụ kiện nằm TRONG tán cây. **Phải cùng pixel size với `bareImage`** và **KHÔNG** áp `e_background_removal` khi phục vụ (đây là PNG đã cắt sẵn). | Không (thiếu ⇒ không có lớp che ⇒ hành vi cũ) |
+
+**Fallback phía FE (đã triển khai):** nếu endpoint trả `404 / 403 / 405` ⇒ FE gọi `GET /api/catalog/tree-products` và lọc `isCustomizerBase === true`.
+
+---
+
 ### GET `/api/catalog/presets`
 
 **Auth**: Public.
@@ -726,6 +851,54 @@ Same as `POST /api/catalog/quote`. Alias cho editor UX.
 
 ---
 
+### ★ `Design.configuration` — Tree Customizer (bổ sung 2026-11-13)
+
+`POST /api/designs`, `PATCH /api/designs/:id` và `POST /api/designs/quote` nhận `configuration` theo shape sau (thay cho `config` cũ khi dùng Customizer):
+
+```json
+{
+  "configuration": {
+    "configVersion": 1,
+    "slotMapVersion": 7,
+    "variantSnapshot": {
+      "variantId": "string",
+      "sku": "TREE-GREEN-M",
+      "name": "Cây thông Noel trang trí",
+      "price": 249000
+    },
+    "placements": [
+      {
+        "slotId": "ball-left-01",
+        "accessoryId": "string",
+        "x": 0.32,
+        "y": 0.44,
+        "rotation": 0,
+        "scale": 1,
+        "depth": "behind"
+      }
+    ]
+  }
+}
+```
+
+**★ Field mới trong `placements[]` (optional):**
+
+| Field | Kiểu | Ý nghĩa | Bắt buộc? |
+|---|---|---|---|
+| `depth` | `'behind' \| 'front'` | **Snapshot lớp chiều sâu tại lúc khách gắn phụ kiện.** `undefined` ⇒ FE fallback về `depth` của slot trong SlotMap hiện tại. | Không |
+
+**Vì sao cần snapshot:** admin có thể đổi `depth` của slot **sau khi** khách đã đặt hàng. Nếu không snapshot, bản đơn sẽ render khác hình khách đã chọn ⇒ sai ảnh giao hàng.
+
+**Yêu cầu cho BE:**
+
+1. Lưu mảng `placements` **nguyên vẹn** (kể cả field lạ như `depth`) — không cần validate.
+2. Khi tạo `OrderItem.frozenConfig` / đóng băng cấu hình trong giỏ, **copy nguyên vẹn** `placements[]` ⇒ giữ `depth`.
+3. `depth` **không ảnh hưởng giá** — logic tính phí trang trí giữ nguyên (mỗi placement = 1 slot = 1 lần phí).
+
+> Toàn bộ hợp đồng chi tiết (kèm schema Mongoose đề xuất & checklist): [`BE_HANDOFF_COMPOSITING.md`](BE_HANDOFF_COMPOSITING.md)
+
+---
+
 ### GET `/api/designs/mine`
 
 **Auth**: Required.
@@ -832,72 +1005,6 @@ Same as `POST /api/catalog/quote`. Alias cho editor UX.
 - `404 DESIGN_NOT_FOUND`
 - `403 FORBIDDEN` — src private + không phải owner/admin
 - `400 DESIGN_CONFIG_INVALID`
-
----
-
-### POST `/api/designs/upload-room`
-
-**Auth**: Required.
-
-**Description**: Upload ảnh phòng chụp thật của khách lên Cloudinary để làm ảnh nền căn phòng cho bản thiết kế.
-
-**Request**: `multipart/form-data`
-- Field `roomImage`: File ảnh (JPEG, PNG, WebP — tối đa 8 MB).
-
-**Success (200)**:
-```json
-{
-  "success": true,
-  "data": {
-    "roomImageUrl": "https://res.cloudinary.com/.../rooms/room_123.jpg",
-    "roomImagePublicId": "buildyourchristmas/room-designs/rooms/room_123"
-  }
-}
-```
-
-**Errors**:
-- `400 MISSING_FIELD` (Thiếu file `roomImage`)
-- `400 FILE_TOO_LARGE` (Ảnh vượt quá 8 MB)
-- `415 UNSUPPORTED_MEDIA_TYPE` (Chỉ chấp nhận JPEG, PNG, WebP)
-
----
-
-### POST `/api/designs/:id/result`
-
-**Auth**: Required (owner/admin).
-
-**Description**: Client-side composite upload. Client tự ghép cây thông vào ảnh nền căn phòng trên Canvas/Skia rồi upload ảnh kết quả lên Cloudinary. Server cập nhật thiết kế sang trạng thái `AI_COMPLETED` tức thì.
-
-**Request**: `multipart/form-data`
-- Field `compositeImage` *(bắt buộc)*: File ảnh đã ghép (JPEG, PNG, WebP — tối đa 8 MB).
-- Field `clientPrompt` *(tùy chọn)*: Ghi chú vị trí hoặc mô tả phối cảnh của khách.
-
-**Success (200)**:
-```json
-{
-  "success": true,
-  "data": {
-    "designId": "string",
-    "status": "AI_COMPLETED",
-    "imageUrl": "https://res.cloudinary.com/.../results/result_123.png",
-    "imagePublicId": "buildyourchristmas/room-designs/results/result_123",
-    "compositeSource": "CLIENT"
-  }
-}
-```
-
-**Errors**:
-- `400 COMPOSITE_IMAGE_REQUIRED` (Thiếu file `compositeImage`)
-- `400 FILE_TOO_LARGE`
-- `403 FORBIDDEN`
-- `404 DESIGN_NOT_FOUND`
-- `415 UNSUPPORTED_MEDIA_TYPE`
-
----
-
-### POST `/api/designs/:id/generate-image`
-
-> ⚠️ **DEPRECATED**: Endpoint server-side render cũ. Mặc định trả về mã lỗi 410 `ENDPOINT_GONE`. Hãy chuyển sang ghép ảnh tại Client và gửi kết quả qua `POST /api/designs/:id/result`.
 
 ---
 
@@ -1607,6 +1714,176 @@ hoặc
 
 **Errors**: `404 ACCESSORY_NOT_FOUND`
 
+#### ★ Metadata 3D (mở rộng 2026-11-11)
+
+`POST /api/admin/accessories` và `PATCH /api/admin/accessories/:id` **nhận thêm 4 field optional**:
+
+| Field | Kiểu | Ý nghĩa | Bắt buộc? |
+|---|---|---|---|
+| `previewImage` | `string` | URL ảnh preview chất lượng cao (render từ model 3D hoặc chụp tay) | Không |
+| `model3dUrl` | `string` | URL file model 3D (`.glb` / `.gltf`) | Không |
+| `model3dScale` | `number` | Tỉ lệ hiển thị mặc định của model 3D | Không (default `1`) |
+| `model3dRotation` | `number` | Góc xoay hiển thị mặc định của model 3D (độ) | Không (default `0`) |
+
+**Quy tắc quan trọng — KHÔNG đánh đồng `image` với `previewImage`:**
+
+- `image` = ảnh 2D dùng khi **KÉO** phụ kiện trong kệ ⇒ **BẮT BUỘC**, thiếu ⇒ khách hàng không thấy phụ kiện trong kệ.
+- `previewImage` = ảnh preview chất lượng cao ⇒ **tuỳ chọn**, KHÔNG thay thế được `image`.
+- `model3dUrl` = URL file model 3D ⇒ **tuỳ chọn** ở phase này.
+
+**GET `/api/design-accessories`** (endpoint public của Customizer) trả về 4 field trên; khi thiếu thì FE tự áp dụng fallback `model3dScale = 1`, `model3dRotation = 0` ⇒ **BE cũ (chưa có schema 3D) vẫn chạy bình thường, không lỗi**.
+
+**Lưu ý tải trọng**: `model3dUrl` **không** được dùng ở phía khách hàng trong phase này ⇒ không tăng tải (bundle/thời gian tải) cho người dùng. Chỉ trang Admin đọc field này để preview & kiểm tra asset.
+
+---
+
+#### ★ Metadata ghép ảnh — context-aware compositing (bổ sung 2026-11-13)
+
+`POST /api/admin/accessories` và `PATCH /api/admin/accessories/:id` **nhận thêm 3 field optional**:
+
+| Field | Kiểu | Ý nghĩa | Bắt buộc? |
+|---|---|---|---|
+| `anchor` | `{ x: number; y: number }` | **Điểm neo** chuẩn hoá 0–1 trong bbox của ảnh `image` — điểm sẽ **móc** vào cành (móc treo quả châu, nút thắt nơ, tâm vật). | Không (default `{ x: 0.5, y: 0.5 }`) |
+| `shadow` | `'none' \| 'soft' \| 'contact'` | **Kiểu bóng**: `contact` = bóng tiếp xúc (ellipse tố dưới vật) + bóng đổ nhẹ; `soft` = chỉ bóng đổ; `none` = không bóng. | Không (default `'soft'`) |
+| `defaultScale` | `number` | **Scale mặc định** khi gắn (0.3–3). Nhân với `scaleHint` của slot ⇒ kích thước authored sát ảnh thật. | Không (default `1`) |
+
+**Ví dụ payload PATCH:**
+
+```json
+{
+  "anchor": { "x": 0.5, "y": 0.06 },
+  "shadow": "contact",
+  "defaultScale": 1.2
+}
+```
+
+**⚠️ Yêu cầu quan trọng — `PATCH` phải hỗ trợ PARTIAL UPDATE:** FE gửi **từng field riêng** (mỗi lần admin sửa 1 input ⇒ 1 request PATCH với đúng 1 field). Nếu BE `Object.assign` toàn bộ model ⇒ các field khác bị xoá. Chỉ `set` những field có mặt trong body.
+
+**Giá trị `anchor` gợi ý theo loại phụ kiện:**
+
+| Loại | `anchor` | `shadow` |
+|---|---|---|
+| Quả châu (móc treo ở trên) | `{ x: 0.5, y: 0.06 }` | `contact` |
+| Nơ satin (nút thắt ở giữa) | `{ x: 0.5, y: 0.45 }` | `contact` |
+| Quả thông / bông (tâm) | `{ x: 0.5, y: 0.5 }` | `contact` |
+| Ngôi sao đỉnh | `{ x: 0.5, y: 0.5 }` | `soft` |
+| Dây đèn neon (vật phẳng) | `{ x: 0.5, y: 0.5 }` | `none` |
+
+> Hướng dẫn chi tiết cho đội ảnh: [`ASSET_PREPARATION_GUIDE.md`](ASSET_PREPARATION_GUIDE.md)
+
+---
+
+### ★ Tree variants — `foregroundMask` (bổ sung 2026-11-13)
+
+#### PATCH `/api/admin/tree-variants/:id`
+
+**Request** (partial — chỉ gửi field cần đổi):
+```json
+{
+  "foregroundMask": "https://res.cloudinary.com/<cloud>/image/upload/v1730000000/tree-green-m-mask.png"
+}
+```
+
+| Field | Kiểu | Ý nghĩa | Bắt buộc? |
+|---|---|---|---|
+| `foregroundMask` | `string` | URL ảnh **cành tiền cảnh** (PNG alpha) — lớp overlay che phụ kiện `depth: 'behind'` ⇒ tạo cảm giác phụ kiện nằm TRONG tán cây. | Không (thiếu ⇒ không có lớp che ⇒ hành vi cũ) |
+
+**Quy tắc bắt buộc cho `foregroundMask`:**
+
+1. **Cùng pixel size (W×H) với `bareImage`** của cùng variant.
+2. Phải là **PNG có kênh alpha** (đã khoét sẵn).
+3. **KHÔNG** áp transformation `e_background_removal` khi phục vụ ảnh này (khác với `bareImage`) — làm vậy sẽ phá hỏng alpha.
+4. Chồng khít với cành ở `bareImage` (lệch 1–2 px là chấp nhận được).
+
+**Success (200)**:
+```json
+{ "treeVariant": { "_id": "string", "bareImage": "...", "foregroundMask": "..." } }
+```
+
+**Errors**: `404 TREE_VARIANT_NOT_FOUND`, `403 FORBIDDEN`
+
+---
+
+### ★ SlotMap — `depth` & `scaleHint` (bổ sung 2026-11-13)
+
+#### POST `/api/admin/tree-variants/:variantId/slotmaps/publish`
+
+**Request**:
+```json
+{
+  "slots": [
+    {
+      "slotId": "ball-left-01",
+      "slotType": "ball",
+      "x": 0.32,
+      "y": 0.44,
+      "radius": 0.05,
+      "z": 10,
+      "allowedAccessoryTypes": ["BAUBLE"],
+      "depth": "behind",
+      "scaleHint": 1.15
+    }
+  ]
+}
+```
+
+**★ Field mới (optional):**
+
+| Field | Kiểu | Ý nghĩa | Bắt buộc? |
+|---|---|---|---|
+| `depth` | `'behind' \| 'front'` | Lớp chiều sâu của slot. `behind` ⇒ phụ kiện nằm **sau tán cây**, bị cành trước che (chỉ có tác dụng khi variant có `foregroundMask`). `front` ⇒ nằm trước tán cây. | Không (default `'front'`) |
+| `scaleHint` | `number` | Gợi ý kích thước authored của phụ kiện tại slot này (mặc định `1`). Nhân với `defaultScale` của phụ kiện ⇒ kích thước thực tế trên cây. | Không (default `1`) |
+
+**Yêu cầu cho BE:**
+
+1. Persist 2 field mới khi publish.
+2. **Tăng `version`** của SlotMap sau mỗi lần publish (để design đã lưu biết cần re-validate).
+3. Validate nhẹ: `depth` sai giá trị ⇒ bỏ qua field (không reject request); `scaleHint` không phải số > 0 ⇒ bỏ qua.
+4. Trả lại **đầy đủ** `depth` / `scaleHint` ở cả endpoint public (`GET /api/catalog/variants/:variantId/slotmap`) và admin (`GET /api/admin/tree-variants/:variantId/slotmaps`).
+
+**Success (200)**:
+```json
+{ "slotMap": { "variantId": "string", "version": 8, "slots": [/* đã lưu */] } }
+```
+
+---
+
+### ★ Upload file nhị phân (model 3D `.glb` / `.gltf`)
+
+#### POST `/api/uploads`
+
+Hiện tại endpoint này theo [FE_MEDIA_INTEGRATION_GUIDE.md](FE_MEDIA_INTEGRATION_GUIDE.md) chỉ xử lý **image / audio / video**.
+
+**Yêu cầu mới cho phase 3D — BE cần hỗ trợ `resource_type: 'raw'`**:
+
+```
+POST /api/uploads
+Content-Type: multipart/form-data
+
+file: <binary .glb hoặc .gltf>
+resource_type: "raw"        // ← field MỚI (optional, mặc định "auto")
+```
+
+**Kỳ vọng khi `resource_type: "raw"`**:
+
+```json
+{
+  "url": "https://res.cloudinary.com/<cloud>/raw/upload/v1234/abc123/model.glb",
+  "publicId": "raw/upload/v1234/abc123/model",
+  "format": "glb",
+  "size": 2097152,
+  "kind": "raw"
+}
+```
+
+**Phương án thay thế** (nếu BE chưa muốn đụng `resource_type`): tạo endpoint riêng `POST /api/uploads/model` với cùng shape trả về.
+
+**Fallback phía FE (đã triển khai)**: nếu BE từ chối upload `.glb`, Admin sẽ hiện ô **"Dán URL model 3D"** kèm thông báo rõ ràng thay vì báo lỗi chung chung. Khi dùng `.gltf` (có file phụ `.bin` / texture), **bắt buộc bật CORS** trên nơi lưu trữ, nếu không FE sẽ báo lỗi rõ ràng:
+
+> "model dùng external dependency không tải được, hãy dùng .glb gói trọn"
+
+**Khuyến nghị**: dùng `.glb` (gói trọn) để không phụ thuộc file phụ.
+
 ---
 
 ### Presets (TreeDesign với `isPreset: true`)
@@ -1870,397 +2147,6 @@ hoặc
 - `400 MISSING_FIELD` (Thiếu file trong request)
 - `400 FILE_TOO_LARGE` (Ảnh > 5MB hoặc Video > 30MB)
 - `415 UNSUPPORTED_MEDIA_TYPE` (Chỉ chấp nhận PNG, JPG, WebP, SVG hoặc MP4)
-
----
-
-## Chat (Hybrid AI & Human Support — v4 / TDD v1.0)
-
-> **Namespace Socket.IO**: `/chat`
-> **Base REST**: `/api/chat` (user) · `/api/chat/admin` (admin) · `/api/chat/admin/copilot` · `/api/chat/admin/knowledge`
-> **Auth**: `Authorization: Bearer <token>` — **BẮT BUỘC** (không còn guest mode).
-> **Tài liệu đầy đủ**: `backend/docs/CHAT_API.md` (REST) · `backend/docs/CHAT_HYBRID_API.md` (kiến trúc) · `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md` (FE).
->
-> ⚠️ **BREAKING CHANGE v3 → v4:** toàn bộ chat cũ đã bị xoá & code lại từ đầu.
-
-### Bảng trạng thái
-
-| Khái niệm | Giá trị |
-| :--- | :--- |
-| `status` (vòng đời) | `open` \| `pending` \| `closed` |
-| `supportMode` (ai phục vụ) | `ai` \| `waiting_admin` \| `human` \| `ai_assisted` |
-| `senderType` | `user` \| `admin` \| `ai` \| `system` |
-| `visibility` | `public` \| `internal` (user **không bao giờ** thấy) |
-| `messageType` | `text` \| `image` \| `file` \| `system` |
-
-### Quy tắc chung
-
-| Quy tắc | Chi tiết |
-| :--- | :--- |
-| **Idempotency** | Gửi tin kèm `clientMessageId` (UUID). Gửi lại cùng id ⇒ `200` + `duplicate: true`, **không** tạo tin mới. |
-| **Optimistic lock** | Endpoint mutate nhận `expectedVersion`. Stale ⇒ `409 CHAT_VERSION_CONFLICT` ⇒ **phải refetch**. |
-| **Pagination tin nhắn** | Cursor-based: `?before=<id>` (tin cũ hơn) hoặc `?after=<id>` (tin mới hơn). **Không** dùng `page`. |
-| **Đóng hội thoại** | `closed` ⇒ không nhận tin mới (`409 CHAT_CONVERSATION_CLOSED`). Mở lại trong 24h. |
-
-### POST `/api/chat/conversations`
-
-**Auth**: Required.
-
-**Query**: `forceNew=true` (tuỳ chọn) — tạo conversation mới thay vì lấy lại conversation active.
-
-**Success (201)**:
-```json
-{
-  "conversation": {
-    "id": "string (ObjectId)",
-    "userId": "string",
-    "status": "open",
-    "supportMode": "ai",
-    "assignedAdminId": null,
-    "assignedAdminName": null,
-    "aiConfig": {
-      "model": "gemini-2.5-flash",
-      "promptVersion": "v1",
-      "intent": "",
-      "intentConfidence": 0,
-      "sentiment": "",
-      "enabled": true
-    },
-    "lastMessageId": null,
-    "lastMessageAt": null,
-    "unreadCount": { "user": 0, "admin": 0 },
-    "version": 1,
-    "closedAt": null,
-    "closedBy": null,
-    "createdAt": "string (ISO)",
-    "updatedAt": "string (ISO)"
-  }
-}
-```
-
----
-
-### GET `/api/chat/conversations`
-
-**Auth**: Required.
-
-**Query**: `page=1&limit=20&status=all|open|pending|closed`
-
-**Success (200)**:
-```json
-{
-  "items": [ /* ConversationDto[] */ ],
-  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1, "hasNext": false, "hasPrev": false }
-}
-```
-
----
-
-### GET `/api/chat/conversations/unread-count`
-
-**Auth**: Required. Tổng số tin nhắn chưa đọc của user.
-
-**Success (200)**:
-```json
-{ "unreadCount": 3 }
-```
-
----
-
-### GET `/api/chat/conversations/:id`
-
-**Auth**: Required (chủ hội thoại hoặc Admin).
-
-**Success (200)**:
-```json
-{ "conversation": { /* ConversationDto */ } }
-```
-
----
-
-### GET `/api/chat/conversations/:id/messages`
-
-**Auth**: Required (chủ hội thoại hoặc Admin).
-
-**Query**:
-- `limit`: Số tin nhắn (mặc định 20).
-- `before`: ID tin nhắn cũ hơn — để cuộn ngược lên tải thêm (cursor pagination).
-- `after`: ID tin nhắn mới hơn — để poll tin mới.
-
-**Success (200)**:
-```json
-{
-  "items": [
-    {
-      "id": "string (ObjectId)",
-      "conversationId": "string",
-      "senderId": "string | null",
-      "senderType": "user | admin | ai | system",
-      "content": "string",
-      "messageType": "text",
-      "visibility": "public",
-      "attachments": [],
-      "aiMetadata": null,
-      "clientMessageId": "string | null",
-      "userReadAt": "string (ISO) | null",
-      "adminReadAt": "string (ISO) | null",
-      "createdAt": "string (ISO)",
-      "updatedAt": "string (ISO)"
-    }
-  ],
-  "pagination": { "hasMore": false, "nextCursor": "string | null" }
-}
-```
-
-**Errors**:
-- `400 CHAT_INVALID_ID`
-- `403 CHAT_FORBIDDEN`
-- `404 CHAT_CONVERSATION_NOT_FOUND`
-
----
-
-### POST `/api/chat/conversations/:id/messages`
-
-**Auth**: Required. Gửi tin nhắn qua REST (dự phòng khi Socket mất kết nối).
-
-**Request**:
-```json
-{
-  "content": "string (1 - 5000 ký tự)",
-  "messageType": "text | image | file | system",
-  "attachments": [],
-  "clientMessageId": "string (UUID — khuyến nghị mạnh)"
-}
-```
-
-**Success (200)**:
-```json
-{
-  "message": { /* MessageDto */ },
-  "acknowledged": true,
-  "duplicate": false
-}
-```
-
-**Errors**:
-- `400 CHAT_EMPTY_CONTENT`
-- `400 CHAT_MESSAGE_TOO_LONG`
-- `403 CHAT_FORBIDDEN`
-- `404 CHAT_CONVERSATION_NOT_FOUND`
-- `409 CHAT_CONVERSATION_CLOSED`
-- `429 CHAT_RATE_LIMITED`
-
----
-
-### POST `/api/chat/conversations/:id/read`
-
-**Auth**: Required. Đánh dấu đã đọc tin nhắn trong hội thoại.
-
-**Success (200)**:
-```json
-{ "markedCount": 3 }
-```
-
----
-
-### POST `/api/chat/conversations/:id/close`
-
-**Auth**: Required. Đóng hội thoại.
-
-**Success (200)**:
-```json
-{ "conversation": { /* ConversationDto */ } }
-```
-
----
-
-### POST `/api/chat/conversations/:id/reopen`
-
-**Auth**: Required. Mở lại hội thoại đã đóng (trong vòng 24h).
-
-**Success (200)**:
-```json
-{ "conversation": { /* ConversationDto */ } }
-```
-
-**Errors**:
-- `409 CHAT_REOPEN_WINDOW_EXPIRED`
-
----
-
-### POST `/api/chat/conversations/:id/handoff`
-
-**Auth**: Required. Yêu cầu chuyển nhân viên tư vấn.
-
-**Request**:
-```json
-{ "reason": "string (optional)", "priority": "low | normal | high | urgent" }
-```
-
-**Success (201)**:
-```json
-{
-  "handoff": { /* HandoffRequestDto */ },
-  "conversation": { /* ConversationDto */ },
-  "resolvedByAi": false
-}
-```
-
-**Errors**:
-- `404 CHAT_HANDOFF_NOT_FOUND`
-- `409 CHAT_HANDOFF_ALREADY_EXISTS`
-- `409 CHAT_HANDOFF_INVALID_TRANSITION`
-
----
-
-### GET `/api/chat/conversations/:id/handoff`
-
-**Auth**: Required. Trạng thái handoff hiện tại.
-
-**Success (200)**:
-```json
-{ "handoff": { /* HandoffRequestDto */ } }
-```
-
----
-
-### DELETE `/api/chat/conversations/:id/handoff`
-
-**Auth**: Required. User huỷ yêu cầu handoff.
-
-**Success (200)**:
-```json
-{ "handoff": { /* HandoffRequestDto */ } }
-```
-
----
-
-### Admin Chat Endpoints
-
-Tất cả yêu cầu `role = admin`. Base: `/api/chat/admin`.
-
-#### GET `/api/chat/admin/conversations`
-- **Query**: `page=1&limit=20&status=...&supportMode=...&scope=all|mine|unassigned`
-- **Success (200)**: `{ "items": [ /* AdminConversationListItemDto[] */ ], "pagination": {...} }`
-
-#### GET `/api/chat/admin/conversations/:id`
-- **Success (200)**: `{ "conversation": { /* ConversationDto */ } }`
-
-#### GET `/api/chat/admin/conversations/:id/messages`
-- **Query**: `limit=20&before=<id>`
-- **Success (200)**: `{ "items": [ /* MessageDto[] — gồm cả tin internal */ ], "pagination": {...} }`
-
-#### POST `/api/chat/admin/conversations/:id/messages`
-- **Body**: `{ "content": "...", "messageType": "text", "visibility": "public | internal", "clientMessageId": "..." }`
-- **Success (200)**: `{ "message": { /* MessageDto */ }, "acknowledged": true, "duplicate": false }`
-- **Lưu ý**: `visibility: "internal"` ⇒ chỉ admin thấy, user **không bao giờ** nhận qua socket.
-
-#### POST `/api/chat/admin/conversations/:id/read`
-- **Success (200)**: `{ "markedCount": 3 }`
-
-#### POST `/api/chat/admin/conversations/:id/assign`
-- **Description**: Gán admin phụ trách (chuyển `supportMode` → `human`).
-- **Success (200)**: `{ "conversation": { /* ConversationDto */ } }`
-
-#### POST `/api/chat/admin/conversations/:id/accept`
-- **Description**: Nhận handoff từ hàng đợi (chuyển `supportMode` → `human`).
-- **Success (200)**: `{ "conversation": { /* ConversationDto */ }, "handoff": { /* HandoffRequestDto */ } }`
-
-#### POST `/api/chat/admin/conversations/:id/close`
-- **Success (200)**: `{ "conversation": { /* ConversationDto */ } }`
-
-#### POST `/api/chat/admin/conversations/:id/reopen`
-- **Success (200)**: `{ "conversation": { /* ConversationDto */ } }`
-
-#### GET `/api/chat/admin/handoffs`
-- **Query**: `status=waiting|accepted|resolved|cancelled&priority=...&page=1&limit=20`
-- **Success (200)**: `{ "items": [ /* HandoffRequestDto[] */ ], "pagination": {...} }`
-
-#### POST `/api/chat/admin/conversations/:id/handoff/assign`
-- **Description**: Gán handoff cho 1 admin cụ thể.
-- **Success (200)**: `{ "handoff": { /* HandoffRequestDto */ } }`
-
-#### POST `/api/chat/admin/conversations/:id/handoff/resolve`
-- **Description**: Đóng handoff (conversation quay lại `ai` nếu AI còn khả dụng).
-- **Success (200)**: `{ "handoff": { /* HandoffRequestDto */ }, "conversation": { /* ConversationDto */ } }`
-
-#### GET `/api/chat/admin/unread-count`
-- **Success (200)**: `{ "unreadCount": 5 }`
-
----
-
-### AI Copilot Endpoints
-
-Base: `/api/chat/admin/copilot`. Yêu cầu `role = admin`.
-
-#### GET `/api/chat/admin/copilot/conversations/:id/summary`
-- **Success (200)**: `{ "summary": { "text": "...", "sentiment": "neutral", "intent": "...", "keyPoints": [], "suggestedAction": "..." } }`
-
-#### POST `/api/chat/admin/copilot/conversations/:id/suggest-reply`
-- **Body**: `{ "instruction": "string (optional — chỉ dẫn bổ sung cho AI, VD: \"hỏi về size\")" }`
-- **Success (200)**: `{ "suggestion": { "text": "...", "alternatives": [] } }`
-
-#### POST `/api/chat/admin/copilot/conversations/:id/note`
-- **Body**: `{ "note": "string (optional — có `note` thì lưu nguyên văn, không có thì AI tóm tắt)" }`
-- **Success (201)**: `{ "note": { /* MessageDto — visibility internal */ } }`
-
-#### GET `/api/chat/admin/copilot/conversations/:id/context`
-- **Success (200)**: `{ "context": { "conversation": {...}, "messages": [...], "handoff": {...} | null, "customer": {...} } }`
-
-#### GET `/api/chat/admin/copilot/policies`
-- **Query**: `query=<keyword>&category=<category>&limit=10`
-- **Success (200)**: `{ "results": [ { "id": "...", "title": "...", "category": "...", "excerpt": "..." } ], "count": 3 }`
-
----
-
-### Knowledge Base Endpoints
-
-Base: `/api/chat/admin/knowledge`. Yêu cầu `role = admin`.
-
-#### GET `/api/chat/admin/knowledge`
-- **Query**: `page=1&limit=20&q=<keyword>&category=<category>&status=draft|published|archived`
-- **Success (200)**: `{ "items": [ /* KnowledgeDocumentDto[] */ ], "pagination": {...} }`
-
-#### GET `/api/chat/admin/knowledge/:id`
-- **Success (200)**: `{ "document": { /* KnowledgeDocumentDto */ } }`
-
-#### POST `/api/chat/admin/knowledge`
-- **Body**: `{ "title": "...", "content": "...", "category": "...", "summary": "...", "keywords": [], "tags": [], "status": "published", "priority": 0, "isActive": true }`
-- **Success (201)**: `{ "document": { /* KnowledgeDocumentDto */ } }`
-
-#### PUT `/api/chat/admin/knowledge/:id`
-- **Body**: các field trên (chỉ truyền field cần đổi).
-- **Success (200)**: `{ "document": { /* KnowledgeDocumentDto */ } }`
-
-#### DELETE `/api/chat/admin/knowledge/:id`
-- **Mô tả**: Xoá **mềm** ⇒ đặt `status = "archived"`, `isActive = false` (không mất lịch sử).
-- **Success (200)**: `{ "document": { /* KnowledgeDocumentDto */ } }`
-
----
-
-### Socket.IO Events (namespace `/chat`)
-
-**Client → Server** (mọi event có `ack` callback trả `{ ok, data }` hoặc `{ ok, error }`):
-
-| Event | Payload | Mô tả |
-| :--- | :--- | :--- |
-| `conversation:subscribe` | `{ conversationId }` | Vào room conversation để nhận realtime. |
-| `conversation:unsubscribe` | `{ conversationId }` | Rời room. |
-| `message:send` | `{ conversationId, content, messageType?, attachments?, clientMessageId? }` | Gửi tin nhắn mới. |
-| `message:typing` | `{ conversationId, isTyping }` | Báo đang gõ. |
-| `conversation:read` | `{ conversationId }` | Đánh dấu đã đọc. |
-
-**Server → Client:**
-
-| Event | Payload | Mô tả |
-| :--- | :--- | :--- |
-| `chat:connected` | `{ userId, roles }` | Xác nhận kết nối. |
-| `message:new` | `{ conversationId, message, echo }` | Tin nhắn mới (`echo: true` ⇒ của chính mình). |
-| `conversation:updated` | `{ conversationId, conversation }` | Trạng thái/mode/version conversation đổi. |
-| `message:typing` | `{ conversationId, userId, isTyping }` | Ai đó đang gõ. |
-| `conversation:unread` | `{ conversationId, unreadCount: { user, admin } }` | Unread count thay đổi. |
-| `handoff:updated` | `{ conversationId, handoff, status }` | Handoff thay đổi trạng thái. |
-| `ai:status` | `{ conversationId, status, message? }` | AI đang xử lý / đã trả lời / đã escalate. |
-| `chat:error` | `{ code, message }` | Lỗi chung. |
 
 ---
 

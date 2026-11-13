@@ -26,6 +26,8 @@ export interface CartItemConfig {
       y: number;
       rotation?: number;
       scale?: number;
+      /** Snapshot lớp chiều sâu. */
+      depth?: "behind" | "front";
     }>;
   } | null;
 }
@@ -84,6 +86,7 @@ export function cartItemToDto(
                 y: Number(p.y),
                 rotation: p.rotation ?? 0,
                 scale: p.scale ?? 1,
+                ...(p.depth ? { depth: p.depth } : {}),
               })),
             },
           }

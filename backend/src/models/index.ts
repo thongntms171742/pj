@@ -14,10 +14,17 @@ export type { ITreeProduct } from "./TreeProduct";
 export { TreeCode } from "./TreeCode";
 export type { ITreeCode } from "./TreeCode";
 export { Accessory } from "./Accessory";
-export type { IAccessory, AccessorySlotType } from "./Accessory";
+export type {
+  IAccessory,
+  AccessorySlotType,
+  AccessoryShadow,
+  IAccessoryAnchor,
+} from "./Accessory";
 export { SlotMap } from "./SlotMap";
-export type { ISlotMap, ISlotDefinition } from "./SlotMap";
+export type { ISlotMap, ISlotDefinition, SlotDepth } from "./SlotMap";
 export { ACCESSORY_SLOT_TYPES } from "./Accessory";
+export { ACCESSORY_SHADOW_TYPES } from "./Accessory";
+export { SLOT_DEPTH_TYPES } from "./SlotMap";
 export * from "./Design";
 export * from "./Cart";
 export * from "./CartItem";

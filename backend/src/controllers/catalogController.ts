@@ -8,6 +8,7 @@ import { loadGroupedTreeCatalog } from "../services/catalogService";
 import {
   getPublishedSlotMap,
   listAccessories,
+  listDesignAccessories,
 } from "../services/customizerService";
 import { DELIVERY_OPTIONS, DECORATION_FEE_BY_SIZE, SHIPPING_FEE } from "../config/business";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
@@ -73,6 +74,8 @@ export const getVariantsForCode = async (
         diameterCm: v.diameterCm,
         description: v.description || "",
         bareImage: v.bareImage,
+        // Lớp 4 — cành trước cảnh (optional). Thiếu ⇒ không có lớp che.
+        foregroundMask: v.foregroundMask || "",
         price: v.price,
         stockQuantity: v.stockQuantity,
       })),
@@ -97,6 +100,31 @@ export const getAccessories = async (
     ok(res, { accessories });
   } catch (err) {
     handleInternalError(res, err, "[catalog] getAccessories error");
+  }
+};
+
+// ── GET /api/design-accessories — Tree Customizer (public) ──────────────────
+// Collection phụ kiện riêng cho Customizer: phụ kiện THIẾT KẾ ⇒ không có
+// tồn kho, giá tính theo từng slot.
+//
+// FE fallback: nếu endpoint trả 404/403/405 ⇒ FE tự gọi
+// `GET /api/catalog/accessories` (collection cũ). ⇒ Endpoint này KHÔNG bắt
+// buộc phải có, nhưng nếu có thì trả đủ field metadata ghép ảnh.
+//
+// Query: ?slotType=ball (lọc theo loại slot)
+export const getDesignAccessories = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const slotType =
+      typeof req.query.slotType === "string" && req.query.slotType.trim()
+        ? req.query.slotType.trim()
+        : undefined;
+    const accessories = await listDesignAccessories(slotType);
+    ok(res, { accessories });
+  } catch (err) {
+    handleInternalError(res, err, "[catalog] getDesignAccessories error");
   }
 };
 
@@ -190,6 +218,9 @@ export const getCustomizerBaseTrees = async (
         price: v.price,
         stockQuantity: v.stockQuantity,
         bareImage: v.bareImage || "",
+        // Lớp 4 — cành trước cảnh (PNG alpha, cùng pixel size bareImage).
+        // Thiếu ⇒ không có lớp che ⇒ mọi phụ kiện nằm trước cây (hành vi cũ).
+        foregroundMask: v.foregroundMask || "",
         productId: product ? String(product._id) : "",
         productName: product?.name || "Cây base",
         codeId: code ? String(code._id) : "",
@@ -225,6 +256,7 @@ export const getTrees = async (_req: Request, res: Response): Promise<void> => {
         description: t.description,
         images: t.images,
         bareImage: t.bareImage,
+        foregroundMask: t.foregroundMask || "",
         price: t.price,
         stock: t.stockQuantity,
         productId: String(t.productId ?? ""),
