@@ -523,6 +523,7 @@ export const updateDesignConfiguration = async (
         // Snapshot lớp chiều sâu — admin có thể đổi `depth` của slot sau khi
         // khách đặt hàng ⇒ phải giữ đúng hình khách đã chọn.
         depth: p.depth,
+        ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
       })),
     };
     const versionFilter = prevVersion === 0

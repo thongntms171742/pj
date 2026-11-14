@@ -202,6 +202,7 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
           y: Number(p.y),
           rotation: p.rotation ?? 0,
           scale: p.scale ?? 1,
+          ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
           // Copy nguyên vẹn snapshot lớp chiều sâu — đơn hàng phải render
           // đúng hình khách đã chọn.
           ...(p.depth ? { depth: p.depth } : {}),

@@ -17,6 +17,8 @@ export interface ICartDesignFrozenConfig {
     y: number;
     rotation?: number;
     scale?: number;
+    mounting?: "tree" | "floor";
+    position3d?: { x: number; y: number; z: number };
     /**
      * Snapshot lớp chiều sâu tại lúc khách gắn phụ kiện.
      * Copy nguyên vẹn từ `Design.configuration.placements[]` để đơn hàng
