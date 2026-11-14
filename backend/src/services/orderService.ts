@@ -25,6 +25,7 @@ import { computeCouponDiscount } from "../controllers/couponController";
 //   - cleanupCartAfterOrder   drop cart items used
 
 export interface OrderItemInput {
+  customization?: IOrderItem["customization"];
   pricingInput?: PricingInput;
   quantity?: number;
 }
@@ -55,6 +56,10 @@ export async function resolveOrderItems(
     query.checked = true;
   }
   const cartItems = await CartItem.find(query);
+  const designIds = cartItems.map(ci => ci.config.designId).filter(Boolean);
+  const { Design } = await import("../models/Design");
+  const designs = await Design.find({ _id: { $in: designIds } }).select("name").lean();
+  const names = new Map(designs.map(d => [String(d._id), d.name]));
   return cartItems.map((ci) => {
     const cfg = ci.config as any;
     if (!cfg) return { pricingInput: undefined, quantity: ci.quantity };
@@ -78,6 +83,11 @@ export async function resolveOrderItems(
         ...(accessories ? { accessories } : {}),
       },
       quantity: ci.quantity,
+      ...(frozen ? { customization: {
+        designId: String(cfg.designId || ""),
+        designName: names.get(String(cfg.designId)) || "Cây đã cá nhân hóa",
+        configuration: JSON.parse(JSON.stringify(frozen)),
+      } } : {}),
     };
   });
 }
@@ -118,19 +128,13 @@ export async function buildOrderItems(
     //   Chỉ TREE mới được reserve. Không push kind:"ACCESSORY" vào
     //   stockToReserve — nếu không, mỗi lần đặt cây trang trí sẽ trừ kho
     //   phụ kiện dù phụ kiện không phải hàng hoá bán được.
-    const decorations: Array<{
-      accessoryId: string;
-      name: string;
-      sku: string;
-      image: string;
-      unitPrice: number;
-      quantity: number;
-      lineTotal: number;
-    }> = [];
+    const decorations: NonNullable<IOrderItem["decorations"]> = [];
     for (const d of pricing.decorations ?? []) {
       // quantity = số slot dùng trên 1 cây; nhân thêm số lượng cây trong đơn.
       const totalQty = d.quantity * quantity;
       decorations.push({
+        modelKind: d.modelKind,
+        modelColor: d.modelColor,
         accessoryId: d.accessoryId,
         name: d.name,
         sku: d.sku,
@@ -168,7 +172,7 @@ export async function buildOrderItems(
       const sameDecor =
         JSON.stringify((b.decorations ?? []).map((d: any) => [d.accessoryId, d.quantity])) ===
         decorSig;
-      return sameVariant && sameDelivery && sameDecor;
+      return sameVariant && sameDelivery && sameDecor && !entry.customization && !b.customization;
     });
 
     if (existingBuilt) {
@@ -191,6 +195,7 @@ export async function buildOrderItems(
       }
     } else {
       built.push({
+        ...(entry.customization ? { customization: entry.customization } : {}),
         variant: variantSnapshot as any,
         deliveryOption: pricingInput.deliveryOption as DeliveryOption,
         decorations,

@@ -44,6 +44,8 @@ export interface ITree extends Document {
   stockQuantity: number;
   isActive: boolean;
   sortOrder: number;
+  customizationMode?: "slots" | "free";
+  customizationCatalog?: string;
 }
 
 const TreeSchema = new Schema<ITree>(
@@ -79,6 +81,8 @@ const TreeSchema = new Schema<ITree>(
     stockQuantity: { type: Number, required: true, min: 0, default: 0 },
     isActive: { type: Boolean, default: true, index: true },
     sortOrder: { type: Number, default: 0 },
+    customizationMode: { type: String, enum: ["slots", "free"], default: "slots" },
+    customizationCatalog: { type: String, default: "" },
   },
   { timestamps: true }
 );

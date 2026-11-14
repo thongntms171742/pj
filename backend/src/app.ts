@@ -58,6 +58,8 @@ app.use(cors({
 
 // Serve static uploads
 app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
+app.use("/assets/customization-docx", express.static(path.resolve(__dirname, "../assets/customization-docx")));
+app.use("/assets/customization-trees", express.static(path.resolve(__dirname, "../assets/customization-trees")));
 
 // Custom JSON parser wrapper — body-parser in strict mode rejects bodies that
 // are valid JSON literals (null, "string", 123, true, []) with

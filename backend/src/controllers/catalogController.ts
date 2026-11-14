@@ -93,7 +93,8 @@ export const getAccessories = async (
       typeof req.query.slotType === "string" && req.query.slotType.trim()
         ? req.query.slotType.trim()
         : undefined;
-    const accessories = await listAccessories({ slotType });
+    const variantId = typeof req.query.variantId === "string" ? req.query.variantId : undefined;
+    const accessories = await listAccessories({ slotType, variantId });
     ok(res, { accessories });
   } catch (err) {
     handleInternalError(res, err, "[catalog] getAccessories error");
@@ -197,6 +198,8 @@ export const getCustomizerBaseTrees = async (
         hasSlotMap: Boolean(sm),
         slotCount: sm?.count ?? 0,
         slotMapVersion: sm?.version ?? 0,
+        customizationMode: v.customizationMode || "slots",
+        customizationCatalog: v.customizationCatalog || "",
       };
     });
 

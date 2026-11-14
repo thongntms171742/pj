@@ -1,0 +1,7 @@
+{
+  "catalogKey": "christmas-docx-accessories",
+  "variants": [
+    { "sku": "BASE", "size": "M", "price": 160000 },
+    { "sku": "BASE-L", "size": "L", "price": 220000, "bareImage": "/assets/customization-trees/base-l-studio.png" }
+  ]
+}

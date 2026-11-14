@@ -1,6 +1,6 @@
 import { toStr } from "../utils/ids";
 import { isObjectIdLike } from "../utils/ids";
-import type { IOrder } from "../models/Order";
+import type { IOrder, IOrderItem } from "../models/Order";
 
 /**
  * Map an Order document (or lean object) to the FE-facing shape.
@@ -25,6 +25,8 @@ export interface OrderItemVariantDto {
 }
 
 export interface OrderDecorationDto {
+  modelKind?: string;
+  modelColor?: string;
   accessoryId: string;
   name: string;
   sku: string;
@@ -35,6 +37,7 @@ export interface OrderDecorationDto {
 }
 
 export interface OrderItemDto {
+  customization?: IOrderItem["customization"];
   variant: OrderItemVariantDto;
   deliveryOption: string;
   decorations: OrderDecorationDto[];
@@ -128,9 +131,12 @@ export function orderToDto(o: any): OrderDto {
     orderCode: o.orderCode,
     buyerId: o.buyerId ? toStr(o.buyerId) : "",
     items: (o.items || []).map((it: any) => ({
+      ...(it.customization ? { customization: it.customization } : {}),
       variant: it.variant ?? it.tree,
       deliveryOption: it.deliveryOption,
       decorations: (it.decorations ?? []).map((d: any) => ({
+        modelKind: d.modelKind,
+        modelColor: d.modelColor,
         accessoryId: String(d.accessoryId ?? ""),
         name: d.name ?? "",
         sku: d.sku ?? "",

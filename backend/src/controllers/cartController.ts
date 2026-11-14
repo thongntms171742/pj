@@ -178,6 +178,10 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
         sendError(res, ErrorCode.DESIGN_NOT_FOUND, "Không tìm thấy thiết kế");
         return;
       }
+      if (!req.user || (String(design.ownerId) !== req.user.id && !req.user.roles.includes("admin"))) {
+        sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền sử dụng thiết kế này");
+        return;
+      }
       if (String((design as any).treeVariantId) !== String(variantId)) {
         sendError(res, ErrorCode.INVALID_INPUT, "Thiết kế không thuộc biến thể này");
         return;
@@ -188,6 +192,7 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
         return;
       }
       frozenConfig = {
+        placementMode: cfg.placementMode || "slots",
         configVersion: cfg.configVersion,
         slotMapVersion: cfg.slotMapVersion,
         placements: cfg.placements.map((p: any) => ({
@@ -197,6 +202,7 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
           y: Number(p.y),
           rotation: p.rotation ?? 0,
           scale: p.scale ?? 1,
+          ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
         })),
       };
       const countByAcc = new Map<string, number>();

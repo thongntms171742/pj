@@ -452,8 +452,23 @@ export const updateDesignConfiguration = async (
       return;
     }
     const { validatePlacements } = await import("../services/customizerService");
-    const { placements } = req.body as { placements?: unknown };
-    const checked = await validatePlacements(String(design.treeVariantId), placements);
+    const { placements, expectedConfigVersion, slotMapVersion, name, deliveryOption } = req.body;
+    const placementMode = req.body.placementMode ?? design.configuration?.placementMode ?? "slots";
+    if (!["slots", "free"].includes(placementMode) ||
+        (expectedConfigVersion !== undefined && (!Number.isSafeInteger(expectedConfigVersion) || expectedConfigVersion < 0)) ||
+        (placementMode === "free" && expectedConfigVersion === undefined) ||
+        (name !== undefined && (typeof name !== "string" || !name.trim() || name.trim().length > 80)) ||
+        (deliveryOption !== undefined && !["READY_TO_DISPLAY", "DIY_KIT", "SEPARATE"].includes(deliveryOption))) {
+      sendError(res, ErrorCode.INVALID_INPUT, "Thông tin cấu hình thiết kế không hợp lệ");
+      return;
+    }
+    const previousPlacements = design.configuration?.placementMode === "free"
+      ? (design.configuration.placements ?? []).map(p => ({
+          slotId: p.slotId, accessoryId: String(p.accessoryId), x: p.x, y: p.y,
+          position3d: p.position3d, mounting: p.mounting, scale: p.scale, rotation: p.rotation,
+        }))
+      : [];
+    const checked = await validatePlacements(String(design.treeVariantId), placements, placementMode, previousPlacements);
     if (!checked.ok) {
       sendError(
         res,
@@ -464,7 +479,13 @@ export const updateDesignConfiguration = async (
     }
     const variant = await Tree.findById(design.treeVariantId).lean();
     const prevVersion = (design.configuration as any)?.configVersion ?? 0;
-    design.configuration = {
+    if ((expectedConfigVersion !== undefined && expectedConfigVersion !== prevVersion) ||
+        (placementMode === "slots" && slotMapVersion !== undefined && slotMapVersion !== checked.slotMapVersion)) {
+      sendError(res, ErrorCode.CONFIG_VERSION_MISMATCH, "Thiết kế hoặc bảng vị trí đã thay đổi. Hãy tải lại trước khi lưu.");
+      return;
+    }
+    const configuration = {
+      placementMode,
       configVersion: prevVersion + 1,
       slotMapVersion: checked.slotMapVersion ?? 0,
       variantSnapshot: {
@@ -480,10 +501,22 @@ export const updateDesignConfiguration = async (
         y: p.y,
         rotation: p.rotation ?? 0,
         scale: p.scale ?? 1,
+        ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
       })),
-    } as any;
-    await design.save();
-    const refreshed = await Design.findById(id).lean();
+    };
+    const versionFilter = prevVersion === 0
+      ? { $or: [{ "configuration.configVersion": { $exists: false } }, { configuration: null }] }
+      : { "configuration.configVersion": prevVersion };
+    const refreshed = await Design.findOneAndUpdate({ _id: design._id, ...versionFilter }, {
+      $set: { configuration,
+        ...(name !== undefined ? { name: name.trim() } : {}),
+        ...(deliveryOption !== undefined ? { deliveryOption } : {}),
+      },
+    }, { new: true, runValidators: true }).lean();
+    if (!refreshed) {
+      sendError(res, ErrorCode.CONFIG_VERSION_MISMATCH, "Thiết kế vừa được lưu từ thiết bị khác. Hãy tải lại.");
+      return;
+    }
     const resolved = await resolveRoomDesign(refreshed as any);
     ok(res, { design: buildRoomDesignResponse(resolved) });
   } catch (err) {

@@ -1,0 +1,7 @@
+# Raw L tree preview
+
+`base-l-studio.png` was extracted from the tree photo supplied by the user on 2026-11-14 (phone screenshot `codex-clipboard-b76cf2fe-4a1d-4ece-a70b-27b6a25720fc.png`). Uses the built-in imagegen tool with transparent background enabled. Original M preview is unchanged. Original L database image URL is preserved in the pre-update backup under `.codex-runtime/customization-input/raw-tree-variants-*.json`.
+
+Prompt:
+
+> Use case: background-extraction. Edit target: the attached phone screenshot containing ONE real undecorated potted green conifer. Extract ONLY that exact photographed tree AND its exact black plant pot with soil. Remove the phone UI, black bands, grey overlay, text, buttons, white studio background and ground shadow entirely. Preserve the same asymmetric foliage structure, needle detail, natural green colors, trunk, visible soil, pot geometry and matte scratched pot surface. Do not invent decorations or redesign the plant. Produce a commercial-quality clean PNG cutout with actual alpha transparency and no white halo. Portrait 3:4 canvas. Register the object for a product customization studio: centered x=50%, tree tip at y=4%, pot bottom at y=96%, fullest canopy width about 54% of canvas, pot width about 31% of canvas. Entire tip and pot visible, no crop. Front-facing original perspective, sharp and natural photographic appearance, no CGI, illustration, text, logos or new objects. Transparency in ALL empty space.

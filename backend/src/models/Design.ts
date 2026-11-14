@@ -10,6 +10,8 @@ export interface IDesignPlacement {
   y: number;
   rotation?: number;
   scale?: number;
+  mounting?: "tree" | "floor";
+  position3d?: { x: number; y: number; z: number };
 }
 
 export interface IDesignVariantSnapshot {
@@ -20,6 +22,7 @@ export interface IDesignVariantSnapshot {
 }
 
 export interface IDesignConfiguration {
+  placementMode?: "slots" | "free";
   configVersion: number;
   slotMapVersion: number;
   variantSnapshot: IDesignVariantSnapshot;
@@ -56,7 +59,7 @@ export interface IRoomDesign extends Document {
   updatedAt: Date;
 }
 
-const DesignPlacementSchema = new Schema<IDesignPlacement>(
+export const DesignPlacementSchema = new Schema<IDesignPlacement>(
   {
     slotId: { type: String, required: true, trim: true },
     accessoryId: { type: Schema.Types.ObjectId, ref: "Accessory", required: true },
@@ -64,12 +67,18 @@ const DesignPlacementSchema = new Schema<IDesignPlacement>(
     y: { type: Number, required: true, min: 0, max: 1 },
     rotation: { type: Number, default: 0 },
     scale: { type: Number, default: 1 },
+    mounting: { type: String, enum: ["tree", "floor"] },
+    position3d: {
+      type: new Schema({ x: Number, y: Number, z: Number }, { _id: false }),
+      required: false,
+    },
   },
   { _id: false }
 );
 
 const DesignConfigurationSchema = new Schema<IDesignConfiguration>(
   {
+    placementMode: { type: String, enum: ["slots", "free"], default: "slots" },
     configVersion: { type: Number, required: true, default: 1, min: 1 },
     slotMapVersion: { type: Number, required: true, default: 0, min: 0 },
     variantSnapshot: {

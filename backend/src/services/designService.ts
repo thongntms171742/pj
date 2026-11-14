@@ -56,6 +56,7 @@ export interface RoomDesignResponse {
   status: string;
   deliveryOption: string;
   configuration?: {
+    placementMode?: "slots" | "free";
     configVersion: number;
     slotMapVersion: number;
     variantSnapshot: {
@@ -71,6 +72,8 @@ export interface RoomDesignResponse {
       y: number;
       rotation?: number;
       scale?: number;
+      mounting?: "tree" | "floor";
+      position3d?: { x: number; y: number; z: number };
     }>;
   } | null;
   variant: {
@@ -135,6 +138,7 @@ export function buildRoomDesignResponse(
     deliveryOption: d.deliveryOption,
     configuration: cfg
       ? {
+          placementMode: cfg.placementMode || "slots",
           configVersion: cfg.configVersion,
           slotMapVersion: cfg.slotMapVersion,
           variantSnapshot: {
@@ -150,6 +154,7 @@ export function buildRoomDesignResponse(
             y: Number(p.y),
             rotation: p.rotation ?? 0,
             scale: p.scale ?? 1,
+            ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
           })),
         }
       : null,

@@ -1,0 +1,527 @@
+{
+  "catalogKey": "christmas-docx-accessories",
+  "baseSku": "BASE",
+  "sourceDocuments": [
+    {
+      "name": "phụ kiện giáng sinh.docx",
+      "sha256": "bd7d806862affa27b0f504a15fcb39be10953ddcb827635a720cf2f5285bbb97"
+    },
+    {
+      "name": "Bang_Gia.docx",
+      "sha256": "886711dac286b677dbdc73027e6b75887a5a11d2c2740a0a4358de754b9f196e"
+    }
+  ],
+  "accessories": [
+    {
+      "sku": "DOCX-H01",
+      "name": "Hình 1 — Vòng quay Giáng Sinh",
+      "category": "Đèn và tiểu cảnh",
+      "mounting": "floor",
+      "modelKind": "wheel",
+      "modelColor": "#f4efe4",
+      "unitLabel": "chiếc",
+      "unitPrice": 342300,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-01.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 1,
+        "priceText": "342.300₫",
+        "note": "Tùy kích thước và chế độ nhạc/đèn",
+        "imageSha256": "bdb1c55a6065b9fdf39deb1e649197c9821cb5751049582567f80e44ad170952",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image1.png"
+      }
+    },
+    {
+      "sku": "DOCX-H02",
+      "name": "Hình 2 — Đèn lồng màu đồng",
+      "category": "Đèn và tiểu cảnh",
+      "mounting": "floor",
+      "modelKind": "lantern",
+      "modelColor": "#a27b38",
+      "unitLabel": "chiếc",
+      "unitPrice": 58410,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-02.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 2,
+        "priceText": "58.410₫ – 90.420₫",
+        "note": "Size mini để bàn chạy pin",
+        "imageSha256": "d91070edd9f02d9f3fb48f7dcffea46672b40e4f794ee47ffd65f26f26cd5f9f",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image3.png"
+      }
+    },
+    {
+      "sku": "DOCX-H03",
+      "name": "Hình 3 — Lính kẹp hạt dẻ đỏ",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "nutcracker",
+      "modelColor": "#b52e32",
+      "unitLabel": "chiếc",
+      "unitPrice": 76450,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-03.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 3,
+        "priceText": "76.450₫ – 150.000₫",
+        "note": "Set treo nhỏ hoặc tượng đứng 25–38cm",
+        "imageSha256": "d5326517de7e991c33c6376a5fe3ee1d8f6e2231d2f6080a0fd1e5efebf9d827",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image4.png"
+      }
+    },
+    {
+      "sku": "DOCX-H04",
+      "name": "Hình 4 — Gấu trắng quàng khăn sọc",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "polar-bear",
+      "modelColor": "#f3f0e5",
+      "unitLabel": "chiếc",
+      "unitPrice": 88200,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-04.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 4,
+        "priceText": "88.200₫ – 155.000₫",
+        "note": "Tùy kích cỡ (30cm – 55cm)",
+        "imageSha256": "adf493619f82c1bbe358cd81ae38fefb69c124a239d0a199e341df8c8dfc3c47",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image5.png"
+      }
+    },
+    {
+      "sku": "DOCX-H05",
+      "name": "Hình 5 — Tuần lộc áo len",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "deer",
+      "modelColor": "#79614a",
+      "unitLabel": "chiếc",
+      "unitPrice": 129000,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-05.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 5,
+        "priceText": "129.000₫",
+        "note": "Bản đứng mặc áo len dệt kim",
+        "imageSha256": "f793ff8ac6b49717e47a43c9dce4bfd45f3b5ab42282e5d38059209d89d882c9",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image6.png"
+      }
+    },
+    {
+      "sku": "DOCX-H06",
+      "name": "Hình 6 — Đèn lồng đỏ",
+      "category": "Đèn và tiểu cảnh",
+      "mounting": "floor",
+      "modelKind": "lantern",
+      "modelColor": "#b62b31",
+      "unitLabel": "chiếc",
+      "unitPrice": 45540,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-06.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 6,
+        "priceText": "45.540₫ – 90.420₫",
+        "note": "Size để bàn có hiệu ứng tuyết rơi",
+        "imageSha256": "487faff0217e295c7ce8391595b79b52b1ff04a11ef3474da490fc8f3da1514b",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image7.png"
+      }
+    },
+    {
+      "sku": "DOCX-H07",
+      "name": "Hình 7 — Búp bê váy đỏ",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "girl",
+      "modelColor": "#b92732",
+      "unitLabel": "chiếc",
+      "unitPrice": 128480,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-07.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 7,
+        "priceText": "128.480₫",
+        "note": "Mẫu trang trí kệ / bàn",
+        "imageSha256": "73a4637d9228b3a4d017a10cc169fc1ff9f23c60624fdada2196c53da4bd8649",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image8.png"
+      }
+    },
+    {
+      "sku": "DOCX-H08",
+      "name": "Hình 8 — Chuông bạc",
+      "category": "Chuông",
+      "mounting": "tree",
+      "modelKind": "bell",
+      "modelColor": "#bec6cc",
+      "unitLabel": "chiếc",
+      "unitPrice": 9800,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-08.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 8,
+        "priceText": "9.800₫ – 15.000₫",
+        "note": "Giá bán lẻ 1 chiếc hoặc theo vỉ",
+        "imageSha256": "93f0a39240bed980d15118cbbaa031653d6133056718e1709056155404e8c702",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image9.png"
+      }
+    },
+    {
+      "sku": "DOCX-H09",
+      "name": "Hình 9 — Chuông vàng",
+      "category": "Chuông",
+      "mounting": "tree",
+      "modelKind": "bell",
+      "modelColor": "#c9a244",
+      "unitLabel": "chiếc",
+      "unitPrice": 9800,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-09.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 9,
+        "priceText": "9.800₫ – 15.000₫",
+        "note": "Giá bán lẻ 1 chiếc hoặc theo vỉ",
+        "imageSha256": "771700cfd462973b18f29cdfdc2f6c8f7b94242d65747c9ab630ecaa43a47897",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image10.png"
+      }
+    },
+    {
+      "sku": "DOCX-H10",
+      "name": "Hình 10 — Lính kẹp hạt dẻ xanh hồng",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "nutcracker",
+      "modelColor": "#95c6cb",
+      "unitLabel": "chiếc",
+      "unitPrice": 76450,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-10.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 10,
+        "priceText": "76.450₫ – 150.000₫",
+        "note": "Giá thay đổi theo chiều cao tượng",
+        "imageSha256": "4d36d5352ad38c54becfe1e16d088c44348df62959086ada7aea687fe0703ff7",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image11.png"
+      }
+    },
+    {
+      "sku": "DOCX-H11",
+      "name": "Hình 11 — Búp bê áo xanh tím",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "jester",
+      "modelColor": "#306b4f",
+      "unitLabel": "chiếc",
+      "unitPrice": 128480,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-11.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 11,
+        "priceText": "128.480₫",
+        "note": "Mẫu trang trí kệ / bàn",
+        "imageSha256": "40a6833030348abe395a18727751954c8003ab40be48d43c50b086f150e8bd11",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image12.png"
+      }
+    },
+    {
+      "sku": "DOCX-H12",
+      "name": "Hình 12 — Lính kẹp hạt dẻ hồng",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "nutcracker",
+      "modelColor": "#eeafb7",
+      "unitLabel": "chiếc",
+      "unitPrice": 76450,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-12.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 12,
+        "priceText": "76.450₫ – 150.000₫",
+        "note": "Giá thay đổi theo chiều cao tượng",
+        "imageSha256": "749c5c2d801497392fe8674d34b39b32aff73a8dc29d0a0c0f5a367040a22a56",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image13.png"
+      }
+    },
+    {
+      "sku": "DOCX-H13",
+      "name": "Hình 13 — Ông già Noel",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "santa",
+      "modelColor": "#b7222c",
+      "unitLabel": "chiếc",
+      "unitPrice": 95200,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-13.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 13,
+        "priceText": "95.200₫ – 119.000₫",
+        "note": "Size khoảng 25cm – 30cm",
+        "imageSha256": "9084d5079b1d42fc3114db2ec9537dee6397ae0e98b57db67d5ebe63f287d120",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image14.png"
+      }
+    },
+    {
+      "sku": "DOCX-H14",
+      "name": "Hình 14 — Gấu trắng khăn đỏ",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "polar-bear",
+      "modelColor": "#f5f2e7",
+      "unitLabel": "chiếc",
+      "unitPrice": 88200,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-14.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 14,
+        "priceText": "88.200₫ – 155.000₫",
+        "note": "Tùy kích cỡ",
+        "imageSha256": "bf6dacf2c4e41730ab2ec60c47e3386cfeeffb2b1f53b4b85c6baa48cb094133",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image15.png"
+      }
+    },
+    {
+      "sku": "DOCX-H15",
+      "name": "Hình 15 — Quả châu hồng kim tuyến",
+      "category": "Quả châu",
+      "mounting": "tree",
+      "modelKind": "bauble",
+      "modelColor": "#bd76b7",
+      "unitLabel": "quả",
+      "unitPrice": 5500,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-15.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 15,
+        "priceText": "125.000₫ – 135.000₫ / set",
+        "note": "Khoảng 5.500₫/quả (Set 24 quả)",
+        "imageSha256": "c793b4ad5d5183c0cce8e6fe625ccf80f3b760bbf785b947a3129595e81e762b",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image16.png"
+      }
+    },
+    {
+      "sku": "DOCX-H16",
+      "name": "Hình 16 — Quả châu hồng",
+      "category": "Quả châu",
+      "mounting": "tree",
+      "modelKind": "bauble",
+      "modelColor": "#e5a4b9",
+      "unitLabel": "quả",
+      "unitPrice": 5500,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-16.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 16,
+        "priceText": "125.000₫ – 135.000₫ / set",
+        "note": "Khoảng 5.500₫/quả (Set 24 quả)",
+        "imageSha256": "a747c7d24abbc9f0c2b962abdddc151a3048435f0ffb4e0fc9bed88b64cfabfc",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image17.png"
+      }
+    },
+    {
+      "sku": "DOCX-H17",
+      "name": "Hình 17 — Gấu váy đỏ",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "bear-dress",
+      "modelColor": "#b72e3c",
+      "unitLabel": "chiếc",
+      "unitPrice": 69000,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-17.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 17,
+        "priceText": "69.000₫",
+        "note": "Size 30cm – 35cm",
+        "imageSha256": "976380515bd81b9deca5118ccf94e8dcc9ed105de48cfe47a0117ea862697691",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image18.png"
+      }
+    },
+    {
+      "sku": "DOCX-H18",
+      "name": "Hình 18 — Gấu quần yếm đỏ",
+      "category": "Gấu và nhân vật",
+      "mounting": "floor",
+      "modelKind": "bear-trousers",
+      "modelColor": "#a82b36",
+      "unitLabel": "chiếc",
+      "unitPrice": 69000,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-18.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 18,
+        "priceText": "69.000₫",
+        "note": "Size 30cm – 35cm",
+        "imageSha256": "6430523f7567a82accec12cd32380344e788d4f749576b39e43e34d2d71f59d3",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image19.png"
+      }
+    },
+    {
+      "sku": "DOCX-H19",
+      "name": "Hình 19 — Tất đỏ",
+      "category": "Tất",
+      "mounting": "tree",
+      "modelKind": "stocking",
+      "modelColor": "#a52130",
+      "unitLabel": "chiếc",
+      "unitPrice": 43482,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-19.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 19,
+        "priceText": "43.482₫ – 57.728₫",
+        "note": "43.482₫ (1 chiếc) / 57.728₫ (set 2 chiếc)",
+        "imageSha256": "249973bd523441d969780f100d13912667bf66940c1612377033bc7dac0218d6",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image20.png"
+      }
+    },
+    {
+      "sku": "DOCX-H20",
+      "name": "Hình 20 — Ngôi sao đỏ",
+      "category": "Ngôi sao",
+      "mounting": "tree",
+      "modelKind": "star",
+      "modelColor": "#a42137",
+      "unitLabel": "chiếc",
+      "unitPrice": 37000,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-20.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 20,
+        "priceText": "37.000₫ – 100.100₫",
+        "note": "Tùy kích thước và chất liệu phủ nhung",
+        "imageSha256": "4c248c7b2851e49e8d734389053c1144c7938487da4dc7e7451467f62b43c297",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image21.png"
+      }
+    },
+    {
+      "sku": "DOCX-H21",
+      "name": "Hình 21 — Ngôi sao xanh",
+      "category": "Ngôi sao",
+      "mounting": "tree",
+      "modelKind": "star",
+      "modelColor": "#246b42",
+      "unitLabel": "chiếc",
+      "unitPrice": 37000,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-21.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 21,
+        "priceText": "37.000₫ – 100.100₫",
+        "note": "Nhựa mạ ánh kim treo cây thông",
+        "imageSha256": "4ea7ba2bc2985e15934f389ed02626870ff4de425eab80441bdf001cc993ec09",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image22.png"
+      }
+    },
+    {
+      "sku": "DOCX-H22",
+      "name": "Hình 22 — Quả châu đỏ",
+      "category": "Quả châu",
+      "mounting": "tree",
+      "modelKind": "bauble",
+      "modelColor": "#a7233b",
+      "unitLabel": "quả",
+      "unitPrice": 5500,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-22.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 22,
+        "priceText": "125.000₫ – 135.000₫ / set",
+        "note": "Khoảng 5.500₫/quả (Set 24 quả)",
+        "imageSha256": "36f76d19052778dff2143fd09c7f92c9f2ee9420004822a251d93e466b5cc18b",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image23.png"
+      }
+    },
+    {
+      "sku": "DOCX-H23",
+      "name": "Hình 23 — Quả châu xanh",
+      "category": "Quả châu",
+      "mounting": "tree",
+      "modelKind": "bauble",
+      "modelColor": "#234baf",
+      "unitLabel": "quả",
+      "unitPrice": 5500,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-23.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 23,
+        "priceText": "125.000₫ – 135.000₫ / set",
+        "note": "Khoảng 5.500₫/quả (Set 24 quả)",
+        "imageSha256": "8914ac9f8bc6456d0bc806f8ef7aa02902134109002060c29d13d0bc2e716304",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image24.png"
+      }
+    },
+    {
+      "sku": "DOCX-H24",
+      "name": "Hình 24 — Quả châu trắng",
+      "category": "Quả châu",
+      "mounting": "tree",
+      "modelKind": "bauble",
+      "modelColor": "#e8e5df",
+      "unitLabel": "quả",
+      "unitPrice": 5500,
+      "priceStatus": "confirmed",
+      "image": "/assets/customization-docx/figure-24.png",
+      "source": {
+        "document": "Bang_Gia.docx",
+        "figure": 24,
+        "priceText": "125.000₫ – 135.000₫ / set",
+        "note": "Tùy đường kính quả châu",
+        "imageSha256": "21dc8713f06613d78bed483ae8b999a8a458fe9797a38c42098707456e3fa7f0",
+        "referenceDocument": "phụ kiện giáng sinh.docx",
+        "referenceImage": "word/media/image25.png"
+      }
+    }
+  ],
+  "pricingPolicy": {
+    "rangeSelection": "minimum",
+    "baubleUnitPrice": 5500,
+    "baubleUnitLabel": "quả",
+    "approvedBy": "user",
+    "explanation": "Các mục chờ giá được chốt theo mức thấp nhất. Quả châu tính 5.500đ/quả theo đơn giá lẻ trong tài liệu, mỗi placement là một quả."
+  }
+}

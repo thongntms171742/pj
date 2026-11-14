@@ -24,6 +24,9 @@
     "test:all": "ts-node --transpile-only src/tests/errorContract.test.ts && ts-node --transpile-only src/tests/pricing.test.ts && ts-node --transpile-only src/tests/address.test.ts && ts-node --transpile-only src/tests/authValidation.test.ts && ts-node --transpile-only src/tests/upload.test.ts && ts-node --transpile-only src/tests/design.test.ts && ts-node --transpile-only src/tests/sepay.test.ts && ts-node --transpile-only src/tests/review.test.ts && ts-node --transpile-only src/tests/media.test.ts && ts-node --transpile-only src/tests/chatFoundation.test.ts && ts-node --transpile-only src/tests/chatAi.test.ts && ts-node --transpile-only src/tests/chatSocket.test.ts && ts-node --transpile-only src/tests/accountDeletion.test.ts",
     "clean:trees": "ts-node --transpile-only src/scripts/clean-legacy-trees.ts",
     "seed:customizer": "ts-node --transpile-only src/scripts/seed-customizer.ts",
+    "import:customization": "node -r dotenv/config -r ts-node/register/transpile-only src/scripts/import-customization-accessories.ts",
+    "configure:customization-trees": "node -r dotenv/config -r ts-node/register/transpile-only src/scripts/configure-customization-trees.ts",
+    "test:customization": "node -r dotenv/config -r ts-node/register/transpile-only src/tests/customization.test.ts",
     "reset:chat": "ts-node --transpile-only src/scripts/reset-chat.ts"
   },
   "dependencies": {

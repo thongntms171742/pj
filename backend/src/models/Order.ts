@@ -1,5 +1,7 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 import type { DeliveryOption } from "../config/business";
+import { DesignPlacementSchema } from "./Design";
+import type { ICartDesignFrozenConfig } from "./CartItem";
 
 // ── Order line item ──────────────────────────────────────────────────────────
 // Sau refactor RoomDesign: chỉ giữ variant (Tree SKU) + deliveryOption. Không
@@ -7,6 +9,8 @@ import type { DeliveryOption } from "../config/business";
 // tin (size, price, sku, bareImage).
 
 export interface IOrderDecorationItem {
+  modelKind?: string;
+  modelColor?: string;
   accessoryId: string;
   name: string;
   sku: string;
@@ -17,6 +21,11 @@ export interface IOrderDecorationItem {
 }
 
 export interface IOrderItem {
+  customization?: {
+    designId: string;
+    designName: string;
+    configuration: ICartDesignFrozenConfig;
+  };
   variant: {
     _id: string;
     productId: string;
@@ -183,6 +192,8 @@ export interface IOrder extends Document {
 
 const OrderDecorationSchema = new Schema<IOrderDecorationItem>(
   {
+    modelKind: String,
+    modelColor: String,
     accessoryId: { type: String, required: true },
     name: { type: String, required: true },
     sku: { type: String, default: "" },
@@ -196,6 +207,19 @@ const OrderDecorationSchema = new Schema<IOrderDecorationItem>(
 
 const OrderItemSchema = new Schema<IOrderItem>(
   {
+    customization: {
+      type: new Schema({
+        designId: String,
+        designName: String,
+        configuration: {
+          placementMode: { type: String, enum: ["slots", "free"] },
+          configVersion: Number,
+          slotMapVersion: Number,
+          placements: { type: [DesignPlacementSchema], default: [] },
+        },
+      }, { _id: false }),
+      required: false,
+    },
     variant: {
       _id: { type: String, required: true },
       productId: { type: String, required: true },

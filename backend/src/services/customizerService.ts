@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { Accessory } from "../models/Accessory";
 import { SlotMap, type ISlotMap } from "../models/SlotMap";
 import { Tree } from "../models/Tree";
+import { accessoryOverlap, accessoryFitsSurface, MAX_SCALE, MIN_SCALE, type Mounting, type ScenePosition } from "./placementRules";
 
 // ── Customizer service (Phase 1: Catalog phụ kiện + SlotMap) ────────────────
 // Mọi hàm ở đây là pure DB access, không dính Express. Controller chỉ parse
@@ -10,6 +11,7 @@ import { Tree } from "../models/Tree";
 export interface AccessoryFilter {
   slotType?: string;
   onlyActive?: boolean;
+  variantId?: string;
 }
 
 export interface AccessoryLean {
@@ -18,7 +20,14 @@ export interface AccessoryLean {
   name: string;
   description: string;
   image: string;
-  unitPrice: number;
+  unitPrice: number | null;
+  category?: string;
+  priceStatus?: string;
+  source?: unknown;
+  mounting?: string;
+  modelKind?: string;
+  modelColor?: string;
+  unitLabel?: string;
   stockQuantity: number;
   slotTypes: string[];
   isActive: boolean;
@@ -31,6 +40,13 @@ export async function listAccessories(
   const query: Record<string, unknown> = {};
   if (filter.onlyActive !== false) query.isActive = true;
   if (filter.slotType) query.slotTypes = filter.slotType;
+  const variant = filter.variantId && Types.ObjectId.isValid(filter.variantId)
+    ? await Tree.findById(filter.variantId).lean() : null;
+  if (variant?.customizationCatalog) {
+    query.catalogKey = variant.customizationCatalog;
+  } else {
+    query.$or = [{ catalogKey: { $exists: false } }, { catalogKey: "" }];
+  }
   const docs = await Accessory.find(query)
     .sort({ sortOrder: 1, name: 1 })
     .lean();
@@ -45,6 +61,13 @@ export async function listAccessories(
     slotTypes: d.slotTypes ?? [],
     isActive: d.isActive,
     sortOrder: d.sortOrder,
+    category: d.category,
+    priceStatus: d.priceStatus,
+    source: d.source,
+    mounting: d.mounting,
+    modelKind: d.modelKind,
+    modelColor: d.modelColor,
+    unitLabel: d.unitLabel,
   }));
 }
 
@@ -197,17 +220,21 @@ export interface PlacementInput {
   y: number;
   rotation?: number;
   scale?: number;
+  mounting?: "tree" | "floor";
+  position3d?: { x: number; y: number; z: number };
 }
 
 export interface ValidatedPlacement extends PlacementInput {
   accessorySku: string;
   accessoryName: string;
-  unitPrice: number;
+  unitPrice: number | null;
 }
 
 export async function validatePlacements(
   variantId: string,
-  placements: unknown
+  placements: unknown,
+  placementMode: "slots" | "free" = "slots",
+  previousPlacements: ReadonlyArray<PlacementInput> = [],
 ): Promise<{
   ok: boolean;
   errorCode?: string;
@@ -221,41 +248,59 @@ export async function validatePlacements(
   if (placements.length > 200) {
     return { ok: false, errorCode: "INVALID_INPUT", error: "placements tối đa 200 slot" };
   }
-  const slotMap = await SlotMap.findOne({
+  const variant = await Tree.findById(variantId).lean();
+  if (!variant || !variant.isActive) {
+    return { ok: false, errorCode: "TREE_NOT_FOUND", error: "Cây không còn khả dụng" };
+  }
+  if (placementMode === "free" && (variant.customizationMode !== "free" || !variant.customizationCatalog)) {
+    return { ok: false, errorCode: "INVALID_INPUT", error: "Cây này chưa hỗ trợ bố trí tự do" };
+  }
+  const slotMap = placementMode === "slots" ? await SlotMap.findOne({
     variantId: new Types.ObjectId(variantId),
     isPublished: true,
-  }).lean();
-  if (!slotMap) {
+  }).lean() : null;
+  if (placementMode === "slots" && !slotMap) {
     return {
       ok: false,
       errorCode: "SLOTMAP_NOT_FOUND",
       error: "Biến thể này chưa có bảng slot tùy chỉnh",
     };
   }
-  const slotById = new Map((slotMap.slots ?? []).map((s: any) => [String(s.slotId), s]));
+  const slotById = new Map((slotMap?.slots ?? []).map((s: any) => [String(s.slotId), s]));
   const seen = new Set<string>();
   const value: ValidatedPlacement[] = [];
+  const previousById = new Map(previousPlacements.map(p => [p.slotId, p]));
+  const occupied: Array<{ position3d: ScenePosition; mounting: Mounting; kind: string; scale: number; rotation: number; unchanged: boolean }> = [];
+  const accessoryIds = [...new Set(placements.flatMap(p => typeof p?.accessoryId === "string" && Types.ObjectId.isValid(p.accessoryId.trim()) ? [p.accessoryId.trim().toLowerCase()] : []))];
+  const accessories = await Accessory.find({ _id: { $in: accessoryIds } }).lean();
+  const accessoryById = new Map(accessories.map(accessory => [String(accessory._id), accessory]));
   for (let i = 0; i < placements.length; i++) {
+    if (!placements[i] || typeof placements[i] !== "object" || Array.isArray(placements[i])) {
+      return { ok: false, errorCode: "INVALID_INPUT", error: `placements[${i}] không hợp lệ` };
+    }
     const p = placements[i] as Record<string, unknown>;
     const slotId = typeof p.slotId === "string" ? p.slotId.trim() : "";
     const accessoryId = typeof p.accessoryId === "string" ? p.accessoryId.trim() : "";
-    if (!slotId) {
+    if (!slotId || slotId.length > 64) {
       return { ok: false, errorCode: "SLOT_NOT_FOUND", error: `placements[${i}].slotId không hợp lệ` };
     }
     if (seen.has(slotId)) {
       return { ok: false, errorCode: "SLOT_OCCUPIED", error: `Slot ${slotId} đã được dùng (1 slot = 1 phụ kiện)` };
     }
     const slot = slotById.get(slotId) as any;
-    if (!slot) {
+    if (!slot && placementMode === "slots") {
       return { ok: false, errorCode: "SLOT_NOT_FOUND", error: `Slot ${slotId} không thuộc bảng slot hiện hành` };
     }
     seen.add(slotId);
     if (!Types.ObjectId.isValid(accessoryId)) {
       return { ok: false, errorCode: "ACCESSORY_NOT_FOUND", error: `placements[${i}].accessoryId không hợp lệ` };
     }
-    const accessory = await Accessory.findById(accessoryId).lean();
+    const accessory = accessoryById.get(accessoryId.toLowerCase());
     if (!accessory || !accessory.isActive) {
       return { ok: false, errorCode: "ACCESSORY_UNAVAILABLE", error: `Phụ kiện tại slot ${slotId} đã ngừng bán` };
+    }
+    if (placementMode === "free" && accessory.catalogKey !== variant.customizationCatalog) {
+      return { ok: false, errorCode: "ACCESSORY_UNAVAILABLE", error: "Phụ kiện không thuộc danh mục của cây này" };
     }
     // Tương thích loại slot:
     //   - Nếu slot có `allowedAccessoryTypes` (whitelist do admin cấu hình) thì
@@ -266,8 +311,8 @@ export async function validatePlacements(
     // LƯU Ý: logic cũ đảo ngược — `allowed.length === 0` lại cho `explicitlyAllowed
     // = true`, tức là slot KHÔNG whitelist lại chấp nhận MỌI phụ kiện, và
     // whitelist lại bị bỏ qua khi phụ kiện cũng khớp slotType. Sai cả 2 chiều.
-    const slotType = String(slot.slotType);
-    const allowed: string[] = Array.isArray(slot.allowedAccessoryTypes)
+    const slotType = String(slot?.slotType || "generic");
+    const allowed: string[] = Array.isArray(slot?.allowedAccessoryTypes)
       ? slot.allowedAccessoryTypes.map(String)
       : [];
     const accSlotTypes: string[] = Array.isArray((accessory as any).slotTypes)
@@ -288,7 +333,7 @@ export async function validatePlacements(
           error: `Phụ kiện ${accessory.name} không được phép gắn vào slot ${slotId}`,
         };
       }
-    } else if (!typeCompatible) {
+    } else if (placementMode === "slots" && !typeCompatible) {
       return {
         ok: false,
         errorCode: "ACCESSORY_UNAVAILABLE",
@@ -305,6 +350,33 @@ export async function validatePlacements(
     if (!Number.isFinite(rotation) || !Number.isFinite(scale) || scale <= 0 || scale > 10) {
       return { ok: false, errorCode: "INVALID_INPUT", error: `placements[${i}].rotation/scale không hợp lệ` };
     }
+    let position3d: PlacementInput["position3d"];
+    if (placementMode === "free") {
+      const position = p.position3d as Record<string, unknown> | undefined;
+      if (!position || ![position.x, position.y, position.z].every(v => typeof v === "number" && Number.isFinite(v)) ||
+          Math.abs(Number(position.x)) > 4 || Math.abs(Number(position.z)) > 4 || Number(position.y) < 0 || Number(position.y) > 4) {
+        return { ok: false, errorCode: "INVALID_INPUT", error: "Vị trí 3D không hợp lệ" };
+      }
+      position3d = { x: Number(position.x), y: Number(position.y), z: Number(position.z) };
+      const mounting = accessory.mounting ?? "tree";
+      const previous = previousById.get(slotId);
+      const unchanged = Boolean(previous?.position3d && String(previous.accessoryId) === String(accessory._id) && (previous.mounting ?? mounting) === mounting &&
+        previous.position3d.x === position3d.x && previous.position3d.y === position3d.y && previous.position3d.z === position3d.z &&
+        previous.x === x && previous.y === y && (previous.rotation ?? 0) === rotation && (previous.scale ?? 1) === scale);
+      // Preserve already saved arrangements. New or edited instances must fit
+      // the surface and cannot introduce a collision with another instance.
+      if (!unchanged && (scale < MIN_SCALE || scale > MAX_SCALE || Math.abs(rotation) > 180)) {
+        return { ok: false, errorCode: "INVALID_INPUT", error: "Kích thước hoặc góc xoay phụ kiện không hợp lệ" };
+      }
+      if (!unchanged && !accessoryFitsSurface({ position3d, mounting, kind: accessory.modelKind ?? "", scale, rotation })) {
+        return { ok: false, errorCode: "INVALID_INPUT", error: mounting === "floor" ? "Đồ trang trí lớn phải đặt trên sàn cạnh cây" : "Phụ kiện treo phải nằm trên tán cây" };
+      }
+      const candidate = { position3d, mounting, kind: accessory.modelKind ?? "", scale, rotation, unchanged };
+      if (occupied.some(p => !(p.unchanged && unchanged) && accessoryOverlap(candidate, p))) {
+        return { ok: false, errorCode: "INVALID_INPUT", error: "Các phụ kiện đang quá gần nhau. Hãy chọn vị trí khác hoặc giảm kích thước." };
+      }
+      occupied.push(candidate);
+    }
     value.push({
       slotId,
       accessoryId: String(accessory._id),
@@ -315,7 +387,8 @@ export async function validatePlacements(
       accessorySku: accessory.sku,
       accessoryName: accessory.name,
       unitPrice: accessory.unitPrice,
+      ...(position3d ? { position3d, mounting: accessory.mounting || "tree" } : {}),
     });
   }
-  return { ok: true, value, slotMapVersion: slotMap.version };
+  return { ok: true, value, slotMapVersion: slotMap?.version ?? 0 };
 }

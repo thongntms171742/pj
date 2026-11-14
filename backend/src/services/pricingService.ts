@@ -20,6 +20,7 @@ export interface TreeLean {
   isActive: boolean;
   sku?: string;
   bareImage?: string;
+  customizationCatalog?: string;
 }
 
 export interface AccessoryPricingLean {
@@ -27,8 +28,12 @@ export interface AccessoryPricingLean {
   sku: string;
   name: string;
   image: string;
-  unitPrice: number;
+  unitPrice: number | null;
   isActive: boolean;
+  priceStatus?: string;
+  catalogKey?: string;
+  modelKind?: string;
+  modelColor?: string;
 }
 
 export interface CatalogSnapshot {
@@ -50,6 +55,8 @@ export interface PriceBreakdown {
   grandTotal: number;
   /** Chi tiết từng dòng trang trí (đã tính theo số slot dùng). */
   decorations: Array<{
+    modelKind?: string;
+    modelColor?: string;
     accessoryId: string;
     sku: string;
     name: string;
@@ -158,9 +165,20 @@ export function priceDesign(
           `Phụ kiện "${acc.name}" hiện ngừng bán`
         );
       }
+      if (acc.priceStatus === "requires_confirmation" || acc.unitPrice === null ||
+          !Number.isSafeInteger(acc.unitPrice) || acc.unitPrice < 0) {
+        throw new DesignValidationError(ErrorCode.ACCESSORY_UNAVAILABLE,
+          `Phụ kiện "${acc.name}" chưa có đơn giá được xác nhận`);
+      }
+      if (acc.catalogKey && acc.catalogKey !== tree.customizationCatalog) {
+        throw new DesignValidationError(ErrorCode.ACCESSORY_UNAVAILABLE,
+          `Phụ kiện "${acc.name}" không thuộc danh mục của cây này`);
+      }
       const lineTotal = acc.unitPrice * qty;
       decorationFee += lineTotal;
       decorations.push({
+        modelKind: acc.modelKind,
+        modelColor: acc.modelColor,
         accessoryId: String(acc._id),
         sku: acc.sku,
         name: acc.name,

@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
+import { DesignPlacementSchema } from "./Design";
 
 // ── Cart item (Build Your Christmas) ─────────────────────────────────────────
 // Sau refactor RoomDesign: cart chỉ lưu variantId (Tree) + deliveryOption.
@@ -6,6 +7,7 @@ import mongoose, { Schema, Document, Types } from "mongoose";
 // tới Design.
 
 export interface ICartDesignFrozenConfig {
+  placementMode?: "slots" | "free";
   configVersion: number;
   slotMapVersion: number;
   placements: Array<{
@@ -15,6 +17,8 @@ export interface ICartDesignFrozenConfig {
     y: number;
     rotation?: number;
     scale?: number;
+    mounting?: "tree" | "floor";
+    position3d?: { x: number; y: number; z: number };
   }>;
 }
 
@@ -33,23 +37,12 @@ export interface ICartItem extends Document {
   checked: boolean;
 }
 
-const FrozenPlacementSchema = new Schema(
-  {
-    slotId: { type: String, required: true },
-    accessoryId: { type: Schema.Types.ObjectId, ref: "Accessory", required: true },
-    x: { type: Number, required: true, min: 0, max: 1 },
-    y: { type: Number, required: true, min: 0, max: 1 },
-    rotation: { type: Number, default: 0 },
-    scale: { type: Number, default: 1 },
-  },
-  { _id: false }
-);
-
 const FrozenConfigSchema = new Schema<ICartDesignFrozenConfig>(
   {
+    placementMode: { type: String, enum: ["slots", "free"], default: "slots" },
     configVersion: { type: Number, required: true, min: 1 },
     slotMapVersion: { type: Number, required: true, min: 0 },
-    placements: { type: [FrozenPlacementSchema], default: [] },
+    placements: { type: [DesignPlacementSchema], default: [] },
   },
   { _id: false }
 );

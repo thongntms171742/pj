@@ -17,6 +17,7 @@ export interface CartItemConfig {
   deliveryOption: "READY_TO_DISPLAY" | "DIY_KIT" | "SEPARATE";
   designId?: string;
   frozenConfig?: {
+    placementMode?: "slots" | "free";
     configVersion: number;
     slotMapVersion: number;
     placements: Array<{
@@ -26,11 +27,14 @@ export interface CartItemConfig {
       y: number;
       rotation?: number;
       scale?: number;
+      mounting?: "tree" | "floor";
+      position3d?: { x: number; y: number; z: number };
     }>;
   } | null;
 }
 
 export interface CartItemDto {
+  decorations?: PriceBreakdown["decorations"];
   _id: string;
   cartId: string;
   quantity: number;
@@ -67,6 +71,7 @@ export function cartItemToDto(
     priceSnapshot: item.priceSnapshot,
     currentUnitTotal: pricing ? pricing.unitTotal : null,
     priceChanged: pricing ? item.priceSnapshot !== pricing.unitTotal : true,
+    ...(pricing ? { decorations: pricing.decorations } : {}),
     checked: item.checked,
     config: {
       variantId: toStr(cfg.variantId),
@@ -75,6 +80,7 @@ export function cartItemToDto(
       ...(frozen
         ? {
             frozenConfig: {
+              placementMode: frozen.placementMode || "slots",
               configVersion: frozen.configVersion,
               slotMapVersion: frozen.slotMapVersion,
               placements: (frozen.placements ?? []).map((p: any) => ({
@@ -84,6 +90,7 @@ export function cartItemToDto(
                 y: Number(p.y),
                 rotation: p.rotation ?? 0,
                 scale: p.scale ?? 1,
+                ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
               })),
             },
           }

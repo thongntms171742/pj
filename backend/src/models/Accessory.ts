@@ -26,7 +26,15 @@ export interface IAccessory extends Document {
   name: string;
   description: string;
   image: string;
-  unitPrice: number;
+  unitPrice: number | null;
+  category?: string;
+  catalogKey?: string;
+  priceStatus?: "confirmed" | "requires_confirmation";
+  mounting?: "tree" | "floor";
+  modelKind?: string;
+  modelColor?: string;
+  unitLabel?: string;
+  source?: { document: string; figure: number; priceText: string; note: string; imageSha256: string };
   stockQuantity: number;
   slotTypes: string[];
   isActive: boolean;
@@ -45,7 +53,21 @@ const AccessorySchema = new Schema<IAccessory>(
     name: { type: String, required: true, trim: true, index: true },
     description: { type: String, default: "" },
     image: { type: String, default: "" },
-    unitPrice: { type: Number, required: true, min: 0 },
+    unitPrice: { type: Number, default: null, min: 0 },
+    category: { type: String, default: "" },
+    catalogKey: { type: String, default: "", index: true },
+    priceStatus: { type: String, enum: ["confirmed", "requires_confirmation"], default: "confirmed" },
+    mounting: { type: String, enum: ["tree", "floor"], default: "tree" },
+    modelKind: { type: String, default: "" },
+    modelColor: { type: String, default: "" },
+    unitLabel: { type: String, default: "chiếc" },
+    source: {
+      document: String,
+      figure: Number,
+      priceText: String,
+      note: String,
+      imageSha256: String,
+    },
     stockQuantity: { type: Number, required: true, min: 0, default: 0 },
     slotTypes: { type: [String], default: ["generic"] },
     isActive: { type: Boolean, default: true, index: true },

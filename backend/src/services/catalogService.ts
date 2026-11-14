@@ -70,6 +70,10 @@ export async function loadCatalogForPricingInput(
       image: (d as any).image ?? "",
       unitPrice: d.unitPrice,
       isActive: d.isActive,
+      priceStatus: d.priceStatus,
+      catalogKey: d.catalogKey,
+      modelKind: d.modelKind,
+      modelColor: d.modelColor,
     }));
   }
   return {
@@ -84,6 +88,7 @@ export async function loadCatalogForPricingInput(
       isActive: tree.isActive,
       sku: (tree as any).sku ?? "",
       bareImage: (tree as any).bareImage ?? "",
+      customizationCatalog: tree.customizationCatalog,
     },
     accessories,
   };

@@ -99,11 +99,23 @@ export const updateAccessoryAdmin = ah(async (req, res) => {
     if (typeof body.image === "string") doc.image = body.image;
     if (body.unitPrice !== undefined) {
       const v = Number(body.unitPrice);
-      if (!Number.isFinite(v) || v < 0) {
+      if (body.unitPrice === null || !Number.isSafeInteger(v) || v < 0) {
         sendError(res, ErrorCode.INVALID_INPUT, "`unitPrice` phải là số >= 0");
         return;
       }
       doc.unitPrice = v;
+    }
+    if (body.priceStatus !== undefined) {
+      if (!["confirmed", "requires_confirmation"].includes(String(body.priceStatus))) {
+        sendError(res, ErrorCode.INVALID_INPUT, "Trạng thái xác nhận giá không hợp lệ");
+        return;
+      }
+      if (body.priceStatus === "confirmed" && doc.unitPrice === null) {
+        sendError(res, ErrorCode.INVALID_INPUT, "Nhập đơn giá chính xác trước khi xác nhận");
+        return;
+      }
+      doc.priceStatus = body.priceStatus as "confirmed" | "requires_confirmation";
+      if (doc.priceStatus === "requires_confirmation") doc.unitPrice = null;
     }
     if (body.stockQuantity !== undefined) {
       const v = Number(body.stockQuantity);
