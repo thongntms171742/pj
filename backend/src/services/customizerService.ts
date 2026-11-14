@@ -26,7 +26,14 @@ export interface AccessoryLean {
   model3dUrl: string;
   model3dScale: number;
   model3dRotation: number;
-  unitPrice: number;
+  unitPrice: number | null;
+  category?: string;
+  priceStatus?: string;
+  source?: unknown;
+  mounting?: string;
+  modelKind?: string;
+  modelColor?: string;
+  unitLabel?: string;
   stockQuantity: number;
   slotTypes: string[];
   isActive: boolean;
@@ -71,6 +78,13 @@ export async function listAccessories(
     slotTypes: d.slotTypes ?? [],
     isActive: d.isActive,
     sortOrder: d.sortOrder,
+    category: d.category,
+    priceStatus: d.priceStatus,
+    source: d.source,
+    mounting: d.mounting,
+    modelKind: d.modelKind,
+    modelColor: d.modelColor,
+    unitLabel: d.unitLabel,
     anchor: normalizeAnchor(d.anchor),
     shadow: normalizeShadow(d.shadow),
     defaultScale:
@@ -290,6 +304,8 @@ export interface PlacementInput {
   y: number;
   rotation?: number;
   scale?: number;
+  mounting?: "tree" | "floor";
+  position3d?: { x: number; y: number; z: number };
   /**
    * Snapshot lớp chiều sâu. `undefined` ⇒ lấy `depth` của slot hiện tại.
    */
@@ -422,9 +438,35 @@ export async function validatePlacements(
     if (!Number.isFinite(rotation) || !Number.isFinite(scale) || scale <= 0 || scale > 10) {
       return { ok: false, errorCode: "INVALID_INPUT", error: `placements[${i}].rotation/scale không hợp lệ` };
     }
+    let position3d: PlacementInput["position3d"];
+    if (placementMode === "free") {
+      const position = p.position3d as Record<string, unknown> | undefined;
+      if (!position || ![position.x, position.y, position.z].every(v => typeof v === "number" && Number.isFinite(v)) ||
+          Math.abs(Number(position.x)) > 4 || Math.abs(Number(position.z)) > 4 || Number(position.y) < 0 || Number(position.y) > 4) {
+        return { ok: false, errorCode: "INVALID_INPUT", error: "Vị trí 3D không hợp lệ" };
+      }
+      position3d = { x: Number(position.x), y: Number(position.y), z: Number(position.z) };
+      const mounting = accessory.mounting ?? "tree";
+      const previous = previousById.get(slotId);
+      const unchanged = Boolean(previous?.position3d && String(previous.accessoryId) === String(accessory._id) && (previous.mounting ?? mounting) === mounting &&
+        previous.position3d.x === position3d.x && previous.position3d.y === position3d.y && previous.position3d.z === position3d.z &&
+        previous.x === x && previous.y === y && (previous.rotation ?? 0) === rotation && (previous.scale ?? 1) === scale);
+      if (!unchanged && (scale < MIN_SCALE || scale > MAX_SCALE || Math.abs(rotation) > 180)) {
+        return { ok: false, errorCode: "INVALID_INPUT", error: "Kích thước hoặc góc xoay phụ kiện không hợp lệ" };
+      }
+      if (!unchanged && !accessoryFitsSurface({ position3d, mounting, kind: accessory.modelKind ?? "", scale, rotation })) {
+        return { ok: false, errorCode: "INVALID_INPUT", error: mounting === "floor" ? "Đồ trang trí lớn phải đặt trên sàn cạnh cây" : "Phụ kiện treo phải nằm trên tán cây" };
+      }
+      const candidate = { position3d, mounting, kind: accessory.modelKind ?? "", scale, rotation, unchanged };
+      if (occupied.some(p => !(p.unchanged && unchanged) && accessoryOverlap(candidate, p))) {
+        return { ok: false, errorCode: "INVALID_INPUT", error: "Các phụ kiện đang quá gần nhau. Hãy chọn vị trí khác hoặc giảm kích thước." };
+      }
+      occupied.push(candidate);
+    }
     // Snapshot lớp chiều sâu: ưu tiên giá trị FE gửi kèm, nếu không có thì
     // lấy `depth` hiện tại của slot. Giá trị sai ⇒ bỏ qua (fallback slot).
-    const depth = normalizeDepth(p.depth ?? slot.depth);
+    const depth = placementMode === "slots" ? normalizeDepth(p.depth ?? slot?.depth)
+      : p.depth === undefined ? undefined : normalizeDepth(p.depth);
     value.push({
       slotId,
       accessoryId: String(accessory._id),
@@ -459,7 +501,7 @@ export interface DesignAccessoryDto {
   description: string;
   image: string;
   previewImage: string;
-  decorationPrice: number;
+  decorationPrice: number | null;
   slotTypes: string[];
   isActive: boolean;
   sortOrder: number;

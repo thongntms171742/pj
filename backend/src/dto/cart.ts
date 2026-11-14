@@ -27,6 +27,8 @@ export interface CartItemConfig {
       y: number;
       rotation?: number;
       scale?: number;
+      mounting?: "tree" | "floor";
+      position3d?: { x: number; y: number; z: number };
       /** Snapshot lớp chiều sâu. */
       depth?: "behind" | "front";
     }>;
@@ -91,6 +93,7 @@ export function cartItemToDto(
                 rotation: p.rotation ?? 0,
                 scale: p.scale ?? 1,
                 ...(p.depth ? { depth: p.depth } : {}),
+                ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
               })),
             },
           }

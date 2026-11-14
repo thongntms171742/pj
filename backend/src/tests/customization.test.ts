@@ -141,11 +141,17 @@ async function main(): Promise<void> {
     checks.push("Raw L works without a slot map, shares 24 accessories and saves/buys with the 220,000 VND base price");
     const legacyDesign = await request("POST", "/designs", { treeVariantId: variant._id, name: "Legacy slots" }, token);
     await SlotMap.create({ variantId: variant._id, version: 1, isPublished: true,
-      slots: [{ slotId: "legacy-slot", slotType: "generic", x: 0.5, y: 0.5, radius: 0.1 }] });
+      slots: [{ slotId: "legacy-slot", slotType: "generic", x: 0.5, y: 0.5, radius: 0.1, depth: "behind" }] });
     const legacy = await request("PUT", `/designs/${legacyDesign.data.design.id}/configuration`, {
       placements: [{ slotId: "legacy-slot", accessoryId: String(byFigure.get(19)!._id), x: 0.5, y: 0.5 }],
     }, token);
     assert.equal(legacy.status, 200);
+    assert.equal(legacy.data.design.configuration.placements[0].depth, "behind");
+    const legacyCart = await request("POST", "/cart/items", {
+      variantId: variant._id, deliveryOption: "DIY_KIT", designId: legacyDesign.data.design.id, quantity: 1,
+    }, token);
+    assert.equal(legacyCart.status, 201);
+    assert.equal(legacyCart.data.item.config.frozenConfig.placements[0].depth, "behind");
     checks.push("Existing slot-based configurations remain compatible");
     const historical = await request("POST", "/designs", { treeVariantId: variant._id, name: "Historic free layout" }, token);
     const historicalId = historical.data.design.id;

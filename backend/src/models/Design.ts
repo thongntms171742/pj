@@ -10,6 +10,8 @@ export interface IDesignPlacement {
   y: number;
   rotation?: number;
   scale?: number;
+  mounting?: "tree" | "floor";
+  position3d?: { x: number; y: number; z: number };
   /**
    * Snapshot lớp chiều sâu tại lúc khách gắn phụ kiện.
    * `undefined` ⇒ fallback về `depth` của slot trong SlotMap hiện tại.
@@ -73,6 +75,8 @@ export const DesignPlacementSchema = new Schema<IDesignPlacement>(
     y: { type: Number, required: true, min: 0, max: 1 },
     rotation: { type: Number, default: 0 },
     scale: { type: Number, default: 1 },
+    mounting: { type: String, enum: ["tree", "floor"], required: false },
+    position3d: { x: Number, y: Number, z: Number },
     depth: {
       type: String,
       enum: ["behind", "front"],

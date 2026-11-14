@@ -74,6 +74,8 @@ export interface RoomDesignResponse {
       scale?: number;
       /** Snapshot lớp chiều sâu — undefined ⇒ fallback về slot hiện tại. */
       depth?: "behind" | "front";
+      mounting?: "tree" | "floor";
+      position3d?: { x: number; y: number; z: number };
     }>;
   } | null;
   variant: {
@@ -119,6 +121,8 @@ export function buildRoomDesignResponse(
         rotation?: number;
         scale?: number;
         depth?: "behind" | "front";
+        mounting?: "tree" | "floor";
+        position3d?: { x: number; y: number; z: number };
       }>;
     } | null;
     createdAt?: Date;
@@ -156,6 +160,7 @@ export function buildRoomDesignResponse(
             rotation: p.rotation ?? 0,
             scale: p.scale ?? 1,
             ...(p.depth ? { depth: p.depth } : {}),
+            ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
           })),
         }
       : null,

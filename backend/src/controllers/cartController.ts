@@ -205,6 +205,7 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
           // Copy nguyên vẹn snapshot lớp chiều sâu — đơn hàng phải render
           // đúng hình khách đã chọn.
           ...(p.depth ? { depth: p.depth } : {}),
+          ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
         })),
       };
       const countByAcc = new Map<string, number>();
