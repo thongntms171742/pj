@@ -59,6 +59,8 @@ export const createTreeVariant = ah(async (req, res) => {
       if (typeof body.diameterCm === "number") existingVariant.diameterCm = body.diameterCm;
       if (typeof body.description === "string") existingVariant.description = body.description;
       if (typeof body.bareImage === "string") existingVariant.bareImage = body.bareImage;
+      if (typeof body.foregroundMask === "string")
+        existingVariant.foregroundMask = body.foregroundMask;
       if (Array.isArray(body.images)) existingVariant.images = body.images as string[];
       await existingVariant.save();
       created(res, { variant: existingVariant, reactivated: true });
@@ -97,6 +99,7 @@ export const createTreeVariant = ah(async (req, res) => {
       diameterCm: (body.diameterCm as number) ?? 0,
       description: (body.description as string) ?? product.description,
       bareImage: (body.bareImage as string) ?? "",
+      foregroundMask: (body.foregroundMask as string) ?? "",
       images: Array.isArray(body.images) ? (body.images as string[]) : [],
       price: body.price,
       stockQuantity: body.stockQuantity,
@@ -193,6 +196,10 @@ export const updateTreeVariant = ah(async (req, res) => {
       variant.description = body.description;
     if (typeof body.bareImage === "string")
       variant.bareImage = body.bareImage;
+    // Lớp 4 — cành trước cảnh (PNG alpha, cùng pixel size với bareImage).
+    // KHÔNG áp `e_background_removal` khi phục vụ ảnh này.
+    if (typeof body.foregroundMask === "string")
+      variant.foregroundMask = body.foregroundMask;
     if (Array.isArray(body.images)) variant.images = body.images as string[];
     if (typeof body.price === "number") variant.price = body.price;
     if (typeof body.stockQuantity === "number")

@@ -96,6 +96,7 @@ export const createDesign = async (
       prompt,
       name,
       deliveryOption,
+      configuration,
     } = req.body as {
       treeVariantId?: string;
       roomImageUrl?: string;
@@ -103,6 +104,7 @@ export const createDesign = async (
       prompt?: string;
       name?: string;
       deliveryOption?: string;
+      configuration?: unknown;
     };
 
     if (!treeVariantId) {
@@ -141,6 +143,20 @@ export const createDesign = async (
     const finalDeliveryOption: DeliveryOption =
       (deliveryOption as DeliveryOption) || "READY_TO_DISPLAY";
 
+    // `configuration` (Tree Customizer) là optional. Nếu FE gửi kèm ⇒ validate
+    // & lưu placements (kể cả snapshot `depth`) để đơn hàng render đúng hình
+    // khách đã chọn.
+    let normalizedConfiguration: any = undefined;
+    if (configuration !== undefined) {
+      const { normalizeConfiguration } = await import(
+        "../services/customizerService"
+      );
+      normalizedConfiguration = await normalizeConfiguration(
+        String(treeVariantId),
+        configuration
+      );
+    }
+
     const doc = await Design.create({
       ownerId: new Types.ObjectId(userId),
       name: String(name || "").trim() || "My Room",
@@ -150,6 +166,9 @@ export const createDesign = async (
       roomImagePublicId: safeRoomImagePublicId,
       deliveryOption: finalDeliveryOption,
       status: "DRAFT",
+      ...(normalizedConfiguration
+        ? { configuration: normalizedConfiguration }
+        : {}),
     });
 
     const refreshed = await Design.findById(doc._id).lean();
@@ -501,7 +520,9 @@ export const updateDesignConfiguration = async (
         y: p.y,
         rotation: p.rotation ?? 0,
         scale: p.scale ?? 1,
-        ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
+        // Snapshot lớp chiều sâu — admin có thể đổi `depth` của slot sau khi
+        // khách đặt hàng ⇒ phải giữ đúng hình khách đã chọn.
+        depth: p.depth,
       })),
     };
     const versionFilter = prevVersion === 0

@@ -16,6 +16,8 @@ import mongoose, { Schema, Document, Types } from "mongoose";
 //   - sku (mã nội bộ duy nhất toàn hệ thống)
 //   - heightCmMin/Max, diameterCm (kích thước vật lý)
 //   - bareImage (ảnh riêng cho size này — nếu khác nhau giữa các size)
+//   - foregroundMask (ảnh CÀNH TIỀN CẢNH — PNG alpha, lớp overlay che phụ
+//     kiện `depth: 'behind'`; phải CÙNG pixel size với bareImage)
 //   - isActive: false = ngừng bán (giữ lại để OrderItem tham chiếu)
 //
 // Quan hệ:
@@ -40,6 +42,17 @@ export interface ITree extends Document {
   description: string;
   images: string[];        // ảnh bổ sung
   bareImage: string;       // ảnh cây trơn (không trang trí)
+  /**
+   * Ảnh CÀNH TIỀN CẢNH (PNG alpha) — lớp overlay phủ lên phụ kiện
+   * `depth: 'behind'` để tạo cảm giác phụ kiện nằm TRONG tán cây.
+   *
+   * YÊU CẦU: cùng pixel size với `bareImage` (cùng khung, cùng góc máy).
+   * `undefined` ⇒ không có lớp che ⇒ hành vi cũ (mọi phụ kiện nằm trước cây).
+   *
+   * KHÔNG áp transformation `e_background_removal` khi phục vụ ảnh này —
+   * đây là PNG alpha đã cắt sẵn, xử lý nền lần nữa sẽ phá hỏng alpha.
+   */
+  foregroundMask?: string;
   price: number;
   stockQuantity: number;
   isActive: boolean;
@@ -77,6 +90,7 @@ const TreeSchema = new Schema<ITree>(
     description: { type: String, default: "" },
     images: { type: [String], default: [] },
     bareImage: { type: String, default: "" },
+    foregroundMask: { type: String, default: "" },
     price: { type: Number, required: true, min: 0 },
     stockQuantity: { type: Number, required: true, min: 0, default: 0 },
     isActive: { type: Boolean, default: true, index: true },

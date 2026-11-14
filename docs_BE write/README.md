@@ -16,6 +16,15 @@ Thư mục tài liệu đã được tinh gọn vào **4 tài liệu cốt lõi*
 | 3 | **[openapi.yaml](./openapi.yaml)** | **Đặc tả OpenAPI 3.0.3**: Dùng import vào Swagger, Postman, hoặc generate client TypeScript SDK tự động. | Khi kiểm thử API hoặc gen type SDK |
 | 4 | **[API_CHANGELOG.md](./API_CHANGELOG.md)** | **Nhật ký thay đổi API**: Theo dõi toàn bộ breaking changes và các cập nhật mới nhất của backend. | Khi cập nhật hoặc gặp lỗi do thay đổi API |
 
+### 📐 Tài liệu hệ thống ghép ảnh 4 lớp (Context-aware Compositing — 2026-11-13)
+
+> ✅ **BE đã triển khai đầy đủ** (2026-11-13). Toàn bộ field mới đều `optional` ⇒ FE chạy đúng khi BE chưa có field (xem bảng fallback trong `BE_HANDOFF_COMPOSITING.md`).
+
+| # | Tài liệu | Mục đích | Đọc khi nào |
+|---|----------|----------|-------------|
+| 5 | **[BE_HANDOFF_COMPOSITING.md](./BE_HANDOFF_COMPOSITING.md)** | **Handoff BE** cho hệ thống ghép 4 lớp (cây trơn → phụ kiện sau cành → phụ kiện trước cành → cành trước cảnh): schema, payload mẫu, bảng fallback, checklist triển khai. | Khi BE cần đồng bộ field mới |
+| 6 | **[ASSET_PREPARATION_GUIDE.md](./ASSET_PREPARATION_GUIDE.md)** | **Hướng dẫn chuẩn bị ảnh** cho designer/ops: cây trơn, mask cành trước, PNG phụ kiện tách nền sạch, checklist theo từng nhóm phụ kiện. | Khi chuẩn bị bộ ảnh cho cây base |
+
 ---
 
 ## 🚀 THÔNG TIN MÔI TRƯỜNG & KHỞI CHẠY NHANH

@@ -17,8 +17,12 @@ export interface ICartDesignFrozenConfig {
     y: number;
     rotation?: number;
     scale?: number;
-    mounting?: "tree" | "floor";
-    position3d?: { x: number; y: number; z: number };
+    /**
+     * Snapshot lớp chiều sâu tại lúc khách gắn phụ kiện.
+     * Copy nguyên vẹn từ `Design.configuration.placements[]` để đơn hàng
+     * render đúng hình khách đã chọn.
+     */
+    depth?: "behind" | "front";
   }>;
 }
 
@@ -36,6 +40,23 @@ export interface ICartItem extends Document {
   priceSnapshot: number;
   checked: boolean;
 }
+
+const FrozenPlacementSchema = new Schema(
+  {
+    slotId: { type: String, required: true },
+    accessoryId: { type: Schema.Types.ObjectId, ref: "Accessory", required: true },
+    x: { type: Number, required: true, min: 0, max: 1 },
+    y: { type: Number, required: true, min: 0, max: 1 },
+    rotation: { type: Number, default: 0 },
+    scale: { type: Number, default: 1 },
+    depth: {
+      type: String,
+      enum: ["behind", "front"],
+      required: false,
+    },
+  },
+  { _id: false }
+);
 
 const FrozenConfigSchema = new Schema<ICartDesignFrozenConfig>(
   {

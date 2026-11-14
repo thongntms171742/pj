@@ -641,7 +641,7 @@ const BannerSchema = new Schema({
 - `GET /reviews/my` ✅
 - `GET /orders/:orderId/reviewable-items` ✅ (route mounted on orders.ts, không phải reviews.ts)
 
-### Admin endpoints — 🔴 FE doc có, **BE THIẾU**
+### Admin endpoints — ✅ ĐÃ CÓ (BE đã mount trong `routes/admin.ts`)
 
 FE doc liệt kê:
 ```
@@ -651,9 +651,8 @@ PATCH  /admin/reviews/:id/status
 DELETE /admin/reviews/:id
 ```
 
-🔴 **`backend/src/routes/admin.ts` KHÔNG mount các route reviews admin.** Cần bổ sung.
-
-📄 Verify: `backend/src/routes/admin.ts` (sẽ báo cáo ở cuối).
+✅ Tất cả đã được mount tại `backend/src/routes/admin.ts` (handler:
+`backend/src/controllers/admin/reviews.ts`).
 
 ### Review response shape
 

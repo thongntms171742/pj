@@ -146,6 +146,8 @@ export interface TreeVariantSummary {
   diameterCm: number;
   description: string;
   bareImage: string;
+  /** Lớp 4 — cành trước cảnh (optional). */
+  foregroundMask?: string;
   price: number;
   stockQuantity: number;
   isActive: boolean;
@@ -256,6 +258,7 @@ export async function loadGroupedTreeCatalog(opts?: {
         diameterCm: v.diameterCm,
         description: v.description || "",
         bareImage: v.bareImage,
+        foregroundMask: (v as any).foregroundMask || "",
         price: v.price,
         stockQuantity: v.stockQuantity,
         isActive: v.isActive,

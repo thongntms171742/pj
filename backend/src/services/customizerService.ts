@@ -1,6 +1,8 @@
 import { Types } from "mongoose";
-import { Accessory } from "../models/Accessory";
-import { SlotMap, type ISlotMap } from "../models/SlotMap";
+import { Accessory, ACCESSORY_SHADOW_TYPES } from "../models/Accessory";
+import type { AccessoryShadow } from "../models/Accessory";
+import { SlotMap, SLOT_DEPTH_TYPES, type ISlotMap } from "../models/SlotMap";
+import type { SlotDepth } from "../models/SlotMap";
 import { Tree } from "../models/Tree";
 import { accessoryOverlap, accessoryFitsSurface, MAX_SCALE, MIN_SCALE, type Mounting, type ScenePosition } from "./placementRules";
 
@@ -20,18 +22,21 @@ export interface AccessoryLean {
   name: string;
   description: string;
   image: string;
-  unitPrice: number | null;
-  category?: string;
-  priceStatus?: string;
-  source?: unknown;
-  mounting?: string;
-  modelKind?: string;
-  modelColor?: string;
-  unitLabel?: string;
+  previewImage: string;
+  model3dUrl: string;
+  model3dScale: number;
+  model3dRotation: number;
+  unitPrice: number;
   stockQuantity: number;
   slotTypes: string[];
   isActive: boolean;
   sortOrder: number;
+  /** Điểm neo chuẩn hoá 0–1 trong bbox của `image`. */
+  anchor: { x: number; y: number };
+  /** Kiểu bóng. */
+  shadow: AccessoryShadow;
+  /** Tỉ lệ mặc định khi gắn. */
+  defaultScale: number;
 }
 
 export async function listAccessories(
@@ -56,19 +61,50 @@ export async function listAccessories(
     name: d.name,
     description: d.description ?? "",
     image: d.image ?? "",
+    previewImage: d.previewImage ?? "",
+    model3dUrl: d.model3dUrl ?? "",
+    model3dScale: typeof d.model3dScale === "number" ? d.model3dScale : 1,
+    model3dRotation:
+      typeof d.model3dRotation === "number" ? d.model3dRotation : 0,
     unitPrice: d.unitPrice,
     stockQuantity: d.stockQuantity,
     slotTypes: d.slotTypes ?? [],
     isActive: d.isActive,
     sortOrder: d.sortOrder,
-    category: d.category,
-    priceStatus: d.priceStatus,
-    source: d.source,
-    mounting: d.mounting,
-    modelKind: d.modelKind,
-    modelColor: d.modelColor,
-    unitLabel: d.unitLabel,
+    anchor: normalizeAnchor(d.anchor),
+    shadow: normalizeShadow(d.shadow),
+    defaultScale:
+      typeof d.defaultScale === "number" ? d.defaultScale : 1,
   }));
+}
+
+/**
+ * Chuẩn hoá điểm neo về 0–1. Thiếu ⇒ neo giữa ảnh (hành vi cũ).
+ */
+export function normalizeAnchor(
+  raw: unknown
+): { x: number; y: number } {
+  const a = (raw ?? {}) as { x?: unknown; y?: unknown };
+  const x = Number(a.x);
+  const y = Number(a.y);
+  return {
+    x: Number.isFinite(x) ? clamp01(x) : 0.5,
+    y: Number.isFinite(y) ? clamp01(y) : 0.5,
+  };
+}
+
+/**
+ * Chuẩn hoá kiểu bóng. Thiếu / sai giá trị ⇒ 'soft' (hành vi cũ).
+ */
+export function normalizeShadow(raw: unknown): AccessoryShadow {
+  const s = String(raw ?? "");
+  return (ACCESSORY_SHADOW_TYPES as readonly string[]).includes(s)
+    ? (s as AccessoryShadow)
+    : "soft";
+}
+
+function clamp01(n: number): number {
+  return Math.min(1, Math.max(0, n));
 }
 
 // ── Published SlotMap ────────────────────────────────────────────────────────
@@ -86,6 +122,10 @@ export interface SlotMapResponse {
     radius: number;
     z: number;
     allowedAccessoryTypes: string[];
+    /** Mặc định 'front'. */
+    depth: SlotDepth;
+    /** Mặc định 1. */
+    scaleHint: number;
   }>;
 }
 
@@ -115,8 +155,28 @@ function toSlotMapResponse(doc: ISlotMap | Record<string, any>): SlotMapResponse
       allowedAccessoryTypes: Array.isArray(s.allowedAccessoryTypes)
         ? s.allowedAccessoryTypes.map(String)
         : [],
+      depth: normalizeDepth(s.depth),
+      scaleHint: normalizeScaleHint(s.scaleHint),
     })),
   };
+}
+
+/**
+ * Chuẩn hoá lớp chiều sâu của slot. Thiếu / sai giá trị ⇒ 'front'.
+ */
+export function normalizeDepth(raw: unknown): SlotDepth {
+  const d = String(raw ?? "");
+  return (SLOT_DEPTH_TYPES as readonly string[]).includes(d)
+    ? (d as SlotDepth)
+    : "front";
+}
+
+/**
+ * Chuẩn hoá gợi ý kích thước. Thiếu / sai ⇒ 1.
+ */
+export function normalizeScaleHint(raw: unknown): number {
+  const v = Number(raw);
+  return Number.isFinite(v) && v > 0 ? v : 1;
 }
 
 // ── Admin: phát hành SlotMap mới ─────────────────────────────────────────────
@@ -131,6 +191,10 @@ export interface SlotInput {
   radius: number;
   z?: number;
   allowedAccessoryTypes?: string[];
+  /** Lớp chiều sâu — mặc định 'front'. */
+  depth?: SlotDepth;
+  /** Gợi ý kích thước authored — mặc định 1. */
+  scaleHint?: number;
 }
 
 export function validateSlots(slots: unknown): {
@@ -180,6 +244,10 @@ export function validateSlots(slots: unknown): {
     const allowed = Array.isArray(s.allowedAccessoryTypes)
       ? (s.allowedAccessoryTypes as unknown[]).map(String)
       : [];
+    // `depth` / `scaleHint` là field OPTIONAL. Giá trị sai ⇒ BỎ QUA field
+    // (không reject request) để admin có thể sửa từng lần mà không bị chặn.
+    const depth = normalizeDepth(s.depth);
+    const scaleHint = normalizeScaleHint(s.scaleHint);
     value.push({
       slotId,
       slotType,
@@ -188,6 +256,8 @@ export function validateSlots(slots: unknown): {
       radius,
       z,
       allowedAccessoryTypes: allowed,
+      depth,
+      scaleHint,
     });
   }
   return { ok: true, value };
@@ -220,8 +290,10 @@ export interface PlacementInput {
   y: number;
   rotation?: number;
   scale?: number;
-  mounting?: "tree" | "floor";
-  position3d?: { x: number; y: number; z: number };
+  /**
+   * Snapshot lớp chiều sâu. `undefined` ⇒ lấy `depth` của slot hiện tại.
+   */
+  depth?: SlotDepth;
 }
 
 export interface ValidatedPlacement extends PlacementInput {
@@ -350,33 +422,9 @@ export async function validatePlacements(
     if (!Number.isFinite(rotation) || !Number.isFinite(scale) || scale <= 0 || scale > 10) {
       return { ok: false, errorCode: "INVALID_INPUT", error: `placements[${i}].rotation/scale không hợp lệ` };
     }
-    let position3d: PlacementInput["position3d"];
-    if (placementMode === "free") {
-      const position = p.position3d as Record<string, unknown> | undefined;
-      if (!position || ![position.x, position.y, position.z].every(v => typeof v === "number" && Number.isFinite(v)) ||
-          Math.abs(Number(position.x)) > 4 || Math.abs(Number(position.z)) > 4 || Number(position.y) < 0 || Number(position.y) > 4) {
-        return { ok: false, errorCode: "INVALID_INPUT", error: "Vị trí 3D không hợp lệ" };
-      }
-      position3d = { x: Number(position.x), y: Number(position.y), z: Number(position.z) };
-      const mounting = accessory.mounting ?? "tree";
-      const previous = previousById.get(slotId);
-      const unchanged = Boolean(previous?.position3d && String(previous.accessoryId) === String(accessory._id) && (previous.mounting ?? mounting) === mounting &&
-        previous.position3d.x === position3d.x && previous.position3d.y === position3d.y && previous.position3d.z === position3d.z &&
-        previous.x === x && previous.y === y && (previous.rotation ?? 0) === rotation && (previous.scale ?? 1) === scale);
-      // Preserve already saved arrangements. New or edited instances must fit
-      // the surface and cannot introduce a collision with another instance.
-      if (!unchanged && (scale < MIN_SCALE || scale > MAX_SCALE || Math.abs(rotation) > 180)) {
-        return { ok: false, errorCode: "INVALID_INPUT", error: "Kích thước hoặc góc xoay phụ kiện không hợp lệ" };
-      }
-      if (!unchanged && !accessoryFitsSurface({ position3d, mounting, kind: accessory.modelKind ?? "", scale, rotation })) {
-        return { ok: false, errorCode: "INVALID_INPUT", error: mounting === "floor" ? "Đồ trang trí lớn phải đặt trên sàn cạnh cây" : "Phụ kiện treo phải nằm trên tán cây" };
-      }
-      const candidate = { position3d, mounting, kind: accessory.modelKind ?? "", scale, rotation, unchanged };
-      if (occupied.some(p => !(p.unchanged && unchanged) && accessoryOverlap(candidate, p))) {
-        return { ok: false, errorCode: "INVALID_INPUT", error: "Các phụ kiện đang quá gần nhau. Hãy chọn vị trí khác hoặc giảm kích thước." };
-      }
-      occupied.push(candidate);
-    }
+    // Snapshot lớp chiều sâu: ưu tiên giá trị FE gửi kèm, nếu không có thì
+    // lấy `depth` hiện tại của slot. Giá trị sai ⇒ bỏ qua (fallback slot).
+    const depth = normalizeDepth(p.depth ?? slot.depth);
     value.push({
       slotId,
       accessoryId: String(accessory._id),
@@ -384,6 +432,7 @@ export async function validatePlacements(
       y,
       rotation,
       scale,
+      depth,
       accessorySku: accessory.sku,
       accessoryName: accessory.name,
       unitPrice: accessory.unitPrice,
@@ -391,4 +440,153 @@ export async function validatePlacements(
     });
   }
   return { ok: true, value, slotMapVersion: slotMap?.version ?? 0 };
+}
+
+// ── Public catalog phụ kiện cho Tree Customizer ──────────────────────────────
+// Endpoint `GET /api/design-accessories` trả collection phụ kiện riêng cho
+// Customizer: phụ kiện THIẾT KẾ (không phải hàng hóa thương mại) ⇒ không có
+// tồn kho, giá tính theo từng slot.
+//
+// FE tự chuẩn hoá qua `normalizeDesignAccessory()`:
+//   code            ↔ sku            (mã phụ kiện)
+//   decorationPrice ↔ unitPrice      (giá cho 1 slot)
+//   image           ↔ image          (PNG alpha được KÉO lên cây)
+
+export interface DesignAccessoryDto {
+  _id: string;
+  code: string;
+  name: string;
+  description: string;
+  image: string;
+  previewImage: string;
+  decorationPrice: number;
+  slotTypes: string[];
+  isActive: boolean;
+  sortOrder: number;
+  /** Metadata 3D (optional — FE tự fallback khi thiếu). */
+  model3dUrl: string;
+  model3dScale: number;
+  model3dRotation: number;
+  /** Metadata ghép ảnh (optional — FE tự fallback khi thiếu). */
+  anchor: { x: number; y: number };
+  shadow: AccessoryShadow;
+  defaultScale: number;
+}
+
+export async function listDesignAccessories(
+  slotType?: string
+): Promise<DesignAccessoryDto[]> {
+  const accessories = await listAccessories(
+    slotType ? { slotType } : { onlyActive: true }
+  );
+  return accessories.map((a) => ({
+    _id: a._id,
+    code: a.sku,
+    name: a.name,
+    description: a.description,
+    image: a.image,
+    previewImage: a.previewImage,
+    decorationPrice: a.unitPrice,
+    slotTypes: a.slotTypes,
+    isActive: a.isActive,
+    sortOrder: a.sortOrder,
+    model3dUrl: a.model3dUrl,
+    model3dScale: a.model3dScale,
+    model3dRotation: a.model3dRotation,
+    anchor: a.anchor,
+    shadow: a.shadow,
+    defaultScale: a.defaultScale,
+  }));
+}
+
+// ── Tree variant: foregroundMask (lớp 4 — cành trước cảnh) ─────────────────// Ảnh CÀNH TIỀN CẢNH (PNG alpha) phủ lên phụ kiện `depth: 'behind'`.
+// Phải CÙNG pixel size với `bareImage`. Thiếu ⇒ không có lớp 4 ⇒ hành vi cũ.
+//
+// ⚠️ KHÔNG áp transformation `e_background_removal` khi phục vụ ảnh này —
+// đây là PNG alpha đã cắt sẵn, xử lý nền lần nữa sẽ phá hỏng alpha.
+
+export async function getVariantForegroundMask(
+  variantId: string
+): Promise<string> {
+  if (!Types.ObjectId.isValid(variantId)) return "";
+  const variant = await Tree.findById(variantId).lean();
+  return (variant as any)?.foregroundMask ?? "";
+}
+
+// ── Normalize `configuration` gửi kèm lúc tạo/sửa design ────────────────────
+// FE gửi `configuration` trong body của `POST /api/designs`,
+// `PATCH /api/designs/:id` và `POST /api/designs/quote`.
+//
+// BE KHÔNG cần validate sâu: chỉ cần lưu nguyên vẹn mảng `placements`
+// (kể cả field lạ như `depth`) để bản đơn render đúng hình khách đã chọn.
+//
+// `depth` trong mỗi placement là SNAPSHOT lớp chiều sâu tại lúc khách gắn.
+// Nếu FE không gửi ⇒ lấy `depth` hiện tại của slot trong SlotMap đang publish.
+
+export interface NormalizedConfiguration {
+  configVersion: number;
+  slotMapVersion: number;
+  variantSnapshot: {
+    variantId: Types.ObjectId;
+    sku: string;
+    name: string;
+    price: number;
+  };
+  placements: Array<{
+    slotId: string;
+    accessoryId: Types.ObjectId;
+    x: number;
+    y: number;
+    rotation: number;
+    scale: number;
+    depth?: SlotDepth;
+  }>;
+}
+
+/**
+ * Chuẩn hoá `configuration` từ body. Trả `null` nếu body không có cấu hình.
+ */
+export async function normalizeConfiguration(
+  variantId: string,
+  raw: unknown
+): Promise<NormalizedConfiguration | null> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const cfg = raw as Record<string, unknown>;
+
+  // Placements: validate qua validatePlacements để chuẩn hoá & snapshot depth.
+  const checked = await validatePlacements(variantId, cfg.placements);
+  if (!checked.ok) {
+    // Cấu hình sai ⇒ không persist (giữ hành vi cũ: design không có config).
+    return null;
+  }
+
+  const variant = await Tree.findById(variantId).lean();
+  const configVersion = Number(cfg.configVersion);
+  const slotMapVersion = Number(cfg.slotMapVersion);
+
+  return {
+    configVersion:
+      Number.isFinite(configVersion) && configVersion > 0
+        ? configVersion
+        : 1,
+    slotMapVersion:
+      Number.isFinite(slotMapVersion) && slotMapVersion >= 0
+        ? slotMapVersion
+        : checked.slotMapVersion ?? 0,
+    variantSnapshot: {
+      variantId: new Types.ObjectId(String(variantId)),
+      sku: (variant as any)?.sku ?? "",
+      name: (variant as any)?.name ?? "",
+      price: (variant as any)?.price ?? 0,
+    },
+    placements: (checked.value ?? []).map((p) => ({
+      slotId: p.slotId,
+      accessoryId: new Types.ObjectId(p.accessoryId),
+      x: p.x,
+      y: p.y,
+      rotation: p.rotation ?? 0,
+      scale: p.scale ?? 1,
+      depth: p.depth,
+    })),
+  };
 }

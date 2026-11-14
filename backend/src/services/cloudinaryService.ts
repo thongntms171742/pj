@@ -17,7 +17,7 @@ export interface CloudinaryUploadResult {
 
 export interface CloudinaryUploadOptions {
   folder?: string;
-  resourceType?: "image" | "video" | "auto";
+  resourceType?: "image" | "video" | "raw" | "auto";
 }
 
 const DEFAULT_FOLDER =

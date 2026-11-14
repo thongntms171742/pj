@@ -27,6 +27,10 @@ import { SlotMap, type ISlotDefinition } from "../models/SlotMap";
 import { Tree } from "../models/Tree";
 import { TreeCode } from "../models/TreeCode";
 import { TreeProduct } from "../models/TreeProduct";
+import {
+  normalizeDepth,
+  normalizeScaleHint,
+} from "../services/customizerService";
 
 dotenv.config();
 
@@ -61,6 +65,47 @@ const CATEGORY_SLOT_TYPES: Record<string, string[]> = {
 };
 
 const ACCESSORY_CATEGORIES = Object.keys(CATEGORY_SLOT_TYPES);
+
+// ── Metadata ghép ảnh mặc định theo loại slot ────────────────────────────────
+// Giá trị lấy từ `docs_BE write/ASSET_PREPARATION_GUIDE.md`:
+//   - Quả châu (ball)      → neo ở MÓC TREO trên (0.5, 0.06), bóng tiếp xúc
+//   - Nơ / ruy băng (ribbon) → neo ở NÚT THẮT giữa (0.5, 0.45), bóng tiếp xúc
+//   - Đèn (light-string)   → vật phẳng ⇒ không bóng
+//   - Còn lại              → neo tâm vật (0.5, 0.5), bóng tiếp xúc
+//
+// Admin có thể chỉnh lại trong Admin UI — seed KHÔNG ghi đè giá trị đã sửa.
+function defaultCompositingMeta(slotTypes: string[]): {
+  anchor: { x: number; y: number };
+  shadow: "none" | "soft" | "contact";
+  defaultScale: number;
+} {
+  if (slotTypes.includes("ball")) {
+    return {
+      anchor: { x: 0.5, y: 0.06 },
+      shadow: "contact",
+      defaultScale: 1,
+    };
+  }
+  if (slotTypes.includes("ribbon")) {
+    return {
+      anchor: { x: 0.5, y: 0.45 },
+      shadow: "contact",
+      defaultScale: 1.2,
+    };
+  }
+  if (slotTypes.includes("light-string")) {
+    return {
+      anchor: { x: 0.5, y: 0.5 },
+      shadow: "none",
+      defaultScale: 1,
+    };
+  }
+  return {
+    anchor: { x: 0.5, y: 0.5 },
+    shadow: "contact",
+    defaultScale: 1,
+  };
+}
 
 // ── Sinh slotmap hình chóp (conifer) ─────────────────────────────────────────
 // Toạ độ chuẩn hoá 0–1 theo bounding-box cây trong canvas 3:4.
@@ -163,6 +208,9 @@ async function seedAccessories(): Promise<number> {
           slotTypes,
           isActive: true,
           sortOrder: variant.sortOrder ?? 0,
+          // Metadata ghép ảnh — mặc định theo loại slot (xem ASSET_PREPARATION_GUIDE).
+          // Admin có thể sửa lại trong Admin UI (kéo chéo điểm neo).
+          ...defaultCompositingMeta(slotTypes),
         };
 
         if (DRY_RUN) {
@@ -172,7 +220,10 @@ async function seedAccessories(): Promise<number> {
         }
 
         if (existing) {
-          await Accessory.updateOne({ sku }, { $set: doc });
+          // KHÔNG ghi đè metadata ghép ảnh mà admin đã chỉnh (anchor/shadow/
+          // defaultScale) — chỉ cập nhật field catalog thuần.
+          const { anchor, shadow, defaultScale, ...catalogFields } = doc;
+          await Accessory.updateOne({ sku }, { $set: catalogFields });
           updated += 1;
         } else {
           await Accessory.create(doc);
@@ -378,7 +429,11 @@ function sameSlots(a: any[], b: ISlotDefinition[]): boolean {
       String(other.slotType) === slot.slotType &&
       Number(other.x) === slot.x &&
       Number(other.y) === slot.y &&
-      Number(other.radius) === slot.radius
+      Number(other.radius) === slot.radius &&
+      // `depth` / `scaleHint` là metadata ghép ảnh do admin khai ⇒ nếu admin
+      // đã sửa thì bản published KHÁC bản seed ⇒ tuyệt đối không ghi đè.
+      normalizeDepth(other.depth) === normalizeDepth(slot.depth) &&
+      normalizeScaleHint(other.scaleHint) === normalizeScaleHint(slot.scaleHint)
     );
   });
 }
