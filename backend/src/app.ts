@@ -85,6 +85,21 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// ── Keep-alive ping (dùng bởi cron-job.org / UptimeRobot) ──────────────────────
+// Endpoint CỰC KỲ nhẹ: KHÔNG query DB, KHÔNG đụng session, KHÔNG log.
+//
+// Mục đích: Render free instance spin down sau 15 phút không có inbound
+// traffic. Một external cron gọi endpoint này mỗi 10 phút ⇒ service không
+// bao giờ ngủ ⇒ khách không phải chờ 30–60s cold-start.
+//
+// ⚠️ KHÔNG dùng `app.get("/api/*")` catch-all phía dưới — route này phải
+// được đăng ký TRƯỚC để không bị 404 handler nuốt mất.
+app.get("/api/ping", (_req, res) => {
+  // Response tối thiểu, không timestamp để response luôn giống nhau (cache-friendly).
+  res.set("Cache-Control", "no-store");
+  res.status(200).type("text/plain").send("pong");
+});
+
 // ── API Routes ─────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
