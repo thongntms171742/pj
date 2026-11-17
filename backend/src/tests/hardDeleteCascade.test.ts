@@ -28,7 +28,7 @@ async function connectTestDb() {
   if (!uri) {
     console.log(
       "SKIP: MONGO_URI / MONGO_URI_TEST not set — hard-delete test cần DB thật. " +
-        "Set biến môi trường rồi chạy lại để verify cascade."
+      "Set biến môi trường rồi chạy lại để verify cascade."
     );
     return false;
   }
@@ -157,7 +157,6 @@ async function runTests() {
     console.log(`Hard-delete Test Summary: 0 passed, 0 failed (skipped — no DB).`);
     console.log(`========================================`);
     process.exit(0);
-    return;
   }
 
   // ── Test 1: deleteTreeProduct cascade xóa Code + Variant + CartItem ──────
@@ -188,7 +187,7 @@ async function runTests() {
     await deleteTreeProduct(
       { params: { productId: chain.product._id.toString() } } as any,
       fakeRes as any,
-      () => {}
+      () => { }
     );
 
     assert(fakeRes.statusCode === 200, "deleteTreeProduct returned 200");
@@ -225,7 +224,7 @@ async function runTests() {
     await deleteTreeProduct(
       { params: { productId: chain.product._id.toString() } } as any,
       fakeRes as any,
-      () => {}
+      () => { }
     );
 
     assert(fakeRes.statusCode === 409, "Returned 409 Conflict khi có Review");
@@ -253,7 +252,7 @@ async function runTests() {
     await deleteTreeCode(
       { params: { codeId: chain.code._id.toString() } } as any,
       fakeRes as any,
-      () => {}
+      () => { }
     );
 
     assert(fakeRes.statusCode === 200, "deleteTreeCode returned 200");
@@ -300,7 +299,7 @@ async function runTests() {
     await deleteTreeVariant(
       { params: { variantId: chain.variant._id.toString() } } as any,
       fakeRes as any,
-      () => {}
+      () => { }
     );
 
     assert(fakeRes.statusCode === 409, "Returned 409 Conflict khi có Design");
@@ -335,7 +334,7 @@ async function runTests() {
     await deleteTreeVariant(
       { params: { variantId: chain.variant._id.toString() } } as any,
       fakeRes as any,
-      () => {}
+      () => { }
     );
 
     assert(fakeRes.statusCode === 200, "deleteTreeVariant returned 200");

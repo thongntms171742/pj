@@ -18,7 +18,6 @@ import {
   type IConversation,
   type SupportMode,
 } from "../../../models/Conversation";
-import { Message } from "../../../models/Message";
 import { ErrorCode } from "../../../utils/errors";
 import { CHAT_REOPEN_WINDOW_MS } from "../../../config/chat.config";
 import {
@@ -476,15 +475,6 @@ export async function incrementUnread(
   );
 }
 
-/** Reset unread count của 1 phía về 0. */
-export async function resetUnread(
-  conversationId: Types.ObjectId,
-  target: "user" | "admin"
-): Promise<void> {
-  const path = target === "user" ? "unreadCount.user" : "unreadCount.admin";
-  await Conversation.updateOne({ _id: conversationId }, { $set: { [path]: 0 } });
-}
-
 /** Đọc tổng unread của user trong tất cả conversation. */
 export async function totalUnreadForUser(userId: string): Promise<number> {
   if (!Types.ObjectId.isValid(userId)) return 0;
@@ -570,17 +560,6 @@ export async function acquireAiLock(
   );
 }
 
-/** Nhả khoá AI (trả conversation về trạng thái trước khi AI xử lý). */
-export async function releaseAiLock(
-  conversationId: Types.ObjectId,
-  expectedVersion: number
-): Promise<void> {
-  await Conversation.updateOne(
-    { _id: conversationId, version: expectedVersion },
-    { $inc: { version: 1 } }
-  );
-}
-
 // ── Messages helper ───────────────────────────────────────────────────────────
 
 /**
@@ -594,9 +573,4 @@ export async function touchLastMessage(
     { _id: conversationId },
     { $set: { lastMessageId: messageId, lastMessageAt: new Date() } }
   );
-}
-
-/** Đếm số tin nhắn public trong conversation. */
-export async function countPublicMessages(conversationId: Types.ObjectId): Promise<number> {
-  return Message.countDocuments({ conversationId, visibility: "public" });
 }

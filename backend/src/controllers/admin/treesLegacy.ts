@@ -19,24 +19,10 @@
 //
 // REMOVAL: 2026-12-01 — after confirming no FE build calls this endpoint.
 
-import { Response } from "express";
 import { Tree } from "../../models/Tree";
-import { sendError, ErrorCode } from "../../utils/errors";
 import { ah } from "../../utils/asyncRoute";
 import { ok } from "../../utils/respond";
 import { logWarn } from "../../utils/logger";
-
-/** Reject writes to the legacy flat-tree endpoint with an actionable error. */
-function rejectLegacyWrite(res: Response, operation: string): void {
-  sendError(
-    res,
-    ErrorCode.INVALID_INPUT,
-    `POST/PATCH /api/admin/trees đã bị vô hiệu hoá (${operation}). ` +
-      `Hãy dùng luồng 3 bước: POST /api/admin/tree-products → ` +
-      `POST /api/admin/tree-products/:productId/codes → ` +
-      `POST /api/admin/tree-codes/:codeId/variants`
-  );
-}
 
 /** Legacy flat list of tree variants (grouped by parent is NOT applied). */
 export const listTrees = ah(async (req, res) => {
@@ -66,14 +52,4 @@ export const listTrees = ah(async (req, res) => {
       heightCmMax: t.heightCmMax,
     })),
   });
-});
-
-/** @deprecated Writes are blocked — see the module header for the 3-tier flow. */
-export const createTree = ah(async (_req, res) => {
-  rejectLegacyWrite(res, "create");
-});
-
-/** @deprecated Writes are blocked — see the module header for the 3-tier flow. */
-export const updateTree = ah(async (_req, res) => {
-  rejectLegacyWrite(res, "update");
 });

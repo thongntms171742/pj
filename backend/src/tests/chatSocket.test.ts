@@ -46,7 +46,7 @@ function section(title: string) {
   console.log(`\n── ${title} ──`);
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || "thriftit_super_secret_key_change_me";
+const JWT_SECRET = process.env.JWT_SECRET || "buildyourchristmas_dev_secret_change_me";
 
 function signToken(userId: string, roles: string[]): string {
   return jwt.sign(

@@ -2,13 +2,13 @@ import { Response } from "express";
 
 // ── Error code catalog (Build Your Christmas) ────────────────────────────────
 // Single source of truth for every business error code BE returns. FE
-// branches UI logic off this enum (see docs/ERROR_CODES.md).
+// branches UI logic off this enum (see docs_BE write/API_CONTRACT.md).
 //
 // Rules:
 //   - SUFFIXES: _REQUIRED, _INVALID, _NOT_FOUND, _OUT_OF_STOCK, _FORBIDDEN,
 //     _CONFLICT, _LIMIT, _EXPIRED, _UNAVAILABLE.
 //   - DO NOT use Vietnamese strings as codes (messages only).
-//   - Every code MUST be documented in docs/ERROR_CODES.md.
+//   - Every code MUST be documented in docs_BE write/API_CONTRACT.md.
 export const ErrorCode = {
   // ── Generic ──────────────────────────────────────────────────────────────
   INTERNAL_ERROR: "INTERNAL_ERROR",

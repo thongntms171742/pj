@@ -70,25 +70,6 @@ export interface ConversationListItemDto {
   createdAt: string;
 }
 
-/** Preview tin nhắn cuối để admin list nhanh. */
-export interface ConversationPreviewDto {
-  id: string;
-  userId: string;
-  userName: string;
-  status: ConversationStatus;
-  supportMode: SupportMode;
-  assignedAdminId: string | null;
-  lastMessage: {
-    id: string | null;
-    content: string;
-    senderType: MessageSenderType;
-    createdAt: string | null;
-  } | null;
-  unreadCount: { user: number; admin: number };
-  version: number;
-  lastMessageAt: string | null;
-}
-
 // ── Message ───────────────────────────────────────────────────────────────────
 
 export interface MessageAttachmentDto {

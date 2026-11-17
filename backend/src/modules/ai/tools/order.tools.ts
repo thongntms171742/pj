@@ -8,7 +8,6 @@
  *   - Tool KHÔNG bao giờ trả PII nhạy cảm (địa chỉ đầy đủ, số điện thoại).
  */
 
-import { Types } from "mongoose";
 import { Order } from "../../../models/Order";
 import type { AiTool } from "./index";
 
@@ -163,8 +162,3 @@ export const lookupOrderTool: AiTool = {
     };
   },
 };
-
-/** Kiểm tra id đơn hàng có hợp lệ (helper dùng cho test). */
-export function isValidOrderId(id: string): boolean {
-  return Types.ObjectId.isValid(id);
-}

@@ -176,22 +176,6 @@ export async function deleteAsset(
 }
 
 /**
- * Returns an optimized delivery URL for images.
- * Keep the original secure URL for videos unless video
- * transformations are explicitly needed.
- */
-export function getOptimizedImageUrl(publicId: string): string {
-  configureCloudinary();
-
-  return cloudinary.url(publicId, {
-    secure: true,
-    resource_type: "image",
-    quality: "auto",
-    fetch_format: "auto",
-  });
-}
-
-/**
  * Returns a poster/thumbnail URL for a video publicId.
  *
  * Cloudinary can extract a frame from a video on the fly, so FE/Mobile

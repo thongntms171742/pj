@@ -8,15 +8,11 @@
 
 import type { HydratedDocument, Types } from "mongoose";
 import { Conversation, type IConversation } from "../../../models/Conversation";
-import { Message, type IMessage } from "../../../models/Message";
-import {
-  HandoffRequest,
-  type IHandoffRequest,
-} from "../../../models/HandoffRequest";
+import type { IMessage } from "../../../models/Message";
+import type { IHandoffRequest } from "../../../models/HandoffRequest";
 import type {
   ConversationDto,
   ConversationListItemDto,
-  ConversationPreviewDto,
   HandoffRequestDto,
   MessageDto,
 } from "../dto/chat.dto";
@@ -71,16 +67,16 @@ export function messageToDto(doc: IMessage | HydratedDocument<IMessage>): Messag
     })),
     aiMetadata: m.aiMetadata
       ? {
-          model: m.aiMetadata.model ?? "",
-          promptVersion: m.aiMetadata.promptVersion ?? "",
-          intent: m.aiMetadata.intent ?? "",
-          intentConfidence: m.aiMetadata.intentConfidence ?? 0,
-          sentiment: m.aiMetadata.sentiment ?? "",
-          tokensUsed: m.aiMetadata.tokensUsed ?? 0,
-          latencyMs: m.aiMetadata.latencyMs ?? 0,
-          toolsUsed: m.aiMetadata.toolsUsed ?? [],
-          needsHumanReview: m.aiMetadata.needsHumanReview ?? false,
-        }
+        model: m.aiMetadata.model ?? "",
+        promptVersion: m.aiMetadata.promptVersion ?? "",
+        intent: m.aiMetadata.intent ?? "",
+        intentConfidence: m.aiMetadata.intentConfidence ?? 0,
+        sentiment: m.aiMetadata.sentiment ?? "",
+        tokensUsed: m.aiMetadata.tokensUsed ?? 0,
+        latencyMs: m.aiMetadata.latencyMs ?? 0,
+        toolsUsed: m.aiMetadata.toolsUsed ?? [],
+        needsHumanReview: m.aiMetadata.needsHumanReview ?? false,
+      }
       : null,
     clientMessageId: m.clientMessageId ?? null,
     userReadAt: iso(m.userReadAt),
@@ -150,37 +146,6 @@ export function conversationToListItemDto(
   };
 }
 
-export function conversationToPreviewDto(
-  doc: IConversation | HydratedDocument<IConversation>,
-  user?: MaybeUser,
-  lastMessage?: IMessage | HydratedDocument<IMessage> | null
-): ConversationPreviewDto {
-  const c = doc as IConversation;
-  const lm = lastMessage as IMessage | undefined;
-  return {
-    id: String(c._id),
-    userId: String(c.userId),
-    userName: user?.name ?? "",
-    status: c.status,
-    supportMode: c.supportMode,
-    assignedAdminId: strId(c.assignedAdminId),
-    lastMessage: lm
-      ? {
-          id: String(lm._id),
-          content: lm.content,
-          senderType: lm.senderType,
-          createdAt: isoDate(lm.createdAt),
-        }
-      : null,
-    unreadCount: {
-      user: c.unreadCount?.user ?? 0,
-      admin: c.unreadCount?.admin ?? 0,
-    },
-    version: c.version,
-    lastMessageAt: iso(c.lastMessageAt),
-  };
-}
-
 // ── Handoff ───────────────────────────────────────────────────────────────────
 
 export function handoffToDto(
@@ -223,15 +188,3 @@ export async function populateAdminName(
   const admin = await User.findById(adminId).select("name email avatarUrl").lean();
   return admin ?? null;
 }
-
-/**
- * Load conversation (không populate admin — xem `populateAdminName`).
- */
-export async function loadConversationWithAdmin(
-  conversationId: Types.ObjectId
-): Promise<IConversation | null> {
-  return Conversation.findById(conversationId)
-    .lean() as unknown as Promise<IConversation | null>;
-}
-
-export { Message, Conversation, HandoffRequest };

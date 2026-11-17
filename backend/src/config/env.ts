@@ -19,7 +19,7 @@
 
 /** Lấy secret JWT — đọc lazy mỗi lần gọi. */
 export function getJwtSecret(): string {
-  return process.env.JWT_SECRET?.trim() || "thriftit_super_secret_key_change_me";
+  return process.env.JWT_SECRET?.trim() || "buildyourchristmas_dev_secret_change_me";
 }
 
 /** Lấy JWT expiry — đọc lazy. */

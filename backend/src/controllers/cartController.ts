@@ -4,6 +4,7 @@ import { Cart, ICart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { Design } from "../models/Design";
 import { safelyBuildPricedDesign, buildPricedDesign } from "../services/catalogService";
+import { countAccessoriesFromPlacements } from "../services/pricingService";
 import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
 import { ok, created, noContent } from "../utils/respond";
 import { cartItemToDto, cartToDto } from "../dto/cart";
@@ -79,21 +80,8 @@ async function pricingInputFromConfig(config: any): Promise<{
     deliveryOption: config.deliveryOption as DeliveryOption,
   };
   const frozen = config?.frozenConfig;
-  if (!frozen || !Array.isArray(frozen.placements) || frozen.placements.length === 0) {
-    return base;
-  }
-  const countByAcc = new Map<string, number>();
-  for (const p of frozen.placements) {
-    const id = String(p.accessoryId);
-    countByAcc.set(id, (countByAcc.get(id) ?? 0) + 1);
-  }
-  return {
-    ...base,
-    accessories: [...countByAcc.entries()].map(([accessoryId, quantity]) => ({
-      accessoryId,
-      quantity,
-    })),
-  };
+  const accessories = countAccessoriesFromPlacements(frozen?.placements);
+  return accessories ? { ...base, accessories } : base;
 }
 
 async function isDesignStale(config: any): Promise<boolean> {
@@ -208,15 +196,7 @@ export const addCartItem = async (req: Request, res: Response): Promise<void> =>
           ...(p.depth ? { depth: p.depth } : {}),
         })),
       };
-      const countByAcc = new Map<string, number>();
-      for (const p of cfg.placements) {
-        const id = String(p.accessoryId);
-        countByAcc.set(id, (countByAcc.get(id) ?? 0) + 1);
-      }
-      pricingAccessories = [...countByAcc.entries()].map(([accessoryId, qty]) => ({
-        accessoryId,
-        quantity: qty,
-      }));
+      pricingAccessories = countAccessoriesFromPlacements(cfg.placements);
     }
 
     const built = await safelyBuildPricedDesign(res, {
@@ -330,19 +310,7 @@ export const updateCartItem = async (
     let stale = false;
     if (variantId && deliveryOption) {
       const cfg = item.config as any;
-      const frozen = cfg?.frozenConfig;
-      let accessories: Array<{ accessoryId: string; quantity: number }> | undefined;
-      if (frozen && Array.isArray(frozen.placements) && frozen.placements.length > 0) {
-        const countByAcc = new Map<string, number>();
-        for (const p of frozen.placements) {
-          const id = String((p as any).accessoryId);
-          countByAcc.set(id, (countByAcc.get(id) ?? 0) + 1);
-        }
-        accessories = [...countByAcc.entries()].map(([accessoryId, quantity]) => ({
-          accessoryId,
-          quantity,
-        }));
-      }
+      const accessories = countAccessoriesFromPlacements(cfg?.frozenConfig?.placements);
       const built = await safelyBuildPricedDesign(res, {
         variantId: String(variantId),
         deliveryOption: deliveryOption as DeliveryOption,

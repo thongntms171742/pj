@@ -26,7 +26,7 @@ import {
 } from "../services/orderService";
 import {
   assertValidHcmCommune,
-  lookupHcmCommune,
+  resolveHcmCommuneInfo,
   InvalidCommuneError,
   WrongProvinceError,
 } from "../services/addressService";
@@ -56,10 +56,10 @@ export const createOrder = async (
       body.shipping && typeof body.shipping === "object"
         ? body.shipping
         : body.deliveryAddress && typeof body.deliveryAddress === "object"
-        ? body.deliveryAddress
-        : typeof body.shippingAddress === "object" && body.shippingAddress !== null
-        ? body.shippingAddress
-        : {};
+          ? body.deliveryAddress
+          : typeof body.shippingAddress === "object" && body.shippingAddress !== null
+            ? body.shippingAddress
+            : {};
 
     // If FE selected a saved addressId or didn't supply address fields, fallback to User.addresses
     let savedAddr: any = null;
@@ -68,8 +68,8 @@ export const createOrder = async (
     ).trim();
     const hasExplicitAddressInput = Boolean(
       (typeof body.shippingAddress === "string" && body.shippingAddress.trim()) ||
-        nestedShipping.address ||
-        body.address
+      nestedShipping.address ||
+      body.address
     );
 
     if (requestedAddressId || !hasExplicitAddressInput) {
@@ -89,42 +89,42 @@ export const createOrder = async (
 
     const shippingName = String(
       body.shippingName ??
-        nestedShipping.name ??
-        body.name ??
-        savedAddr?.name ??
-        ""
+      nestedShipping.name ??
+      body.name ??
+      savedAddr?.name ??
+      ""
     ).trim();
     const shippingPhone = String(
       body.shippingPhone ??
-        nestedShipping.phone ??
-        body.phone ??
-        savedAddr?.phone ??
-        ""
+      nestedShipping.phone ??
+      body.phone ??
+      savedAddr?.phone ??
+      ""
     ).trim();
     const shippingAddress = String(
       (typeof body.shippingAddress === "string" ? body.shippingAddress : undefined) ??
-        nestedShipping.address ??
-        body.address ??
-        savedAddr?.address ??
-        ""
+      nestedShipping.address ??
+      body.address ??
+      savedAddr?.address ??
+      ""
     ).trim();
 
     const rawProvinceId = String(
       body.shippingProvinceId ??
-        nestedShipping.provinceId ??
-        body.provinceId ??
-        savedAddr?.provinceId ??
-        ""
+      nestedShipping.provinceId ??
+      body.provinceId ??
+      savedAddr?.provinceId ??
+      ""
     ).trim();
     const rawProvinceName = String(
       body.shippingProvinceName ??
-        nestedShipping.provinceName ??
-        nestedShipping.province ??
-        body.provinceName ??
-        body.province ??
-        savedAddr?.provinceName ??
-        savedAddr?.province ??
-        ""
+      nestedShipping.provinceName ??
+      nestedShipping.province ??
+      body.provinceName ??
+      body.province ??
+      savedAddr?.provinceName ??
+      savedAddr?.province ??
+      ""
     ).trim();
 
     // Giới hạn chỉ giao hàng tại TP.HCM (mã tỉnh 79)
@@ -140,52 +140,31 @@ export const createOrder = async (
     const shippingProvinceId = SERVICE_PROVINCE_ID;
     const shippingProvinceName = rawProvinceName || "Thành phố Hồ Chí Minh";
 
-    let shippingCommuneId = String(
+    const rawCommuneId = String(
       body.shippingCommuneId ??
-        nestedShipping.communeId ??
-        body.communeId ??
-        savedAddr?.communeId ??
-        ""
+      nestedShipping.communeId ??
+      body.communeId ??
+      savedAddr?.communeId ??
+      ""
     ).trim();
-    let shippingCommuneName = String(
+    const rawCommuneName = String(
       body.shippingCommuneName ??
-        nestedShipping.communeName ??
-        nestedShipping.ward ??
-        body.communeName ??
-        body.shippingWard ??
-        body.ward ??
-        savedAddr?.communeName ??
-        savedAddr?.ward ??
-        ""
+      nestedShipping.communeName ??
+      nestedShipping.ward ??
+      body.communeName ??
+      body.shippingWard ??
+      body.ward ??
+      savedAddr?.communeName ??
+      savedAddr?.ward ??
+      ""
     ).trim();
 
-    if (shippingCommuneId) {
-      const foundByCode = lookupCommuneCoords(shippingCommuneId);
-      if (foundByCode) {
-        shippingCommuneId = foundByCode.code;
-        if (!shippingCommuneName) shippingCommuneName = foundByCode.name;
-      } else if (!shippingCommuneName) {
-        try {
-          const lookup = await lookupHcmCommune(shippingCommuneId);
-          shippingCommuneId = lookup.id;
-          shippingCommuneName = lookup.name;
-        } catch {
-          // Keep user input
-        }
-      }
-    } else if (shippingCommuneName) {
-      const foundByName = lookupCommuneCoords(shippingCommuneName);
-      if (foundByName) {
-        shippingCommuneId = foundByName.code;
-        shippingCommuneName = foundByName.name;
-      }
-    } else if (shippingAddress) {
-      const foundInAddress = lookupCommuneCoords(shippingAddress);
-      if (foundInAddress) {
-        shippingCommuneId = foundInAddress.code;
-        shippingCommuneName = foundInAddress.name;
-      }
-    }
+    const { communeId: shippingCommuneId, communeName: shippingCommuneName } =
+      await resolveHcmCommuneInfo({
+        communeId: rawCommuneId,
+        communeName: rawCommuneName,
+        addressText: shippingAddress,
+      });
 
     const addressEffectiveDate = String(body.addressEffectiveDate || "latest");
     const paymentMethod = body.paymentMethod || "COD";
@@ -210,9 +189,9 @@ export const createOrder = async (
     let rawItems: Array<{ pricingInput?: PricingInput; quantity?: number }> =
       Array.isArray(directItems) && directItems.length > 0
         ? directItems.map((d: any) => ({
-            pricingInput: d?.pricingInput ?? d?.config,
-            quantity: d?.quantity,
-          }))
+          pricingInput: d?.pricingInput ?? d?.config,
+          quantity: d?.quantity,
+        }))
         : await resolveOrderItems(userId, cartItemIds);
     if (rawItems.length === 0) {
       const hasCart = await Cart.findOne({ userId });
@@ -970,13 +949,13 @@ export const getOrderShipment = async (
           : undefined,
         pickupAddress: order.pickupInfo
           ? {
-              address: order.pickupInfo.address || "",
-              provinceId: order.pickupInfo.provinceId || "",
-              provinceName: order.pickupInfo.provinceName || "",
-              communeId: order.pickupInfo.communeId || "",
-              communeName: order.pickupInfo.communeName || "",
-              district: order.pickupInfo.district || "",
-            }
+            address: order.pickupInfo.address || "",
+            provinceId: order.pickupInfo.provinceId || "",
+            provinceName: order.pickupInfo.provinceName || "",
+            communeId: order.pickupInfo.communeId || "",
+            communeName: order.pickupInfo.communeName || "",
+            district: order.pickupInfo.district || "",
+          }
           : null,
         events,
       },
@@ -1029,31 +1008,31 @@ export const updateOrderShippingAddress = async (
       body.shipping && typeof body.shipping === "object"
         ? body.shipping
         : body.deliveryAddress && typeof body.deliveryAddress === "object"
-        ? body.deliveryAddress
-        : typeof body.shippingAddress === "object" && body.shippingAddress !== null
-        ? body.shippingAddress
-        : {};
+          ? body.deliveryAddress
+          : typeof body.shippingAddress === "object" && body.shippingAddress !== null
+            ? body.shippingAddress
+            : {};
 
     const rawProvinceId =
       body.shippingProvinceId !== undefined ||
-      nested.provinceId !== undefined ||
-      body.provinceId !== undefined
+        nested.provinceId !== undefined ||
+        body.provinceId !== undefined
         ? String(body.shippingProvinceId ?? nested.provinceId ?? body.provinceId ?? "").trim()
         : undefined;
     const rawProvinceName =
       body.shippingProvinceName !== undefined ||
-      nested.provinceName !== undefined ||
-      nested.province !== undefined ||
-      body.provinceName !== undefined ||
-      body.province !== undefined
+        nested.provinceName !== undefined ||
+        nested.province !== undefined ||
+        body.provinceName !== undefined ||
+        body.province !== undefined
         ? String(
-            body.shippingProvinceName ??
-              nested.provinceName ??
-              nested.province ??
-              body.provinceName ??
-              body.province ??
-              ""
-          ).trim()
+          body.shippingProvinceName ??
+          nested.provinceName ??
+          nested.province ??
+          body.provinceName ??
+          body.province ??
+          ""
+        ).trim()
         : undefined;
 
     if (
@@ -1083,58 +1062,36 @@ export const updateOrderShippingAddress = async (
     if (nextPhone !== undefined) order.shippingPhone = String(nextPhone).trim();
     if (nextAddress !== undefined) order.shippingAddress = String(nextAddress).trim();
 
-    let nextCommuneId =
+    const rawCommuneId =
       body.shippingCommuneId !== undefined ||
-      nested.communeId !== undefined ||
-      body.communeId !== undefined
+        nested.communeId !== undefined ||
+        body.communeId !== undefined
         ? String(body.shippingCommuneId ?? nested.communeId ?? body.communeId ?? "").trim()
         : order.shippingCommuneId || "";
-    let nextCommuneName =
+    const rawCommuneName =
       body.shippingCommuneName !== undefined ||
-      nested.communeName !== undefined ||
-      nested.ward !== undefined ||
-      body.communeName !== undefined ||
-      body.ward !== undefined
+        nested.communeName !== undefined ||
+        nested.ward !== undefined ||
+        body.communeName !== undefined ||
+        body.ward !== undefined
         ? String(
-            body.shippingCommuneName ??
-              nested.communeName ??
-              nested.ward ??
-              body.communeName ??
-              body.ward ??
-              ""
-          ).trim()
+          body.shippingCommuneName ??
+          nested.communeName ??
+          nested.ward ??
+          body.communeName ??
+          body.ward ??
+          ""
+        ).trim()
         : order.shippingCommuneName || "";
 
-    if (nextCommuneId) {
-      const foundByCode = lookupCommuneCoords(nextCommuneId);
-      if (foundByCode) {
-        nextCommuneId = foundByCode.code;
-        if (!nextCommuneName) nextCommuneName = foundByCode.name;
-      } else if (!nextCommuneName) {
-        try {
-          const lookup = await lookupHcmCommune(nextCommuneId);
-          nextCommuneId = lookup.id;
-          nextCommuneName = lookup.name;
-        } catch {
-          // Keep user input
-        }
-      }
-    } else if (nextCommuneName) {
-      const foundByName = lookupCommuneCoords(nextCommuneName);
-      if (foundByName) {
-        nextCommuneId = foundByName.code;
-        nextCommuneName = foundByName.name;
-      }
-    } else if (order.shippingAddress) {
-      const foundInAddr = lookupCommuneCoords(order.shippingAddress);
-      if (foundInAddr) {
-        nextCommuneId = foundInAddr.code;
-        nextCommuneName = foundInAddr.name;
-      }
-    }
+    const resolvedCommune = await resolveHcmCommuneInfo({
+      communeId: rawCommuneId,
+      communeName: rawCommuneName,
+      addressText: order.shippingAddress,
+    });
 
-    order.shippingCommuneId = nextCommuneId;
-    order.shippingCommuneName = nextCommuneName;
+    order.shippingCommuneId = resolvedCommune.communeId;
+    order.shippingCommuneName = resolvedCommune.communeName;
 
     // Recalculate shipping fee if order has not been paid yet or explicit shippingFee provided
     if (typeof body.shippingFee === "number" && body.shippingFee >= 0) {

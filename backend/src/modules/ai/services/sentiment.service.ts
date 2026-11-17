@@ -27,18 +27,15 @@ export const ChatSentiment = {
 export type ChatSentimentValue =
   (typeof ChatSentiment)[keyof typeof ChatSentiment];
 
-/** Sentiment nào cần ưu tiên cao hơn trong hàng đợi admin. */
-export const NEGATIVE_SENTIMENT_PRIORITY_BOOST = true;
-
 // ── Rule keywords ────────────────────────────────────────────────────────────
 
 const NEGATIVE_KEYWORDS = [
-  "khong hai long", "khong hai long", "tuc", "te", "gio", "chan", "bai",
+  "khong hai long", "tuc", "te", "gio", "chan", "bai",
   "khong vui", "khong hanh", "thoi", "lam sao", "bao lao", "bao gio",
   "toi phien", "doi tra ngay", "khong chuan", "sai", "hong", "huc",
   "khong ai tra loi", "wait lau qua", "phai choi", "nhan vien o dau",
-  "khong bao gio", "khong duoc giai quyet", "that vong", "khong hai long",
-  "khong hanh long", "rat buon", "khong vui", "phan no",
+  "khong bao gio", "khong duoc giai quyet", "that vong",
+  "khong hanh long", "rat buon", "phan no",
 ];
 
 const POSITIVE_KEYWORDS = [

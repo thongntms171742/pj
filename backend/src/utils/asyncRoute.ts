@@ -40,19 +40,19 @@ export type AsyncHandler = (
  * the secondary error and don't double-send.
  */
 export function ah(fn: AsyncHandler): RequestHandler {
-  return async (req, res, next) => {
-    try {
-      await fn(req, res);
-    } catch (err) {
-      if (res.headersSent) {
-        // Response already started — log but don't try to overwrite it.
-        console.error(
-          `[asyncRoute] error after response sent for ${req.method} ${req.path}:`,
-          err
-        );
-        return;
+    return async (req, res, _next) => {
+      try {
+        await fn(req, res);
+      } catch (err) {
+        if (res.headersSent) {
+          // Response already started — log but don't try to overwrite it.
+          console.error(
+            `[asyncRoute] error after response sent for ${req.method} ${req.path}:`,
+            err
+          );
+          return;
+        }
+        handleInternalError(res, err, `[${req.method} ${req.path}] uncaught`);
       }
-      handleInternalError(res, err, `[${req.method} ${req.path}] uncaught`);
-    }
-  };
-}
+    };
+  }

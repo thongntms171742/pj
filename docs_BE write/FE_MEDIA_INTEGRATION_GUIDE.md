@@ -1164,7 +1164,7 @@ src/
 - **BE đã merge & deploy**: ✅
 - **Tài liệu API chi tiết**: [`FE_API_REFERENCE.md` → PHẦN 10B](./FE_API_REFERENCE.md)
 - **Lịch sử thay đổi**: [`API_CHANGELOG.md` → 2026-10-30](./API_CHANGELOG.md)
-- **OpenAPI**: `openapi.yaml` (cần cập nhật nếu team muốn đồng bộ — BE có thể bổ sung)
+- **Contract đầy đủ**: [`API_CONTRACT.md`](./API_CONTRACT.md)
 - **Nếu cần thêm endpoint** (vd: `GET /api/media?kind=VIDEO` filter, hoặc nhiều nhạc nền) → liên hệ BE.
 
 ---

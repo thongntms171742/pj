@@ -12,7 +12,7 @@ import { ErrorCode, handleInternalError, sendError } from "../utils/errors";
 
 /**
  * GET /api/shipping/warehouse
- * Lấy thông tin địa chỉ kho hiện tại của shop (lấy từ DB nếu đã cấu hình, fallback về DEFAULT_WAREHOUSE)
+ * Lấy thông tin địa chỉ kho hiện tại của shop từ DB (trả 404 WAREHOUSE_NOT_CONFIGURED nếu chưa cấu hình).
  */
 export async function getWarehouse(
   _req: Request,

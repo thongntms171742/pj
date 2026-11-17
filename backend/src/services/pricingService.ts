@@ -209,6 +209,23 @@ export function priceDesign(
   };
 }
 
+export function countAccessoriesFromPlacements(
+  placements: ReadonlyArray<{ accessoryId?: unknown }> | undefined | null
+): Array<{ accessoryId: string; quantity: number }> | undefined {
+  if (!Array.isArray(placements) || placements.length === 0) return undefined;
+  const countByAcc = new Map<string, number>();
+  for (const p of placements) {
+    if (!p?.accessoryId) continue;
+    const id = String(p.accessoryId);
+    countByAcc.set(id, (countByAcc.get(id) ?? 0) + 1);
+  }
+  if (countByAcc.size === 0) return undefined;
+  return [...countByAcc.entries()].map(([accessoryId, quantity]) => ({
+    accessoryId,
+    quantity,
+  }));
+}
+
 // ── Tiny helper for controllers that prefer throw → sendError ───────────────
 export function rethrowAsHttp(
   res: import("express").Response,

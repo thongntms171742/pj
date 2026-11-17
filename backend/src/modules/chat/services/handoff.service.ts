@@ -329,8 +329,9 @@ export async function cancelHandoff(
   conversationId: string,
   actor: ChatActor
 ): Promise<IHandoffRequest> {
+  const conversation = await loadConversationForActor(conversationId, actor);
   const handoff = await HandoffRequest.findOne({
-    conversationId,
+    conversationId: conversation._id,
     status: { $in: ["waiting", "assigned"] },
   });
   if (!handoff) {

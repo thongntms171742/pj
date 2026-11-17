@@ -442,7 +442,7 @@ export async function validatePlacements(
     if (placementMode === "free") {
       const position = p.position3d as Record<string, unknown> | undefined;
       if (!position || ![position.x, position.y, position.z].every(v => typeof v === "number" && Number.isFinite(v)) ||
-          Math.abs(Number(position.x)) > 4 || Math.abs(Number(position.z)) > 4 || Number(position.y) < 0 || Number(position.y) > 4) {
+        Math.abs(Number(position.x)) > 4 || Math.abs(Number(position.z)) > 4 || Number(position.y) < 0 || Number(position.y) > 4) {
         return { ok: false, errorCode: "INVALID_INPUT", error: "Vị trí 3D không hợp lệ" };
       }
       position3d = { x: Number(position.x), y: Number(position.y), z: Number(position.z) };
@@ -542,23 +542,15 @@ export async function listDesignAccessories(
   }));
 }
 
-// ── Tree variant: foregroundMask (lớp 4 — cành trước cảnh) ─────────────────// Ảnh CÀNH TIỀN CẢNH (PNG alpha) phủ lên phụ kiện `depth: 'behind'`.
+// ── Tree variant: foregroundMask (lớp 4 — cành trước cảnh) ─────────────────
+// Ảnh CÀNH TIỀN CẢNH (PNG alpha) phủ lên phụ kiện `depth: 'behind'`.
 // Phải CÙNG pixel size với `bareImage`. Thiếu ⇒ không có lớp 4 ⇒ hành vi cũ.
 //
 // ⚠️ KHÔNG áp transformation `e_background_removal` khi phục vụ ảnh này —
 // đây là PNG alpha đã cắt sẵn, xử lý nền lần nữa sẽ phá hỏng alpha.
 
-export async function getVariantForegroundMask(
-  variantId: string
-): Promise<string> {
-  if (!Types.ObjectId.isValid(variantId)) return "";
-  const variant = await Tree.findById(variantId).lean();
-  return (variant as any)?.foregroundMask ?? "";
-}
-
 // ── Normalize `configuration` gửi kèm lúc tạo/sửa design ────────────────────
-// FE gửi `configuration` trong body của `POST /api/designs`,
-// `PATCH /api/designs/:id` và `POST /api/designs/quote`.
+// FE gửi `configuration` trong body của `POST /api/designs` và `PUT /api/designs/:id`.
 //
 // BE KHÔNG cần validate sâu: chỉ cần lưu nguyên vẹn mảng `placements`
 // (kể cả field lạ như `depth`) để bản đơn render đúng hình khách đã chọn.

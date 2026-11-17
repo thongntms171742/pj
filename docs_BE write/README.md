@@ -7,23 +7,17 @@
 
 ## 📖 CÁC TÀI LIỆU CHÍNH
 
-Thư mục tài liệu đã được tinh gọn vào **4 tài liệu cốt lõi**:
+| # | Tài liệu | Mục đích |
+|---|----------|----------|
+| 1 | **[FE_API_REFERENCE.md](./FE_API_REFERENCE.md)** | **Cẩm nang tích hợp chính**: Môi trường, tài khoản test, flow giỏ hàng, danh mục cây 3 tầng Shopee, Media, Reviews, code mẫu React và cURL. |
+| 2 | **[API_CONTRACT.md](./API_CONTRACT.md)** | **Đặc tả hợp đồng API chi tiết**: Request body, Response JSON, Headers, Status codes cho toàn bộ endpoints. |
+| 3 | **[API_CHANGELOG.md](./API_CHANGELOG.md)** | **Nhật ký thay đổi API**: Theo dõi toàn bộ thay đổi và các cập nhật mới nhất của backend. |
+| 4 | **[FE_CHAT_INTEGRATION_GUIDE.md](./FE_CHAT_INTEGRATION_GUIDE.md)** | **Tích hợp Chat Hybrid (AI + Admin)** & Socket.IO namespace `/chat`. |
+| 5 | **[FE_MEDIA_INTEGRATION_GUIDE.md](./FE_MEDIA_INTEGRATION_GUIDE.md)** | **Tích hợp Media** (Hero Video, Story Feed, Nhạc nền). |
+| 6 | **[BE_HANDOFF_COMPOSITING.md](./BE_HANDOFF_COMPOSITING.md)** | **Hệ thống ghép ảnh 4 lớp** cho Tree Customizer (`foregroundMask`, `anchor`, `shadow`, `depth`). |
+| 7 | **[ASSET_PREPARATION_GUIDE.md](./ASSET_PREPARATION_GUIDE.md)** | **Hướng dẫn chuẩn bị ảnh** cho designer/ops (cây trơn, mask cành trước, PNG phụ kiện). |
 
-| # | Tài liệu | Mục đích | Đọc khi nào |
-|---|----------|----------|-------------|
-| 1 | **[FE_API_REFERENCE.md](./FE_API_REFERENCE.md)** | **Cẩm nang tích hợp chính**: Thông tin môi trường, tài khoản test, flow giỏ hàng (không cần styleId), danh mục cây 3 tầng Shopee, code mẫu React và cURL. | Bắt đầu tích hợp & code giao diện |
-| 2 | **[API_CONTRACT.md](./API_CONTRACT.md)** | **Đặc tả hợp đồng API chi tiết**: Request body, Response JSON, Headers, Status codes cho toàn bộ endpoints. | Khi implement từng API call cụ thể |
-| 3 | **[openapi.yaml](./openapi.yaml)** | **Đặc tả OpenAPI 3.0.3**: Dùng import vào Swagger, Postman, hoặc generate client TypeScript SDK tự động. | Khi kiểm thử API hoặc gen type SDK |
-| 4 | **[API_CHANGELOG.md](./API_CHANGELOG.md)** | **Nhật ký thay đổi API**: Theo dõi toàn bộ breaking changes và các cập nhật mới nhất của backend. | Khi cập nhật hoặc gặp lỗi do thay đổi API |
-
-### 📐 Tài liệu hệ thống ghép ảnh 4 lớp (Context-aware Compositing — 2026-11-13)
-
-> ✅ **BE đã triển khai đầy đủ** (2026-11-13). Toàn bộ field mới đều `optional` ⇒ FE chạy đúng khi BE chưa có field (xem bảng fallback trong `BE_HANDOFF_COMPOSITING.md`).
-
-| # | Tài liệu | Mục đích | Đọc khi nào |
-|---|----------|----------|-------------|
-| 5 | **[BE_HANDOFF_COMPOSITING.md](./BE_HANDOFF_COMPOSITING.md)** | **Handoff BE** cho hệ thống ghép 4 lớp (cây trơn → phụ kiện sau cành → phụ kiện trước cành → cành trước cảnh): schema, payload mẫu, bảng fallback, checklist triển khai. | Khi BE cần đồng bộ field mới |
-| 6 | **[ASSET_PREPARATION_GUIDE.md](./ASSET_PREPARATION_GUIDE.md)** | **Hướng dẫn chuẩn bị ảnh** cho designer/ops: cây trơn, mask cành trước, PNG phụ kiện tách nền sạch, checklist theo từng nhóm phụ kiện. | Khi chuẩn bị bộ ảnh cho cây base |
+> Tài liệu kỹ thuật nội bộ BE xem thêm tại `backend/docs/` (`PRODUCT_CUSTOMIZATION.md`, `CHAT_API.md`, `CHAT_HYBRID_API.md`, `RENDER_KEEPALIVE.md`).
 
 ---
 
@@ -44,18 +38,12 @@ VITE_API_TARGET=https://christmas-8ca4.onrender.com
 - **Admin**: `admin@buildyourchristmas.vn` | Password: lấy từ `SEED_ADMIN_PASSWORD` trong `backend/.env`
 - **Buyer demo**: `buyer@buildyourchristmas.vn` | Password: lấy từ `SEED_BUYER_PASSWORD` trong `backend/.env`
 
-### 4. Khởi chạy dự án local (5 phút)
+### 4. Khởi chạy dự án local
 ```bash
-# Terminal 1: Backend
 cd backend
 npm install
-npm run seed -- --confirm-seed    # Seed dữ liệu cây, phụ kiện, mẫu có sẵn, tài khoản test
+npm run seed -- --confirm-seed    # Seed dữ liệu cây, phụ kiện, tài khoản test
 npm run dev                         # Chạy backend tại http://localhost:4000
-
-# Terminal 2: Frontend
-cd frontend
-npm install
-npm run dev                         # Chạy frontend tại http://localhost:5173
 ```
 
 ---
@@ -63,19 +51,11 @@ npm run dev                         # Chạy frontend tại http://localhost:517
 ## 📌 NGUYÊN TẮC QUAN TRỌNG KHI GỌI API
 
 1. **Authentication**: Gửi header `Authorization: Bearer <token>` sau khi login. Token có hạn 7 ngày. Khi gặp lỗi `401 TOKEN_INVALID`, FE cần xóa token và chuyển hướng về `/login`.
-2. **Error Format**: Mọi lỗi trả về đều có dạng chuẩn:
-   ```json
-   {
-     "error": {
-       "code": "TÊN_MÃ_LỖI",
-       "message": "Mô tả lỗi chi tiết"
-     }
-   }
-   ```
-   *Frontend nên rẽ nhánh xử lý dựa trên `error.code`.*
+2. **Error Format**: Mọi lỗi trả về đều có dạng chuẩn `{ "error": { "code": "...", "message": "...", "requestId": "..." } }`. FE rẽ nhánh xử lý dựa trên `error.code`.
 3. **Giỏ hàng (Cart)**:
-   - Endpoint `POST /api/cart/items` **không bắt buộc `styleId`**. Có thể thêm trực tiếp cây hoặc phụ kiện vào giỏ hàng.
+   - `POST /api/cart/items` dùng `variantId` + `deliveryOption` (và `designId` optional nếu đã tùy chỉnh).
    - Hỗ trợ khách vãng lai qua header `X-Session-Id` và gộp giỏ hàng sau khi đăng nhập qua `POST /api/cart/merge`.
-4. **Phân vùng giao hàng (Delivery)**:
-   - Cây trang trí sẵn (`READY_TO_DISPLAY`): Chỉ hỗ trợ giao nội thành TP.HCM (`shippingProvinceId: "79"`).
-   - Bộ tự trang trí (`DIY_KIT`) và Giao riêng lẻ (`SEPARATE`): Hỗ trợ giao hàng toàn quốc (63 tỉnh thành).
+4. **Địa chỉ & Vận chuyển (TP.HCM — mã `79`)**:
+   - Giao hàng, sổ địa chỉ (`/api/users/me/addresses`) và kho gửi hàng (`/api/shipping/warehouse`) phục vụ trong khu vực TP.HCM (`provinceId = "79"`).
+   - FE / Admin nhập địa chỉ kho linh hoạt qua `PUT/PATCH /api/shipping/warehouse` (hoặc `/api/admin/warehouse`) — không hardcode địa chỉ kho dưới BE.
+   - FE tính phí ship realtime qua `POST /api/shipping/quote` và truyền địa chỉ trực tiếp khi đặt hàng `POST /api/orders` (hoặc chọn `addressId` từ sổ địa chỉ).

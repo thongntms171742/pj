@@ -1,31 +1,32 @@
 # API Contract — Build Your Christmas
 
-> **Source of Truth:** File này mô tả 7 contract fields/endpoint (Method, Auth, Request, Path/Query, Success response, Errors, Side effects) cho mọi endpoint BE đang chạy. Đồng bộ với code (`backend/src/`) và `docs/openapi.yaml`. Nếu có xung đột, **tin code thực tế**.
+> **Source of Truth:** File này mô tả hợp đồng API (Method, Auth, Request, Path/Query, Success response, Errors, Side effects) cho các endpoint BE đang chạy trong `backend/src/`. Nếu có xung đột, **tin code thực tế**.
 
 ## Mục lục
 
 1. [Quy ước chung](#quy-ước-chung)
 2. [Auth](#auth)
-3. [Users (Saved addresses)](#users-saved-addresses)
+3. [Users (Account & Saved addresses)](#users-account--saved-addresses)
 4. [Addresses (CAS proxy)](#addresses-cas-proxy)
-5. [Catalog (public)](#catalog-public)
-6. [Designs](#designs)
-7. [Cart](#cart)
-8. [Orders](#orders)
-9. [Shipments](#shipments)
-10. [Payments](#payments)
-11. [Notifications](#notifications)
-12. [Admin](#admin)
-13. [Health](#health)
+5. [Shipping & Warehouse](#shipping--warehouse)
+6. [Catalog (public)](#catalog-public)
+7. [Designs](#designs)
+8. [Cart](#cart)
+9. [Orders](#orders)
+10. [Shipments](#shipments)
+11. [Payments](#payments)
+12. [Notifications](#notifications)
+13. [Admin](#admin)
+14. [Health](#health)
 
 ### Tài liệu liên quan — Context-aware Compositing (4 lớp, 2026-11-13)
 
 | Tài liệu | Nội dung |
 |---|---|
-| [`BE_HANDOFF_COMPOSITING.md`](BE_HANDOFF_COMPOSITING.md) | Hợp đồng handoff BE cho hệ thống ghép 4 lớp: schema Mongoose đề xuất, payload mẫu, bảng fallback, checklist triển khai |
-| [`ASSET_PREPARATION_GUIDE.md`](ASSET_PREPARATION_GUIDE.md) | Hướng dẫn chuẩn bị ảnh cho đội designer/ops: cây trơn, mask cành trước, PNG phụ kiện, checklist theo nhóm phụ kiện |
+| [`BE_HANDOFF_COMPOSITING.md`](BE_HANDOFF_COMPOSITING.md) | Hợp đồng hệ thống ghép 4 lớp (`foregroundMask`, `anchor`, `shadow`, `depth`) |
+| [`ASSET_PREPARATION_GUIDE.md`](ASSET_PREPARATION_GUIDE.md) | Hướng dẫn chuẩn bị ảnh cho đội designer/ops |
 
-**Tóm tắt các field MỚI (đều `optional`, BE chưa triển khai ⇒ FE tự fallback):**
+**Tóm tắt các field `optional` (có fallback an toàn):**
 
 | Nơi | Field | Mục đích |
 |---|---|---|
@@ -54,17 +55,15 @@
 **Success** — đa số endpoint trả object bao bọc theo resource:
 ```json
 { "trees": [...] }
-{ "styles": [...] }
 { "accessories": [...] }
-{ "presets": [...] }
 { "design": {...} }
 { "designs": [...] }
-{ "shareUrl": "/tree/slug-here" }
 { "cart": {...}, "items": [...] }
 { "item": {...} }
 { "order": {...} }
 { "orders": [...] }
 { "shipment": {...} }
+{ "warehouse": {...} }
 { "notifications": [...] }
 { "stats": {...} }
 { "users": [...] }
@@ -79,12 +78,13 @@
 {
   "error": {
     "code": "TREE_NOT_FOUND",
-    "message": "Không tìm thấy cây thông"
+    "message": "Không tìm thấy cây thông",
+    "requestId": "req_..."
   }
 }
 ```
 
-> **Quan trọng**: FE branch logic dựa trên `error.code` (string enum), KHÔNG dựa trên `message`. Danh sách 47 codes Christmas xem `docs/ERROR_CODES.md`.
+> **Quan trọng**: FE branch logic dựa trên `error.code` (string enum — xem `backend/src/utils/errors.ts`), KHÔNG dựa trên `message`.
 
 ### Quy ước phân quyền
 
@@ -227,9 +227,21 @@
 
 ---
 
-## Users (Saved addresses)
+## Users (Account & Saved addresses)
 
-> Embedded trong `User.addresses[]`. Không tách collection riêng.
+> Embedded trong `User.addresses[]`. Chỉ phục vụ lưu địa chỉ tại TP.HCM (`provinceId = "79"`).
+
+### DELETE `/api/users/me`
+
+**Auth**: Required (`Authorization: Bearer <JWT>`). Rate limit: 1 request / 60s / user.
+
+**Mục đích**: Xoá vĩnh viễn tài khoản người dùng & cascade toàn bộ dữ liệu cá nhân (ẩn PII trên `Order` để đối soát). Chặn nếu còn đơn đang xử lý (`PENDING_PAYMENT` / `PAID` / `CONFIRMED` / `PACKING`).
+
+**Success (204)**: No content.
+
+**Errors**: `401 UNAUTHORIZED`, `404 NOT_FOUND`, `409 ORDER_IN_PROGRESS`, `429 CONFLICT`
+
+---
 
 ### GET `/api/users/me/addresses`
 
@@ -244,9 +256,13 @@
       "name": "string",
       "phone": "string",
       "address": "string",
-      "province": "string",
+      "province": "Thành phố Hồ Chí Minh",
+      "provinceId": "79",
+      "provinceName": "Thành phố Hồ Chí Minh",
       "district": "string",
       "ward": "string",
+      "communeId": "string",
+      "communeName": "string",
       "isDefault": "boolean"
     }
   ]
@@ -261,15 +277,18 @@
 
 **Auth**: Required.
 
-**Request**:
+**Request**: Bắt buộc `name`, `phone`, `address`. Hỗ trợ địa chỉ 2 cấp (`communeId`, `communeName`), 3 cấp (`district`, `ward`) hoặc nhập tự do; `provinceId` mặc định `"79"` (TP.HCM).
 ```json
 {
   "name": "string",
   "phone": "string",
   "address": "string",
-  "province": "string",
-  "district": "string",
-  "ward": "string",
+  "communeId": "string (optional)",
+  "communeName": "string (optional)",
+  "provinceId": "79 (optional, default '79')",
+  "provinceName": "string (optional)",
+  "district": "string (optional)",
+  "ward": "string (optional)",
   "isDefault": "boolean (optional)"
 }
 ```
@@ -279,7 +298,7 @@
 { "address": { /* IAddress mới, _id được assign */ } }
 ```
 
-**Errors**: `400 MISSING_FIELD`, `401 UNAUTHORIZED`
+**Errors**: `400 MISSING_FIELD`, `401 UNAUTHORIZED`, `422 DELIVERY_AREA_NOT_SUPPORTED` (ngoài TP.HCM)
 
 ---
 
@@ -287,14 +306,14 @@
 
 **Auth**: Required (owner).
 
-**Request**: tất cả fields optional.
+**Request**: tất cả fields optional (chặn nếu đổi tỉnh ngoài TP.HCM `"79"`).
 
 **Success (200)**:
 ```json
 { "address": { /* updated */ } }
 ```
 
-**Errors**: `401 UNAUTHORIZED`, `404 NOT_FOUND`
+**Errors**: `401 UNAUTHORIZED`, `404 NOT_FOUND`, `422 DELIVERY_AREA_NOT_SUPPORTED`
 
 ---
 
@@ -310,7 +329,7 @@
 
 ## Addresses (CAS proxy)
 
-> Proxy tới `https://production.cas.so/address-kit` với 24h in-memory cache + 5s timeout.
+> Proxy tới `https://production.cas.so/address-kit` với 24h in-memory cache + 5s timeout (fallback dữ liệu TP.HCM nội bộ nếu upstream gián đoạn).
 
 ### GET `/api/addresses/provinces`
 
@@ -370,6 +389,86 @@
 {
   "data": [{ "id": "00004", "name": "Phường Ba Đình", "provinceId": "01" }],
   "effectiveDate": "latest"
+}
+```
+
+---
+
+## Shipping & Warehouse
+
+### GET `/api/shipping/warehouse` *(alias Admin: `GET /api/admin/warehouse`)*
+
+**Auth**: Public (alias `/api/admin/warehouse` yêu cầu Admin).
+
+**Mục đích**: Lấy cấu hình kho gửi hàng hiện tại đang lưu trong DB (`WarehouseConfig`).
+
+**Success (200)**:
+```json
+{
+  "warehouse": {
+    "name": "string",
+    "phone": "string",
+    "address": "string",
+    "communeId": "string",
+    "communeName": "string",
+    "district": "string",
+    "provinceId": "79",
+    "provinceName": "Thành phố Hồ Chí Minh",
+    "lat": "number | undefined",
+    "lng": "number | undefined"
+  }
+}
+```
+
+---
+
+### PUT / PATCH / POST `/api/shipping/warehouse` *(alias Admin: `/api/admin/warehouse`)*
+
+**Mục đích**: FE / Admin nhập và lưu địa chỉ kho gửi hàng vào DB (tự động suy ra `communeName` & toạ độ `lat`/`lng`; chỉ hỗ trợ khu vực TP.HCM `provinceId = "79"`).
+
+**Request**:
+```json
+{
+  "name": "Kho Chi Nhánh Sài Gòn",
+  "phone": "0909999999",
+  "address": "100 Nguyễn Huệ",
+  "communeId": "26740",
+  "communeName": "Phường Sài Gòn",
+  "provinceId": "79"
+}
+```
+
+**Success (200)**: `{ "warehouse": { ... } }`
+
+**Errors**: `400 INVALID_INPUT` (nếu ngoài TP.HCM `79`)
+
+---
+
+### POST `/api/shipping/quote`
+
+**Auth**: Public.
+
+**Mục đích**: Báo giá phí vận chuyển realtime từ kho hiện tại tới địa chỉ giao hàng của khách tại TP.HCM (`79`). Hỗ trợ linh hoạt `toAddress`/`address`, `toCommuneId`/`communeId`, `toCommuneName`/`communeName`/`ward`, `toProvinceId`/`provinceId`.
+
+**Request**:
+```json
+{
+  "address": "123 Lê Lợi",
+  "communeId": "26743",
+  "communeName": "Phường Bến Thành",
+  "provinceId": "79"
+}
+```
+
+**Success (200)**:
+```json
+{
+  "distanceKm": 5.1,
+  "fee": 30460,
+  "breakdown": "30.000đ (5km đầu) + 460đ (0.1km × 4.600đ)",
+  "supported": true,
+  "warehouse": { "name": "string", "address": "string", "communeName": "string", "provinceName": "Thành phố Hồ Chí Minh" },
+  "destination": { "address": "123 Lê Lợi", "communeId": "26743", "communeName": "Phường Bến Thành", "provinceId": "79", "provinceName": "Thành phố Hồ Chí Minh" }
 }
 ```
 
@@ -494,65 +593,6 @@ Trả về danh sách variants phẳng (flat). Giữ lại cho back-compat, KHÔ
 ```
 
 **Errors**: `500 INTERNAL_ERROR`
-
----
-
-### GET `/api/catalog/styles`
-
-**Auth**: Public.
-
-**Success (200)**:
-```json
-{
-  "styles": [
-    {
-      "_id": "string",
-      "code": "CLASSIC | MINIMAL | GINGERBREAD | WINTER | CUTE | LUXURY",
-      "name": "string",
-      "description": "string",
-      "palette": ["hex colors"],
-      "coverImage": "string"
-    }
-  ]
-}
-```
-
----
-
-### GET `/api/catalog/accessories`
-
-**Auth**: Public.
-
-**Query params** (tất cả optional):
-- `type` — `LIGHT_STRING` | `CANDLE` | `BAUBLE` | `BELL` | `CANDY` | `FIGURINE` | `BOW` | `STAR` | `STOCKING` | `NAME_TAG` | `NAME_ORNAMENT`
-- `group` — `LIGHTS` | `ORNAMENT` | `DECOR` | `PERSONAL`
-- `style` — filter theo `styleCodes` (nếu `styleCodes` rỗng → tương thích mọi style)
-- `size` — `S` | `M` | `L`. Nếu có → `maxQty` trả về là `maxQtyBySize[size]`
-
-**Success (200)**:
-```json
-{
-  "accessories": [
-    {
-      "_id": "string",
-      "group": "LIGHTS | ORNAMENT | DECOR | PERSONAL",
-      "type": "string",
-      "name": "string",
-      "description": "string",
-      "image": "string",
-      "price": "number (VND)",
-      "stock": "number",
-      "styleCodes": ["string"],
-      "maxQty": "number | { S, M, L }",
-      "isPersonalizable": "boolean",
-      "personalizationMaxLength": "number",
-      "productionDays": "number"
-    }
-  ]
-}
-```
-
-> **Note cho FE**: Khi `size` query param có giá trị → `maxQty` là number (cho size đó). Khi không có `size` → `maxQty` là object `{S, M, L}`. Dùng để bound input ngay khi user chọn size cây.
 
 ---
 
@@ -691,34 +731,6 @@ Trả về danh sách cây **BASE** (ảnh trơn, có SlotMap đang phát hành)
 
 ---
 
-### GET `/api/catalog/presets`
-
-**Auth**: Public.
-
-**Success (200)**:
-```json
-{
-  "presets": [
-    {
-      "_id": "string",
-      "name": "string",
-      "slug": "string",
-      "year": "number",
-      "config": { /* DesignConfig */ },
-      "previewImage": "string",
-      "isPublic": true,
-      "isPreset": true,
-      "shareUrl": "/tree/slug-here",
-      "pricing": { /* PriceBreakdown */ }
-    }
-  ]
-}
-```
-
-> Mỗi preset đã được hydrate (catalog loaded + pricing computed) — FE render trực tiếp.
-
----
-
 ### GET `/api/catalog/delivery-options`
 
 **Auth**: Public.
@@ -727,21 +739,9 @@ Trả về danh sách cây **BASE** (ảnh trơn, có SlotMap đang phát hành)
 ```json
 {
   "options": [
-    {
-      "code": "READY_TO_DISPLAY",
-      "shippingFee": 30000,
-      "decorationFeeBySize": { "S": 50000, "M": 80000, "L": 120000 }
-    },
-    {
-      "code": "DIY_KIT",
-      "shippingFee": 30000,
-      "decorationFeeBySize": { "S": 0, "M": 0, "L": 0 }
-    },
-    {
-      "code": "SEPARATE",
-      "shippingFee": 30000,
-      "decorationFeeBySize": { "S": 0, "M": 0, "L": 0 }
-    }
+    { "code": "READY_TO_DISPLAY", "shippingFee": 20000, "decorationFeeBySize": { "M": 0, "L": 0, "XL": 0, "2XL": 0 } },
+    { "code": "DIY_KIT", "shippingFee": 20000, "decorationFeeBySize": { "M": 0, "L": 0, "XL": 0, "2XL": 0 } },
+    { "code": "SEPARATE", "shippingFee": 20000, "decorationFeeBySize": { "M": 0, "L": 0, "XL": 0, "2XL": 0 } }
   ]
 }
 ```
@@ -750,7 +750,7 @@ Trả về danh sách cây **BASE** (ảnh trơn, có SlotMap đang phát hành)
 
 ### POST `/api/catalog/quote`
 
-**Mục đích**: Live price preview từ `DesignConfig` (không cần login, dùng cho editor preview).
+**Mục đích**: Live price preview từ `PricingInput` (`variantId`, `deliveryOption`, `accessories?`).
 
 **Auth**: Public.
 
@@ -759,16 +759,13 @@ Trả về danh sách cây **BASE** (ảnh trơn, có SlotMap đang phát hành)
 {
   "config": {
     "variantId": "ObjectId (required — Tree._id)",
-    "styleId": "ObjectId (optional — Style._id, chỉ dùng khi custom qua Editor)",
     "accessories": [
-      { "accessoryId": "ObjectId", "quantity": 1, "personalizationText": "string (optional, required if accessory.isPersonalizable)" }
+      { "accessoryId": "ObjectId", "quantity": 1 }
     ],
     "deliveryOption": "READY_TO_DISPLAY | DIY_KIT | SEPARATE"
   }
 }
 ```
-
-> **Note cho FE**: FE nên cache `Tree._id`, `Style._id`, `Accessory._id` từ các endpoint catalog (`/api/catalog/trees`, `/styles`, `/accessories`) thay vì gửi `treeSize`/`styleCode`. Design snapshot vào Order cần ObjectId ổn định.
 
 **Success (200)**:
 ```json
@@ -802,12 +799,6 @@ Trả về danh sách cây **BASE** (ảnh trơn, có SlotMap đang phát hành)
 
 ## Designs
 
-### POST `/api/designs/quote`
-
-Same as `POST /api/catalog/quote`. Alias cho editor UX.
-
----
-
 ### POST `/api/designs`
 
 **Auth**: Required.
@@ -815,39 +806,27 @@ Same as `POST /api/catalog/quote`. Alias cho editor UX.
 **Request**:
 ```json
 {
-  "name": "string (required, trim)",
-  "config": { /* DesignConfig (same as catalog/quote) */ },
-  "previewImage": "string (optional)",
-  "isPublic": "boolean (default true)"
+  "treeVariantId": "ObjectId (required)",
+  "name": "string (optional)",
+  "roomImageUrl": "string (optional)",
+  "roomImagePublicId": "string (optional)",
+  "prompt": "string (optional)",
+  "deliveryOption": "READY_TO_DISPLAY | DIY_KIT | SEPARATE (optional)",
+  "configuration": { /* optional — xem mục Design.configuration bên dưới */ }
 }
 ```
 
-**Success (201)**:
-```json
-{
-  "design": {
-    "_id": "string",
-    "name": "string",
-    "slug": "string (URL-safe unique)",
-    "year": "number",
-    "config": { /* DesignConfig */ },
-    "previewImage": "string",
-    "isPublic": "boolean",
-    "isPreset": false,
-    "duplicatedFrom": "string | null",
-    "ownerId": "string",
-    "shareUrl": "/tree/slug-here",
-    "pricing": { /* PriceBreakdown */ }
-  },
-  "shareUrl": "/tree/slug-here"
-}
-```
+**Success (201)**: `{ "design": { /* RoomDesignResponse */ } }`
 
-**Errors**:
-- `400 MISSING_FIELD`
-- `400 DESIGN_NAME_REQUIRED`
-- `400 DESIGN_CONFIG_INVALID` (validation fail)
-- Mọi error code từ `catalog/quote`
+**Errors**: `400 MISSING_FIELD`, `400 INVALID_INPUT`, `404 TREE_NOT_FOUND`
+
+---
+
+### PUT `/api/designs/:id/configuration`
+
+**Auth**: Required (owner/admin).
+
+**Mục đích**: Lưu bố trí phụ kiện (Tree Customizer `slots` hoặc `free` 3D) kèm optimistic lock `expectedConfigVersion`.
 
 ---
 
@@ -905,23 +884,8 @@ Same as `POST /api/catalog/quote`. Alias cho editor UX.
 
 **Success (200)**:
 ```json
-{ "designs": [/* hydrated design[] */], "total": "number" }
+{ "designs": [/* RoomDesignResponse[] */], "total": "number" }
 ```
-
----
-
-### GET `/api/designs/share/:slug`
-
-**Auth**: Optional. Public nếu `isPublic=true`; owner/admin nếu private.
-
-**Success (200)**:
-```json
-{ "design": { /* hydrated design */ } }
-```
-
-**Errors**:
-- `404 DESIGN_NOT_FOUND`
-- `403 FORBIDDEN` — design private + không phải owner/admin
 
 ---
 
@@ -931,7 +895,7 @@ Same as `POST /api/catalog/quote`. Alias cho editor UX.
 
 **Success (200)**:
 ```json
-{ "design": { /* hydrated design */ } }
+{ "design": { /* RoomDesignResponse */ } }
 ```
 
 **Errors**:
@@ -940,36 +904,9 @@ Same as `POST /api/catalog/quote`. Alias cho editor UX.
 
 ---
 
-### PATCH `/api/designs/:id`
-
-**Auth**: Required (owner).
-
-**Request**:
-```json
-{
-  "name": "string (optional)",
-  "config": { /* DesignConfig (optional) */ },
-  "previewImage": "string (optional)",
-  "isPublic": "boolean (optional)"
-}
-```
-
-**Success (200)**:
-```json
-{ "design": { /* hydrated, updated */ } }
-```
-
-**Errors**:
-- `404 DESIGN_NOT_FOUND`
-- `403 FORBIDDEN` — preset không thể edit, hoặc không phải owner
-- `400 DESIGN_NAME_REQUIRED` (nếu name rỗng)
-- Mọi error code từ `catalog/quote` (khi update config)
-
----
-
 ### DELETE `/api/designs/:id`
 
-**Auth**: Required (owner).
+**Auth**: Required (owner/admin).
 
 **Success (200)**:
 ```json
@@ -978,33 +915,7 @@ Same as `POST /api/catalog/quote`. Alias cho editor UX.
 
 **Errors**:
 - `404 DESIGN_NOT_FOUND`
-- `403 FORBIDDEN` — preset không thể xóa, hoặc không phải owner
-
----
-
-### POST `/api/designs/:id/duplicate`
-
-**Auth**: Required.
-
-**Mục đích**: Clone bất kỳ design (own / public / preset).
-
-**Request**:
-```json
-{ "name": "string (optional — default '<src.name> (copy)')" }
-```
-
-**Success (201)**:
-```json
-{
-  "design": { /* hydrated, mới — duplicatedFrom = src._id */ },
-  "shareUrl": "/tree/slug-here"
-}
-```
-
-**Errors**:
-- `404 DESIGN_NOT_FOUND`
-- `403 FORBIDDEN` — src private + không phải owner/admin
-- `400 DESIGN_CONFIG_INVALID`
+- `403 FORBIDDEN`
 
 ---
 
@@ -1176,15 +1087,13 @@ hoặc
       "decorationFee": "number",
       "discount": 0,
       "totalAmount": "number",
-      "status": "OrderStatus (xem ENUMS.md)",
+      "status": "OrderStatus (waiting_payment | paid | processing | shipping | completed | cancelled)",
       "statusHistory": [
         { "status": "string", "by": "string", "at": "ISO", "reason": "string" }
       ],
       "paymentMethod": "COD | ONLINE",
       "paymentId": "string",
       "paidAt": "ISO | null",
-      "designConfirmedAt": "ISO",
-      "designLockedAt": "ISO",
       "shippingName": "string",
       "shippingPhone": "string",
       "shippingAddress": "string",
@@ -1215,22 +1124,22 @@ hoặc
 
 **Auth**: Required.
 
-**Request**:
+**Request**: FE truyền trực tiếp địa chỉ giao hàng của khách tại TP.HCM (`shippingName`, `shippingPhone`, `shippingAddress`, `shippingCommuneId`, `shippingCommuneName`), hoặc truyền object lồng `shipping` / `deliveryAddress`, hoặc truyền `addressId` từ sổ địa chỉ. Nếu không truyền `shippingFee`, BE tự gọi `calculateShippingQuote` để tính phí ship.
 ```json
 {
   "shippingName": "string",
   "shippingPhone": "string",
   "shippingAddress": "string",
-  "shippingProvinceId": "string (HARD-CODED '79' cho HCM)",
-  "shippingProvinceName": "string",
-  "shippingCommuneId": "string",
-  "shippingCommuneName": "string",
-  "addressEffectiveDate": "string",
+  "shippingProvinceId": "79 (optional, default '79')",
+  "shippingProvinceName": "string (optional)",
+  "shippingCommuneId": "string (optional)",
+  "shippingCommuneName": "string (optional)",
+  "addressId": "string (optional — lấy từ sổ địa chỉ)",
   "paymentMethod": "COD | ONLINE (default COD)",
   "idempotencyKey": "string (optional, recommended)",
-  "designConfirmed": "true (REQUIRED — phải xác nhận đồng ý với thiết kế)",
+  "cartItemIds": ["string (optional)"],
   "items": [
-    { "config": { /* DesignConfig */ }, "designId": "string (optional)", "quantity": "number (default 1)" }
+    { "config": { "variantId": "string", "deliveryOption": "READY_TO_DISPLAY | DIY_KIT | SEPARATE", "accessories": [] }, "quantity": "number (default 1)" }
   ]
 }
 ```
@@ -1243,19 +1152,30 @@ hoặc
 ```
 
 **Side effects**:
-- Atomic stock reservation cho tất cả tree + accessories. Nếu fail → rollback toàn bộ.
-- Snapshot toàn bộ design config + pricing vào order (sau đó catalog đổi không ảnh hưởng order cũ).
+- Atomic stock reservation cho tất cả tree. Nếu fail → rollback toàn bộ.
+- Snapshot toàn bộ variant / customization config + pricing vào order (sau đó catalog đổi không ảnh hưởng order cũ).
 - COD → `status: CONFIRMED` ngay.
 - ONLINE → `status: PENDING_PAYMENT`.
 - Notification cho buyer.
 - Auto-cleanup cart items đã dùng.
 
 **Errors**:
-- `400 DESIGN_NOT_CONFIRMED` — phải bật `designConfirmed: true`
-- `422 DELIVERY_AREA_NOT_SUPPORTED` — `shippingProvinceId !== "79"`
+- `422 DELIVERY_AREA_NOT_SUPPORTED` — địa chỉ giao hàng ngoài TP.HCM (`provinceId !== "79"`)
+- `400 READY_TO_DISPLAY_HCM_ONLY`
 - `400 CART_EMPTY` / `NO_ITEMS_CHECKED` / `ITEMS_REQUIRED`
 - `409 OUT_OF_STOCK`
-- Mọi error code từ `catalog/quote` (validation)
+
+---
+
+### PATCH `/api/orders/:id/shipping-address` *(alias: `PATCH /api/orders/:id/address`)*
+
+**Auth**: Required (buyer của order khi đơn chưa xuất kho, hoặc admin).
+
+**Mục đích**: Cập nhật lại địa chỉ giao hàng của đơn trong khu vực TP.HCM (`79`); tự động tính lại `shippingFee` và `totalAmount` nếu đơn chưa thanh toán.
+
+**Success (200)**: `{ "order": { /* ApiOrder updated */ } }`
+
+**Errors**: `403 FORBIDDEN`, `404 ORDER_NOT_FOUND`, `422 ORDER_INVALID_TRANSITION`, `422 DELIVERY_AREA_NOT_SUPPORTED`
 
 ---
 
@@ -1285,7 +1205,7 @@ hoặc
 { "status": "OrderStatus", "reason": "string (optional)" }
 ```
 
-**State machine** — xem `docs/ENUMS.md` § OrderStatus.
+**State machine** — `waiting_payment` → `paid` → `processing` → `shipping` → `completed` (hoặc `cancelled`).
 
 **Role-based**:
 - **Buyer** được: `CANCELLED` (chỉ khi `PENDING_PAYMENT`/`PAID`), `CANCEL_REQUESTED` (khi ≥ `CONFIRMED`), `DELIVERED`, `COMPLETED`, `DISPUTED`.
@@ -1393,7 +1313,7 @@ hoặc
 }
 ```
 
-> `shipment.status` được derive từ `order.status` (xem `docs/ENUMS.md` § ShipmentStatus).
+> `shipment.status` được derive từ `order.status` (`created | picked_up | in_transit | delivered | cancelled`).
 
 **Errors**:
 - `404 ORDER_NOT_FOUND`
@@ -1625,73 +1545,18 @@ hoặc
 
 > Tất cả endpoints trong section này **require admin role**.
 
-### Trees CRUD
+### Warehouse (Kho gửi hàng)
 
-#### GET `/api/admin/trees`
+#### GET `/api/admin/warehouse` · PUT / PATCH / POST `/api/admin/warehouse`
 
-**Query**: `?isActive=true|false`
-
-**Success (200)**:
-```json
-{
-  "trees": [
-    {
-      "_id": "string",
-      "size": "S | M | L",
-      "name": "string",
-      "price": "number",
-      "stock": "number",
-      "isActive": "boolean",
-      "images": ["string"],
-      "heightCmMin": "number",
-      "heightCmMax": "number"
-    }
-  ]
-}
-```
-
-#### POST `/api/admin/trees`
-
-**Request**: Full tree object.
-
-**Success (201)**:
-```json
-{ "tree": { /* Tree */ } }
-```
-
-**Errors**: `400 MISSING_FIELD` (thiếu size/name/price), `403 FORBIDDEN`
-
-#### PATCH `/api/admin/trees/:id`
-
-**Request**: Partial tree object.
-
-**Success (200)**:
-```json
-{ "tree": { /* updated */ } }
-```
-
-**Errors**: `404 TREE_NOT_FOUND`, `403 FORBIDDEN`
+Xem và cập nhật cấu hình kho gửi hàng (`WarehouseConfig`) tương tự `/api/shipping/warehouse`.
 
 ---
 
-### Styles CRUD
+### Trees (Legacy Read-only & 3-tier Catalog)
 
-#### GET `/api/admin/styles`
-
-**Success (200)**:
-```json
-{ "styles": [/* Style[] */] }
-```
-
-#### POST `/api/admin/styles`
-
-**Request**: `{ code, name, description, palette, coverImage, isActive, sortOrder }`
-
-**Errors**: `400 MISSING_FIELD` (thiếu code/name)
-
-#### PATCH `/api/admin/styles/:id`
-
-**Errors**: `404 STYLE_NOT_FOUND`
+- `GET /api/admin/trees` *(Deprecated — read-only, dùng `GET /api/admin/tree-products` thay thế)*
+- 3-tier CRUD: `GET/POST /api/admin/tree-products`, `PATCH/DELETE /api/admin/tree-products/:productId`, `POST/PATCH/DELETE /api/admin/tree-codes`, `POST/PATCH/DELETE /api/admin/tree-variants`, `PATCH /api/admin/tree-variants/bulk`.
 
 ---
 
@@ -1883,42 +1748,6 @@ resource_type: "raw"        // ← field MỚI (optional, mặc định "auto")
 > "model dùng external dependency không tải được, hãy dùng .glb gói trọn"
 
 **Khuyến nghị**: dùng `.glb` (gói trọn) để không phụ thuộc file phụ.
-
----
-
-### Presets (TreeDesign với `isPreset: true`)
-
-#### GET `/api/admin/presets`
-
-**Success (200)**:
-```json
-{ "presets": [/* hydrated preset[] */] }
-```
-
-#### POST `/api/admin/presets`
-
-**Request**: `{ name, config, previewImage }`
-
-**Success (201)**:
-```json
-{ "preset": { /* hydrated */ } }
-```
-
-#### PATCH `/api/admin/presets/:id`
-
-**Request**: `{ name?, config?, previewImage? }`
-
-**Success (200)**:
-```json
-{ "preset": { /* hydrated, updated */ } }
-```
-
-#### DELETE `/api/admin/presets/:id`
-
-**Success (200)**:
-```json
-{ "success": true }
-```
 
 ---
 

@@ -227,138 +227,138 @@ export const reopenConversation = ah(async (req, res) => {
 });
 
 /** GET /api/chat/admin/unread-count — tổng unread trong hàng đợi. */
-export const getUnreadCount = ah(async (req, res) => {
-  try {
-    const total = await conversationService.totalUnreadForAdmin();
-    ok(res, { unreadCount: total });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
+  export const getUnreadCount = ah(async (_req, res) => {
+    try {
+      const total = await conversationService.totalUnreadForAdmin();
+      ok(res, { unreadCount: total });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
 
-// ── Messages ──────────────────────────────────────────────────────────────────
+  // ── Messages ──────────────────────────────────────────────────────────────────
 
-/** GET /api/chat/admin/conversations/:id/messages — gồm tin nhắn nội bộ. */
-export const listMessages = ah(async (req, res) => {
-  const limitRaw = Number.parseInt(String(req.query.limit ?? ""), 10);
-  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 20;
+  /** GET /api/chat/admin/conversations/:id/messages — gồm tin nhắn nội bộ. */
+  export const listMessages = ah(async (req, res) => {
+    const limitRaw = Number.parseInt(String(req.query.limit ?? ""), 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 20;
 
-  try {
-    const result = await messageService.listMessages(param(req, "id"), actorOf(req), {
-      limit,
-      before: req.query.before ? String(req.query.before) : undefined,
-      after: req.query.after ? String(req.query.after) : undefined,
-    });
+    try {
+      const result = await messageService.listMessages(param(req, "id"), actorOf(req), {
+        limit,
+        before: req.query.before ? String(req.query.before) : undefined,
+        after: req.query.after ? String(req.query.after) : undefined,
+      });
 
-    ok(res, {
-      items: result.items.map((m) => messageToDto(m)),
-      pagination: {
-        hasMore: result.hasMore,
-        nextCursor: result.nextCursor,
-      },
-    });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
+      ok(res, {
+        items: result.items.map((m) => messageToDto(m)),
+        pagination: {
+          hasMore: result.hasMore,
+          nextCursor: result.nextCursor,
+        },
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
 
-/**
- * POST /api/chat/admin/conversations/:id/messages
- * Body: { content, messageType?, attachments?, clientMessageId?, visibility? }
- */
-export const sendMessage = ah(async (req, res) => {
-  const body = req.body ?? {};
+  /**
+   * POST /api/chat/admin/conversations/:id/messages
+   * Body: { content, messageType?, attachments?, clientMessageId?, visibility? }
+   */
+  export const sendMessage = ah(async (req, res) => {
+    const body = req.body ?? {};
 
-  try {
-    const result = await messageService.sendMessage(actorOf(req), {
-      conversationId: param(req, "id"),
-      content: String(body.content ?? ""),
-      messageType: body.messageType,
-      attachments: body.attachments,
-      clientMessageId: body.clientMessageId
-        ? String(body.clientMessageId)
-        : undefined,
-      visibility: body.visibility === "internal" ? "internal" : "public",
-    });
+    try {
+      const result = await messageService.sendMessage(actorOf(req), {
+        conversationId: param(req, "id"),
+        content: String(body.content ?? ""),
+        messageType: body.messageType,
+        attachments: body.attachments,
+        clientMessageId: body.clientMessageId
+          ? String(body.clientMessageId)
+          : undefined,
+        visibility: body.visibility === "internal" ? "internal" : "public",
+      });
 
-    ok(res, {
-      message: messageToDto(result.message),
-      acknowledged: true,
-      duplicate: result.duplicate,
-    });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
+      ok(res, {
+        message: messageToDto(result.message),
+        acknowledged: true,
+        duplicate: result.duplicate,
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
 
-/** POST /api/chat/admin/conversations/:id/read — admin đánh dấu đã đọc. */
-export const markAsRead = ah(async (req, res) => {
-  try {
-    const result = await messageService.markAsRead(param(req, "id"), actorOf(req));
-    ok(res, { markedCount: result.markedCount });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
+  /** POST /api/chat/admin/conversations/:id/read — admin đánh dấu đã đọc. */
+  export const markAsRead = ah(async (req, res) => {
+    try {
+      const result = await messageService.markAsRead(param(req, "id"), actorOf(req));
+      ok(res, { markedCount: result.markedCount });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
 
-// ── Handoff queue ─────────────────────────────────────────────────────────────
+  // ── Handoff queue ─────────────────────────────────────────────────────────────
 
-/** GET /api/chat/admin/handoffs — hàng đợi yêu cầu chuyển nhân viên. */
-export const listHandoffs = ah(async (req, res) => {
-  const { page, limit } = parsePage(req);
-  const status = String(req.query.status ?? "all");
+  /** GET /api/chat/admin/handoffs — hàng đợi yêu cầu chuyển nhân viên. */
+  export const listHandoffs = ah(async (req, res) => {
+    const { page, limit } = parsePage(req);
+    const status = String(req.query.status ?? "all");
 
-  try {
-    const result = await handoffService.listHandoffs(actorOf(req), {
-      page,
-      limit,
-      status: status as any,
-    });
+    try {
+      const result = await handoffService.listHandoffs(actorOf(req), {
+        page,
+        limit,
+        status: status as any,
+      });
 
-    ok(res, {
-      items: result.items.map((h) => handoffToDto(h)),
-      pagination: buildPagination(result.page, result.limit, result.total),
-    });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
+      ok(res, {
+        items: result.items.map((h) => handoffToDto(h)),
+        pagination: buildPagination(result.page, result.limit, result.total),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
 
-/** POST /api/chat/admin/conversations/:id/handoff/assign — claim handoff. */
-export const assignHandoff = ah(async (req, res) => {
-  const body = req.body ?? {};
+  /** POST /api/chat/admin/conversations/:id/handoff/assign — claim handoff. */
+  export const assignHandoff = ah(async (req, res) => {
+    const body = req.body ?? {};
 
-  try {
-    const handoff = await handoffService.assignHandoff(param(req, "id"), actorOf(req), {
-      expectedVersion:
-        typeof body.expectedVersion === "number" ? body.expectedVersion : undefined,
-    });
-    ok(res, { handoff: handoffToDto(handoff) });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
+    try {
+      const handoff = await handoffService.assignHandoff(param(req, "id"), actorOf(req), {
+        expectedVersion:
+          typeof body.expectedVersion === "number" ? body.expectedVersion : undefined,
+      });
+      ok(res, { handoff: handoffToDto(handoff) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
 
-/** POST /api/chat/admin/conversations/:id/handoff/resolve — kết thúc handoff. */
-export const resolveHandoff = ah(async (req, res) => {
-  const body = req.body ?? {};
+  /** POST /api/chat/admin/conversations/:id/handoff/resolve — kết thúc handoff. */
+  export const resolveHandoff = ah(async (req, res) => {
+    const body = req.body ?? {};
 
-  try {
-    const handoff = await handoffService.resolveHandoff(param(req, "id"), actorOf(req), {
-      expectedVersion:
-        typeof body.expectedVersion === "number" ? body.expectedVersion : undefined,
-      returnToAi: body.returnToAi !== false,
-    });
-    const conversation = await conversationService.getConversation(
-      param(req, "id"),
-      actorOf(req)
-    );
+    try {
+      const handoff = await handoffService.resolveHandoff(param(req, "id"), actorOf(req), {
+        expectedVersion:
+          typeof body.expectedVersion === "number" ? body.expectedVersion : undefined,
+        returnToAi: body.returnToAi !== false,
+      });
+      const conversation = await conversationService.getConversation(
+        param(req, "id"),
+        actorOf(req)
+      );
 
-    ok(res, {
-      handoff: handoffToDto(handoff),
-      conversation: conversationToDto(conversation),
-    });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
+      ok(res, {
+        handoff: handoffToDto(handoff),
+        conversation: conversationToDto(conversation),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });

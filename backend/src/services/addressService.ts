@@ -314,3 +314,52 @@ export async function assertValidHcmCommune(
   }
   return lookupHcmCommune(communeId, effectiveDate);
 }
+
+/**
+ * Chuẩn hoá best-effort mã/tên phường/xã thuộc TP.HCM từ input tự do của FE
+ * (communeId, communeName/ward, hoặc dò từ chuỗi địa chỉ đường phố).
+ */
+export async function resolveHcmCommuneInfo(input: {
+  communeId?: string;
+  communeName?: string;
+  addressText?: string;
+  preferLookupName?: boolean;
+}): Promise<{ communeId: string; communeName: string }> {
+  let communeId = (input.communeId || "").trim();
+  let communeName = (input.communeName || "").trim();
+
+  if (communeId) {
+    const foundByCode = lookupCommuneCoords(communeId);
+    if (foundByCode) {
+      communeId = foundByCode.code;
+      if (!communeName || input.preferLookupName) communeName = foundByCode.name;
+    } else if (!communeName || input.preferLookupName) {
+      try {
+        const lookup = await lookupHcmCommune(communeId);
+        communeId = lookup.id;
+        if (!communeName || input.preferLookupName) communeName = lookup.name;
+      } catch {
+        // Giữ nguyên thông tin khách nhập
+      }
+    }
+    return { communeId, communeName };
+  }
+
+  if (communeName) {
+    const foundByName = lookupCommuneCoords(communeName);
+    if (foundByName) {
+      return { communeId: foundByName.code, communeName: foundByName.name };
+    }
+    return { communeId: "", communeName };
+  }
+
+  const text = (input.addressText || "").trim();
+  if (text) {
+    const foundInAddress = lookupCommuneCoords(text);
+    if (foundInAddress) {
+      return { communeId: foundInAddress.code, communeName: foundInAddress.name };
+    }
+  }
+
+  return { communeId: "", communeName: "" };
+}

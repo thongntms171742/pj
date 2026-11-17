@@ -53,72 +53,72 @@ export const policySearchTool: AiTool = {
     },
   },
 
-  async execute(args, context) {
-    const query = typeof args.query === "string" ? args.query.trim() : "";
-    const rawCategory = typeof args.category === "string" ? args.category.trim() : "";
-    const limit = Math.min(
-      5,
-      Math.max(1, Number(args.limit) > 0 ? Number(args.limit) : 3)
-    );
+  async execute(args, _context) {
+      const query = typeof args.query === "string" ? args.query.trim() : "";
+      const rawCategory = typeof args.category === "string" ? args.category.trim() : "";
+      const limit = Math.min(
+        5,
+        Math.max(1, Number(args.limit) > 0 ? Number(args.limit) : 3)
+      );
 
-    if (!query) {
+      if (!query) {
+        return {
+          data: {
+            found: false,
+            results: [],
+            reason: "Cần câu hỏi để tra chính sách.",
+          },
+        };
+      }
+
+      const category = (rawCategory || undefined) as
+        | KnowledgeCategory
+        | undefined;
+
+      const matches = await retrieveKnowledge(query, { category, limit });
+
+      if (matches.length === 0) {
+        return {
+          data: {
+            found: false,
+            results: [],
+            reason:
+              "Không tìm thấy chính sách phù hợp trong kho tri thức. Hãy nói với khách hàng là cần nhân viên hỗ trợ thêm.",
+            suggestEscalation: true,
+          },
+          escalate: true,
+          escalateReason:
+            "Không tìm thấy chính sách trong kho tri thức ⇒ cần nhân viên xác nhận.",
+        };
+      }
+
       return {
         data: {
-          found: false,
-          results: [],
-          reason: "Cần câu hỏi để tra chính sách.",
+          found: true,
+          count: matches.length,
+          results: matches.map((m) => ({
+            title: m.entry.title,
+            category: m.entry.category,
+            summary: m.entry.summary,
+            // Nội dung bị cắt bớt để tiết kiệm token — AI vẫn đủ dùng.
+            content:
+              m.entry.content.length > 1200
+                ? `${m.entry.content.slice(0, 1200)}…`
+                : m.entry.content,
+            tags: m.entry.tags,
+            matchedKeywords: m.matched,
+            relevance: Number(m.score.toFixed(2)),
+          })),
+          note:
+            "Trích dẫn nội dung trên một cách trung thực. KHÔNG thêm điều khoản nào không có trong kết quả.",
         },
       };
-    }
+    },
+  };
 
-    const category = (rawCategory || undefined) as
-      | KnowledgeCategory
-      | undefined;
-
-    const matches = await retrieveKnowledge(query, { category, limit });
-
-    if (matches.length === 0) {
-      return {
-        data: {
-          found: false,
-          results: [],
-          reason:
-            "Không tìm thấy chính sách phù hợp trong kho tri thức. Hãy nói với khách hàng là cần nhân viên hỗ trợ thêm.",
-          suggestEscalation: true,
-        },
-        escalate: true,
-        escalateReason:
-          "Không tìm thấy chính sách trong kho tri thức ⇒ cần nhân viên xác nhận.",
-      };
-    }
-
-    return {
-      data: {
-        found: true,
-        count: matches.length,
-        results: matches.map((m) => ({
-          title: m.entry.title,
-          category: m.entry.category,
-          summary: m.entry.summary,
-          // Nội dung bị cắt bớt để tiết kiệm token — AI vẫn đủ dùng.
-          content:
-            m.entry.content.length > 1200
-              ? `${m.entry.content.slice(0, 1200)}…`
-              : m.entry.content,
-          tags: m.entry.tags,
-          matchedKeywords: m.matched,
-          relevance: Number(m.score.toFixed(2)),
-        })),
-        note:
-          "Trích dẫn nội dung trên một cách trung thực. KHÔNG thêm điều khoản nào không có trong kết quả.",
-      },
-    };
-  },
-};
-
-/** Helper cho orchestrator: suy ra category từ intent. */
-export function categoryForIntent(intent: string): KnowledgeCategory | undefined {
-  return INTENT_TO_CATEGORY[intent];
+  /** Helper cho orchestrator: suy ra category từ intent. */
+  export function categoryForIntent(intent: string): KnowledgeCategory | undefined {
+    return INTENT_TO_CATEGORY[intent];
 }
 
 export { INTENT_TO_CATEGORY };

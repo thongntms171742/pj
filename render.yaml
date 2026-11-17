@@ -32,30 +32,9 @@ services:
         value: buildyourchristmas
       - key: REQUIRE_CLOUDINARY
         value: "true"
-      # ── Google Gemini AI Designer & Chatbot ───────────────
+      # ── Google Gemini AI Chatbot ────────────────────────────
       - key: GEMINI_API_KEY
         sync: false
-      
       - key: GEMINI_CHAT_MODEL
-        value: false
-        
-
-  # ── Frontend Static Site ───────────────────────────────────
-  # NOTE: FE sẽ build ở repo/folder khác. Khi có FE, uncomment block này
-  # và update `rootDir` + `staticPublishPath` cho khớp.
-  #
-  # - type: static
-  #   name: byc-frontend
-  #   rootDir: ../byc-frontend   # hoặc tên folder FE repo
-  #   plan: free
-  #   buildCommand: npm install && npm run build
-  #   staticPublishPath: ./dist
-  #   autoDeploy: true
-  #   routes:
-  #     - type: rewrite
-  #       source: /*
-  #       destination: /index.html
-  #   envVars:
-  #     - key: VITE_API_URL
-  #       value: https://byc-backend.onrender.com/api
+        value: gemini-2.5-flash
 

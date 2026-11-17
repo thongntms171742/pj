@@ -14,8 +14,8 @@ import {
 } from "../models";
 import { deleteAsset } from "../services/cloudinaryService";
 import { SERVICE_PROVINCE_ID } from "../config/business";
-import { lookupHcmCommune } from "../services/addressService";
-import { isHcmProvinceInput, lookupCommuneCoords } from "../services/hcmCommunesData";
+import { resolveHcmCommuneInfo } from "../services/addressService";
+import { isHcmProvinceInput } from "../services/hcmCommunesData";
 import { sendError, ErrorCode } from "../utils/errors";
 import { ah } from "../utils/asyncRoute";
 import { ok, created } from "../utils/respond";
@@ -23,7 +23,8 @@ import { ok, created } from "../utils/respond";
 export const getAddresses = ah(async (req, res) => {
   const user = await User.findById(req.user!.id);
   if (!user) {
-    return sendError(res, ErrorCode.UNAUTHORIZED, "Không tìm thấy user", 401);
+    sendError(res, ErrorCode.UNAUTHORIZED, "Không tìm thấy user", 401);
+    return;
   }
   ok(res, { addresses: user.addresses });
 });
@@ -37,12 +38,13 @@ export const addAddress = ah(async (req, res) => {
   ).trim();
 
   if (!cleanName || !cleanPhone || !cleanAddress) {
-    return sendError(
-      res,
-      ErrorCode.MISSING_FIELD,
-      "Vui lòng nhập đầy đủ họ tên, số điện thoại và địa chỉ giao hàng",
-      400
-    );
+      sendError(
+        res,
+        ErrorCode.MISSING_FIELD,
+        "Vui lòng nhập đầy đủ họ tên, số điện thoại và địa chỉ giao hàng",
+        400
+      );
+    return;
   }
 
   const rawProvinceId = String(body.provinceId ?? body.shippingProvinceId ?? "").trim();
@@ -52,11 +54,12 @@ export const addAddress = ah(async (req, res) => {
 
   // Giới hạn chỉ lưu địa chỉ giao hàng tại TP.HCM (mã tỉnh 79)
   if (!isHcmProvinceInput(rawProvinceId, rawProvinceName, SERVICE_PROVINCE_ID)) {
-    return sendError(
-      res,
-      ErrorCode.DELIVERY_AREA_NOT_SUPPORTED,
-      `Hệ thống hiện chỉ hỗ trợ giao hàng tại TP. Hồ Chí Minh (mã tỉnh ${SERVICE_PROVINCE_ID})`
-    );
+      sendError(
+        res,
+        ErrorCode.DELIVERY_AREA_NOT_SUPPORTED,
+        `Hệ thống hiện chỉ hỗ trợ giao hàng tại TP. Hồ Chí Minh (mã tỉnh ${SERVICE_PROVINCE_ID})`
+      );
+    return;
   }
 
   const provinceId = SERVICE_PROVINCE_ID;
@@ -64,47 +67,23 @@ export const addAddress = ah(async (req, res) => {
   const province = String(body.province ?? "").trim() || provinceName;
   const district = String(body.district ?? body.shippingDistrict ?? "").trim();
 
-  let communeId = String(body.communeId ?? body.shippingCommuneId ?? "").trim();
-  let communeName = String(
+  const rawCommuneId = String(body.communeId ?? body.shippingCommuneId ?? "").trim();
+  const rawCommuneName = String(
     body.communeName ?? body.ward ?? body.shippingCommuneName ?? ""
   ).trim();
-  let ward = String(body.ward ?? "").trim() || communeName;
-
-  if (communeId) {
-    const foundByCode = lookupCommuneCoords(communeId);
-    if (foundByCode) {
-      communeId = foundByCode.code;
-      if (!communeName) communeName = foundByCode.name;
-      if (!ward) ward = foundByCode.name;
-    } else if (!communeName) {
-      try {
-        const lookup = await lookupHcmCommune(communeId);
-        communeId = lookup.id;
-        communeName = lookup.name;
-        if (!ward) ward = lookup.name;
-      } catch {
-        // Giữ nguyên thông tin khách nhập
-      }
-    }
-  } else if (communeName) {
-    const foundByName = lookupCommuneCoords(communeName);
-    if (foundByName) {
-      communeId = foundByName.code;
-      communeName = foundByName.name;
-      if (!ward) ward = foundByName.name;
-    }
-  } else {
-    const foundInAddress = lookupCommuneCoords(cleanAddress);
-    if (foundInAddress) {
-      communeId = foundInAddress.code;
-      communeName = foundInAddress.name;
-      ward = foundInAddress.name;
-    }
-  }
+  const resolvedCommune = await resolveHcmCommuneInfo({
+    communeId: rawCommuneId,
+    communeName: rawCommuneName,
+    addressText: cleanAddress,
+  });
+  const communeId = resolvedCommune.communeId;
+  const communeName = resolvedCommune.communeName;
+  const ward = String(body.ward ?? "").trim() || communeName;
 
   const user = await User.findById(req.user!.id);
   if (!user) {
-    return sendError(res, ErrorCode.UNAUTHORIZED, "Không tìm thấy user", 401);
+    sendError(res, ErrorCode.UNAUTHORIZED, "Không tìm thấy user", 401);
+    return;
   }
 
   // Compute the effective isDefault flag WITHOUT mutating req.body.
@@ -147,14 +126,16 @@ export const updateAddress = ah(async (req, res) => {
 
   const user = await User.findById(req.user!.id);
   if (!user) {
-    return sendError(res, ErrorCode.UNAUTHORIZED, "Không tìm thấy user", 401);
+    sendError(res, ErrorCode.UNAUTHORIZED, "Không tìm thấy user", 401);
+    return;
   }
 
   const addressDoc = user.addresses.find(
     (a) => a._id && a._id.toString() === id
   );
   if (!addressDoc) {
-    return sendError(res, ErrorCode.NOT_FOUND, "Không tìm thấy địa chỉ", 404);
+    sendError(res, ErrorCode.NOT_FOUND, "Không tìm thấy địa chỉ", 404);
+    return;
   }
 
   const rawProvinceId =
@@ -168,11 +149,12 @@ export const updateAddress = ah(async (req, res) => {
 
   if (rawProvinceId !== undefined || rawProvinceName !== undefined) {
     if (!isHcmProvinceInput(rawProvinceId, rawProvinceName, SERVICE_PROVINCE_ID)) {
-      return sendError(
-        res,
-        ErrorCode.DELIVERY_AREA_NOT_SUPPORTED,
-        `Hệ thống hiện chỉ hỗ trợ giao hàng tại TP. Hồ Chí Minh (mã tỉnh ${SERVICE_PROVINCE_ID})`
-      );
+        sendError(
+          res,
+          ErrorCode.DELIVERY_AREA_NOT_SUPPORTED,
+          `Hệ thống hiện chỉ hỗ trợ giao hàng tại TP. Hồ Chí Minh (mã tỉnh ${SERVICE_PROVINCE_ID})`
+        );
+      return;
     }
     addressDoc.provinceId = SERVICE_PROVINCE_ID;
     addressDoc.provinceName = rawProvinceName || "Thành phố Hồ Chí Minh";
@@ -205,58 +187,40 @@ export const updateAddress = ah(async (req, res) => {
     body.shippingCommuneName !== undefined;
 
   if (hasCommuneUpdate) {
-    let nextCommuneId =
+    const rawCommuneId =
       body.communeId !== undefined || body.shippingCommuneId !== undefined
         ? String(body.communeId ?? body.shippingCommuneId ?? "").trim()
         : addressDoc.communeId || "";
-    let nextCommuneName =
+    const rawCommuneName =
       body.communeName !== undefined || body.ward !== undefined || body.shippingCommuneName !== undefined
         ? String(body.communeName ?? body.ward ?? body.shippingCommuneName ?? "").trim()
         : addressDoc.communeName || addressDoc.ward || "";
 
-    if (nextCommuneId) {
-      const foundByCode = lookupCommuneCoords(nextCommuneId);
-      if (foundByCode) {
-        nextCommuneId = foundByCode.code;
-        if (body.communeName === undefined && body.ward === undefined) {
-          nextCommuneName = foundByCode.name;
-        }
-      } else if (body.communeName === undefined && body.ward === undefined) {
-        try {
-          const lookup = await lookupHcmCommune(nextCommuneId);
-          nextCommuneId = lookup.id;
-          nextCommuneName = lookup.name;
-        } catch {
-          // Keep user input
-        }
-      }
-    } else if (nextCommuneName) {
-      const foundByName = lookupCommuneCoords(nextCommuneName);
-      if (foundByName) {
-        nextCommuneId = foundByName.code;
-        nextCommuneName = foundByName.name;
-      }
-    }
+    const resolvedCommune = await resolveHcmCommuneInfo({
+      communeId: rawCommuneId,
+      communeName: rawCommuneName,
+      preferLookupName: body.communeName === undefined && body.ward === undefined,
+    });
 
-    addressDoc.communeId = nextCommuneId;
-    addressDoc.communeName = nextCommuneName;
+    addressDoc.communeId = resolvedCommune.communeId;
+    addressDoc.communeName = resolvedCommune.communeName;
     addressDoc.ward =
       body.ward !== undefined && String(body.ward).trim()
         ? String(body.ward).trim()
-        : nextCommuneName;
+        : resolvedCommune.communeName;
   }
 
-  if (body.isDefault !== undefined) addressDoc.isDefault = Boolean(body.isDefault);
+if (body.isDefault !== undefined) addressDoc.isDefault = Boolean(body.isDefault);
 
-  if (body.isDefault === false) {
-    const hasDefault = user.addresses.some((a) => a.isDefault);
-    if (!hasDefault && user.addresses.length > 0) {
-      user.addresses[0].isDefault = true;
-    }
+if (body.isDefault === false) {
+  const hasDefault = user.addresses.some((a) => a.isDefault);
+  if (!hasDefault && user.addresses.length > 0) {
+    user.addresses[0].isDefault = true;
   }
+}
 
-  await user.save();
-  ok(res, { address: addressDoc });
+await user.save();
+ok(res, { address: addressDoc });
 });
 
 export const deleteAddress = ah(async (req, res) => {
@@ -264,14 +228,16 @@ export const deleteAddress = ah(async (req, res) => {
 
   const user = await User.findById(req.user!.id);
   if (!user) {
-    return sendError(res, ErrorCode.UNAUTHORIZED, "Không tìm thấy user", 401);
+    sendError(res, ErrorCode.UNAUTHORIZED, "Không tìm thấy user", 401);
+    return;
   }
 
   const addressIndex = user.addresses.findIndex(
     (a) => a._id && a._id.toString() === id
   );
   if (addressIndex === -1) {
-    return sendError(res, ErrorCode.NOT_FOUND, "Không tìm thấy địa chỉ", 404);
+    sendError(res, ErrorCode.NOT_FOUND, "Không tìm thấy địa chỉ", 404);
+    return;
   }
 
   const wasDefault = user.addresses[addressIndex].isDefault;
@@ -323,13 +289,15 @@ export const deleteAccountRateLimiter = (
 export const deleteMyAccount = ah(async (req: Request, res: Response) => {
   const userId = req.user?.id;
   if (!userId) {
-    return sendError(res, ErrorCode.UNAUTHORIZED, "Chưa đăng nhập", 401);
+    sendError(res, ErrorCode.UNAUTHORIZED, "Chưa đăng nhập", 401);
+    return;
   }
 
   // 1. Idempotency check: user có tồn tại không
   const user = await User.findById(userId);
   if (!user) {
-    return sendError(res, ErrorCode.NOT_FOUND, "Tài khoản không tồn tại", 404);
+    sendError(res, ErrorCode.NOT_FOUND, "Tài khoản không tồn tại", 404);
+    return;
   }
 
   const userObjectId = new Types.ObjectId(userId);
@@ -342,19 +310,20 @@ export const deleteMyAccount = ah(async (req: Request, res: Response) => {
   }).select("orderCode status totalAmount");
 
   if (blocking.length > 0) {
-    return sendError(
-      res,
-      ErrorCode.ORDER_IN_PROGRESS,
-      "Bạn còn đơn hàng đang được xử lý. Vui lòng hoàn tất hoặc huỷ đơn trước khi xoá tài khoản.",
-      409,
-      {
-        blockingOrders: blocking.map((b) => ({
-          orderCode: b.orderCode,
-          orderStatus: b.status,
-          totalAmount: b.totalAmount,
-        })),
-      }
-    );
+      sendError(
+        res,
+        ErrorCode.ORDER_IN_PROGRESS,
+        "Bạn còn đơn hàng đang được xử lý. Vui lòng hoàn tất hoặc huỷ đơn trước khi xoá tài khoản.",
+        409,
+        {
+          blockingOrders: blocking.map((b) => ({
+            orderCode: b.orderCode,
+            orderStatus: b.status,
+            totalAmount: b.totalAmount,
+          })),
+        }
+      );
+    return;
   }
 
   // 3. Scrub PII trong Order (giữ lịch sử đối soát)
@@ -389,10 +358,10 @@ export const deleteMyAccount = ah(async (req: Request, res: Response) => {
   );
   for (const d of designs) {
     if (d.roomImagePublicId) {
-      deleteAsset(d.roomImagePublicId, "image").catch(() => {});
+      deleteAsset(d.roomImagePublicId, "image").catch(() => { });
     }
     if (d.resultImagePublicId) {
-      deleteAsset(d.resultImagePublicId, "image").catch(() => {});
+      deleteAsset(d.resultImagePublicId, "image").catch(() => { });
     }
   }
   await Design.deleteMany({ ownerId: userObjectId });

@@ -442,4 +442,3 @@ A: Đây là hành vi **đúng** (chống race). Client refetch rồi thử lạ
 > **Tài liệu liên quan:**
 > - Contract cho FE/Mobile: `docs_BE write/FE_CHAT_INTEGRATION_GUIDE.md`
 > - Error code catalog: `docs_BE write/API_CONTRACT.md`
-> - OpenAPI spec: `docs_BE write/openapi.yaml`

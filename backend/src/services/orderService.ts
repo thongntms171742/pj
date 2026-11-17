@@ -6,7 +6,7 @@ import { Coupon } from "../models/Coupon";
 import { buildPricedDesign } from "./catalogService";
 import type { StockReservation } from "./inventoryService";
 import { SHIPPING_FEE, SERVICE_PROVINCE_ID, type DeliveryOption } from "../config/business";
-import type { PricingInput } from "./pricingService";
+import { countAccessoriesFromPlacements, type PricingInput } from "./pricingService";
 import { computeCouponDiscount } from "../controllers/couponController";
 
 // ── orderService ─────────────────────────────────────────────────────────────
@@ -61,18 +61,7 @@ export async function resolveOrderItems(
     const cfg = ci.config as any;
     if (!cfg) return { pricingInput: undefined, quantity: ci.quantity };
     const frozen = cfg.frozenConfig;
-    let accessories: PricingInput["accessories"];
-    if (frozen && Array.isArray(frozen.placements) && frozen.placements.length > 0) {
-      const countByAcc = new Map<string, number>();
-      for (const p of frozen.placements) {
-        const id = String((p as any).accessoryId);
-        countByAcc.set(id, (countByAcc.get(id) ?? 0) + 1);
-      }
-      accessories = [...countByAcc.entries()].map(([accessoryId, quantity]) => ({
-        accessoryId,
-        quantity,
-      }));
-    }
+    const accessories = countAccessoriesFromPlacements(frozen?.placements);
     return {
       pricingInput: {
         variantId: String(cfg.variantId),
@@ -80,11 +69,13 @@ export async function resolveOrderItems(
         ...(accessories ? { accessories } : {}),
       },
       quantity: ci.quantity,
-      ...(frozen ? { customization: {
-        designId: String(cfg.designId || ""),
-        designName: names.get(String(cfg.designId)) || "Cây đã cá nhân hóa",
-        configuration: JSON.parse(JSON.stringify(frozen)),
-      } } : {}),
+      ...(frozen ? {
+        customization: {
+          designId: String(cfg.designId || ""),
+          designName: names.get(String(cfg.designId)) || "Cây đã cá nhân hóa",
+          configuration: JSON.parse(JSON.stringify(frozen)),
+        }
+      } : {}),
     };
   });
 }

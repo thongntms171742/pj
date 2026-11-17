@@ -13,7 +13,6 @@ import { Request, Response } from "express";
 import { ah } from "../../../utils/asyncRoute";
 import { ok, created } from "../../../utils/respond";
 import { sendError } from "../../../utils/errors";
-import { Types } from "mongoose";
 import {
   CHAT_PAGE_SIZE_DEFAULT,
   CHAT_PAGE_SIZE_MAX,
@@ -281,8 +280,3 @@ export const cancelHandoff = ah(async (req, res) => {
     handleServiceError(res, err);
   }
 });
-
-// ── Types (export để route dùng) ─────────────────────────────────────────────
-
-export type { PaginationMeta };
-export { Types };

@@ -69,21 +69,6 @@ export function consume(key: string, limit: number, windowMs: number): RateLimit
   };
 }
 
-/** Xem trạng thái quota mà KHÔNG tiêu thụ (dùng để hiển thị cho FE). */
-export function peek(key: string, limit: number, windowMs: number): RateLimitResult {
-  const now = Date.now();
-  const existing = buckets.get(key);
-  if (!existing || existing.resetAt <= now) {
-    return { allowed: true, remaining: limit, retryAfterMs: 0 };
-  }
-  const remaining = Math.max(0, limit - existing.count);
-  return {
-    allowed: remaining > 0,
-    remaining,
-    retryAfterMs: remaining > 0 ? 0 : Math.max(0, existing.resetAt - now),
-  };
-}
-
 /** Xoá bucket (dùng khi test, hoặc reset quota theo user). */
 export function reset(key: string): void {
   buckets.delete(key);

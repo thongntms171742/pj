@@ -117,8 +117,3 @@ export async function loadOwnedConversation(
 export function canViewInternalMessages(actor: ChatActor): boolean {
   return isAdmin(actor);
 }
-
-/** Admin có được phép quản lý conversation này không? */
-export function canManageConversation(actor: ChatActor): boolean {
-  return isAdmin(actor);
-}

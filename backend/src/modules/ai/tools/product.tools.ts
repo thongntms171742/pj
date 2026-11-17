@@ -7,7 +7,6 @@
  * AI KHÔNG được bịa giá ⇒ tool này là nguồn sự thật duy nhất về giá/tồn kho.
  */
 
-import { Types } from "mongoose";
 import { TreeProduct } from "../../../models/TreeProduct";
 import { TreeCode } from "../../../models/TreeCode";
 import { Tree } from "../../../models/Tree";
@@ -223,16 +222,6 @@ export const searchProductsTool: AiTool = {
     result.found = result.products.length > 0;
     result.total = result.products.length;
 
-    return { data: result as unknown as Record<string, unknown> };  },
+    return { data: result as unknown as Record<string, unknown> };
+  },
 };
-
-/** Kiểm tra tồn kho tối thiểu (dùng bởi orchestrator để tránh gợi ý hết hàng). */
-export function isVariantAvailable(stockQuantity: number): boolean {
-  return stockQuantity > 0;
-}
-
-/** Helper: tìm product theo id (dùng khi cần chi tiết). */
-export async function findProductById(id: string) {
-  if (!Types.ObjectId.isValid(id)) return null;
-  return TreeProduct.findById(id).lean();
-}

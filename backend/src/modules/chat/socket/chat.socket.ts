@@ -15,8 +15,6 @@
 import { Server as SocketIOServer, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { Types } from "mongoose";
-import { Conversation } from "../../../models/Conversation";
-import type { IMessage } from "../../../models/Message";
 import { ErrorCode } from "../../../utils/errors";
 import {
   CHAT_SOCKET_RATE_LIMIT,
@@ -30,9 +28,9 @@ import {
 } from "../services/chatPermission.service";
 import * as messageService from "../services/message.service";
 import { consume } from "../services/chatRateLimit.service";
-import { messageToDto, conversationToDto } from "../dto/chat.mapper";
+import { messageToDto } from "../dto/chat.mapper";
 import { getJwtSecret } from "../../../config/env";
-import { registerChatNamespace, emitMessageNew, emitConversationUpdated } from "./chat.emitter";
+import { registerChatNamespace } from "./chat.emitter";
 import {
   ChatClientEvents,
   ChatRooms,
@@ -50,9 +48,6 @@ interface JwtPayload {
   email: string;
   roles: string[];
 }
-
-/** socketId → actor (để disconnect dọn dẹp). */
-const socketActors = new Map<string, SocketActor>();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -130,7 +125,6 @@ export function initChatSocket(io: SocketIOServer): void {
 
   chatNamespace.on("connection", (socket: Socket) => {
     const actor = socket.data.actor as SocketActor;
-    socketActors.set(socket.id, actor);
 
     // Join room cá nhân: mọi tab/thiết bị của user đều nhận event.
     socket.join(ChatRooms.user(actor.userId));
@@ -275,45 +269,5 @@ export function initChatSocket(io: SocketIOServer): void {
     socket.on(ChatClientEvents.PING, (ack?: (r: ChatAck) => void) => {
       ackOk(ack, { serverTime: new Date().toISOString() });
     });
-
-    // ── Disconnect ───────────────────────────────────────────────────────────
-    socket.on("disconnect", () => {
-      socketActors.delete(socket.id);
-    });
   });
-}
-
-// ── Export cho service khác phát event (VD: AI orchestrator) ──────────────────
-
-/**
- * Phát tin nhắn mới tới 1 conversation (dùng bởi AI orchestrator khi AI trả lời).
- * Dùng emitter chung ⇒ không cần truyền `io` xung quanh.
- */
-export function emitNewMessage(
-  conversationId: string,
-  message: IMessage
-): void {
-  emitMessageNew({
-    conversationId,
-    message: messageToDto(message),
-  });
-}
-
-/**
- * Phát cập nhật conversation (dùng khi AI escalate, admin đóng, v.v.).
- */
-export function emitConversationChanged(conversationId: string): void {
-  void (async () => {
-    const conversation = await Conversation.findById(conversationId);
-    if (!conversation) return;
-    emitConversationUpdated({
-      conversationId,
-      conversation: conversationToDto(conversation),
-    });
-  })();
-}
-
-/** Số socket đang online (cho admin dashboard). */
-export function onlineSocketCount(): number {
-  return socketActors.size;
 }

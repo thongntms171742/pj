@@ -670,4 +670,3 @@ A: Refetch conversation để lấy `version` mới rồi thử lại (xem §8.3
 > **Tài liệu liên quan:**
 > - Kiến trúc chi tiết BE: `backend/docs/CHAT_HYBRID_API.md`
 > - Error code catalog: `docs_BE write/API_CONTRACT.md`
-> - OpenAPI: `docs_BE write/openapi.yaml`

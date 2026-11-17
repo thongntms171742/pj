@@ -8,10 +8,6 @@
  *   - Prompt nói rõ khi nào phải escalate.
  */
 
-import { SYSTEM_PROMPT_VERSION } from "../../../config/ai.config";
-
-export const SYSTEM_INSTRUCTION_VERSION = SYSTEM_PROMPT_VERSION;
-
 /**
  * Prompt chính — dùng cho chat với khách hàng.
  */

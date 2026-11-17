@@ -28,9 +28,9 @@
 2. **Error Envelope**: Mọi response lỗi đều có dạng `{ error: { code: string, message: string } }`. Hãy xử lý logic dựa trên `error.code`.
 3. **Cart Item**: Giỏ hàng **không bắt buộc `styleId`**. Client có thể thêm trực tiếp biến thể cây (`variantId`) và phụ kiện lẻ (`accessories`) mà không cần chọn Style.
 4. **Guest Session & Merge**: Khách chưa đăng nhập gửi kèm header `X-Session-Id`. Khi khách đăng nhập, gọi `POST /api/cart/merge` với body `{ guestSessionId }` để tự động gộp giỏ hàng vào tài khoản.
-5. **Giao hàng (Delivery)**:
-   - `READY_TO_DISPLAY` (cây trang trí sẵn): Chỉ hỗ trợ TP.HCM (`shippingProvinceId === "79"`).
-   - `DIY_KIT` (bộ tự trang trí) và `SEPARATE` (giao riêng lẻ): Hỗ trợ giao hàng toàn quốc (63 tỉnh thành qua CAS proxy `GET /api/addresses/provinces`).
+5. **Giao hàng & Kho (TP.HCM — mã `79`)**:
+   - Giao hàng, sổ địa chỉ (`/api/users/me/addresses`) và kho gửi hàng (`/api/shipping/warehouse`) phục vụ trong khu vực TP.HCM (`provinceId === "79"`).
+   - FE/Admin có thể nhập/cập nhật địa chỉ kho động qua `PUT / PATCH /api/shipping/warehouse` (hoặc `/api/admin/warehouse`) và báo giá ship realtime qua `POST /api/shipping/quote`.
 
 ---
 

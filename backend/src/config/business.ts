@@ -3,7 +3,7 @@
 // illustrative — replace with supplier quotes via admin API.
 
 export type DeliveryOption = "READY_TO_DISPLAY" | "DIY_KIT" | "SEPARATE";
-export type TreeSize =  "M" | "L" | "XL" | "2XL";
+export type TreeSize = "M" | "L" | "XL" | "2XL";
 
 export const DELIVERY_OPTIONS: ReadonlyArray<DeliveryOption> = [
   "READY_TO_DISPLAY",
@@ -53,7 +53,3 @@ export interface WarehouseLocation {
   lat?: number;
   lng?: number;
 }
-
-// Personalization regex (Unicode letters/digits + space + . ' - &)
-export const PERSONALIZATION_REGEX = /^[\p{L}\p{N} .'\-&]+$/u;
-export const PERSONALIZATION_DEFAULT_MAX_LENGTH = 12;
