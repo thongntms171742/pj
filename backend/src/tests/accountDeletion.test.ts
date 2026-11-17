@@ -1,4 +1,3 @@
-import assert from "assert";
 import mongoose, { Types } from "mongoose";
 import { ErrorCode, ErrorStatus } from "../utils/errors";
 import {

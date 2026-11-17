@@ -17,7 +17,6 @@ import { ErrorCode } from "../utils/errors";
 import { DesignValidationError } from "../services/pricingService";
 
 const TREE_M = "tree-m";
-const VARIANT_ID = "6acce8f40f4d29c2b79eba05";
 
 function tree(overrides: Partial<TreeLean> = {}): TreeLean {
   return {

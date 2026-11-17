@@ -46,6 +46,11 @@ import {
   adminDeleteReview,
 } from "../controllers/admin";
 
+import {
+  getWarehouse,
+  updateWarehouse,
+} from "../controllers/shippingController";
+
 const router = Router();
 
 router.use(requireAuth, requireAdmin);
@@ -84,6 +89,12 @@ router.post("/tree-variants/:variantId/slotmaps/publish", publishSlotMapAdmin);
 
 // ── Orders ───────────────────────────────────────────────────────────────────
 router.get("/orders", listAllOrders);
+
+// ── Warehouse (Kho gửi hàng) ─────────────────────────────────────────────────
+router.get("/warehouse", getWarehouse);
+router.put("/warehouse", updateWarehouse);
+router.patch("/warehouse", updateWarehouse);
+router.post("/warehouse", updateWarehouse);
 
 // ── Stats & Analytics ────────────────────────────────────────────────────────
 router.get("/stats", getAdminStats);

@@ -12,11 +12,11 @@
  *   - Rate limit theo user (số tin nhắn / giây).
  */
 
-import { Server as SocketIOServer, Namespace, Socket } from "socket.io";
+import { Server as SocketIOServer, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { Types } from "mongoose";
 import { Conversation } from "../../../models/Conversation";
-import { Message, type IMessage } from "../../../models/Message";
+import type { IMessage } from "../../../models/Message";
 import { ErrorCode } from "../../../utils/errors";
 import {
   CHAT_SOCKET_RATE_LIMIT,
@@ -29,7 +29,6 @@ import {
   type ChatActor,
 } from "../services/chatPermission.service";
 import * as messageService from "../services/message.service";
-import * as conversationService from "../services/conversation.service";
 import { consume } from "../services/chatRateLimit.service";
 import { messageToDto, conversationToDto } from "../dto/chat.mapper";
 import { getJwtSecret } from "../../../config/env";

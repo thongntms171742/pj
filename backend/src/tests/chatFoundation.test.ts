@@ -1,4 +1,3 @@
-import assert from "assert";
 import mongoose, { Types } from "mongoose";
 import dotenv from "dotenv";
 import { ErrorCode, ErrorStatus } from "../utils/errors";

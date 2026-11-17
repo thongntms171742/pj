@@ -2,7 +2,7 @@
 // Pure tests, không cần DB. Sau refactor: RoomDesign thay cho Design cũ.
 
 import { Types } from "mongoose";
-import { Design, type IRoomDesign } from "../models/Design";
+import { Design } from "../models/Design";
 import { composeRoomPrompt } from "../services/ai/legacyRoomDesignService";
 
 let passed = 0;

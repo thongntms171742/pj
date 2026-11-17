@@ -2,7 +2,6 @@
 // Run with: npx ts-node --transpile-only src/tests/validation.test.ts
 
 import { V } from "../utils/validation";
-import { sendError, ErrorCode } from "../utils/errors";
 import { Types } from "mongoose";
 
 let passed = 0;

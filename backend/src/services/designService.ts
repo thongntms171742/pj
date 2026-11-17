@@ -1,6 +1,5 @@
 import { Tree, type ITree } from "../models/Tree";
-import { Design, type IRoomDesign } from "../models/Design";
-import type { DeliveryOption } from "../config/business";
+import type { IRoomDesign } from "../models/Design";
 
 // ── roomDesignService ────────────────────────────────────────────────────────
 // Resolve RoomDesign → Tree variant. Output là RoomDesignResponse cho FE.
@@ -143,36 +142,36 @@ export function buildRoomDesignResponse(
     deliveryOption: d.deliveryOption,
     configuration: cfg
       ? {
-          placementMode: cfg.placementMode || "slots",
-          configVersion: cfg.configVersion,
-          slotMapVersion: cfg.slotMapVersion,
-          variantSnapshot: {
-            variantId: String(cfg.variantSnapshot?.variantId ?? ""),
-            sku: cfg.variantSnapshot?.sku ?? "",
-            name: cfg.variantSnapshot?.name ?? "",
-            price: cfg.variantSnapshot?.price ?? 0,
-          },
-          placements: (cfg.placements ?? []).map((p: any) => ({
-            slotId: String(p.slotId),
-            accessoryId: String(p.accessoryId),
-            x: Number(p.x),
-            y: Number(p.y),
-            rotation: p.rotation ?? 0,
-            scale: p.scale ?? 1,
-            ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
-            ...(p.depth ? { depth: p.depth } : {}),
-          })),
-        }
+        placementMode: cfg.placementMode || "slots",
+        configVersion: cfg.configVersion,
+        slotMapVersion: cfg.slotMapVersion,
+        variantSnapshot: {
+          variantId: String(cfg.variantSnapshot?.variantId ?? ""),
+          sku: cfg.variantSnapshot?.sku ?? "",
+          name: cfg.variantSnapshot?.name ?? "",
+          price: cfg.variantSnapshot?.price ?? 0,
+        },
+        placements: (cfg.placements ?? []).map((p: any) => ({
+          slotId: String(p.slotId),
+          accessoryId: String(p.accessoryId),
+          x: Number(p.x),
+          y: Number(p.y),
+          rotation: p.rotation ?? 0,
+          scale: p.scale ?? 1,
+          ...(p.position3d ? { position3d: p.position3d, mounting: p.mounting } : {}),
+          ...(p.depth ? { depth: p.depth } : {}),
+        })),
+      }
       : null,
     variant: resolved.variant
       ? {
-          _id: String(resolved.variant._id),
-          name: resolved.variant.name,
-          size: resolved.variant.size,
-          price: resolved.variant.price,
-          bareImage: resolved.variant.bareImage,
-          sku: resolved.variant.sku,
-        }
+        _id: String(resolved.variant._id),
+        name: resolved.variant.name,
+        size: resolved.variant.size,
+        price: resolved.variant.price,
+        bareImage: resolved.variant.bareImage,
+        sku: resolved.variant.sku,
+      }
       : null,
     createdAt: d.createdAt
       ? new Date(d.createdAt as Date | string).toISOString()

@@ -147,7 +147,6 @@ export const searchProductsTool: AiTool = {
     // ── 2. Tải codes + variants ──────────────────────────────────────────
     const codes = await TreeCode.find({ productId: { $in: productIds } })
       .lean();
-    const codeById = new Map(codes.map((c) => [String(c._id), c]));
 
     const variantFilter: Record<string, unknown> = {
       productId: { $in: productIds },

@@ -11,7 +11,7 @@
 
 import { Request, Response } from "express";
 import { ah } from "../../../utils/asyncRoute";
-import { ok, created, noContent } from "../../../utils/respond";
+import { ok, created } from "../../../utils/respond";
 import { sendError } from "../../../utils/errors";
 import { Types } from "mongoose";
 import {

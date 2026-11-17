@@ -1,4 +1,3 @@
-import { Response } from "express";
 import { TreeProduct, TreeCode, Tree, Review, Design, CartItem } from "../../models";
 import { loadGroupedTreeCatalog } from "../../services/catalogService";
 import { sendError, ErrorCode } from "../../utils/errors";

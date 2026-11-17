@@ -1,13 +1,10 @@
 import { Types } from "mongoose";
-import { Order, IOrder, IOrderItem } from "../models/Order";
+import type { IOrder, IOrderItem } from "../models/Order";
 import { Cart } from "../models/Cart";
 import { CartItem } from "../models/CartItem";
 import { Coupon } from "../models/Coupon";
 import { buildPricedDesign } from "./catalogService";
-import {
-  reserveStock,
-  type StockReservation,
-} from "./inventoryService";
+import type { StockReservation } from "./inventoryService";
 import { SHIPPING_FEE, SERVICE_PROVINCE_ID, type DeliveryOption } from "../config/business";
 import type { PricingInput } from "./pricingService";
 import { computeCouponDiscount } from "../controllers/couponController";

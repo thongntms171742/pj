@@ -226,31 +226,63 @@ export const HCM_2LEVEL_COMMUNES: Record<string, CommuneGeo> = {
  */
 export function lookupCommuneCoords(
   codeOrName: string
-): { lat: number; lng: number; name: string } | null {
+): { code: string; lat: number; lng: number; name: string } | null {
   if (!codeOrName) return null;
   const target = codeOrName.trim().toLowerCase();
 
   // 1) Tìm theo code (mã hành chính chính xác)
   if (HCM_2LEVEL_COMMUNES[target]) {
     const found = HCM_2LEVEL_COMMUNES[target];
-    return { lat: found.lat, lng: found.lng, name: found.name };
+    return { code: found.code, lat: found.lat, lng: found.lng, name: found.name };
   }
 
   // 2) Tìm theo tên phường chuẩn
   for (const c of Object.values(HCM_2LEVEL_COMMUNES)) {
     const cName = c.name.toLowerCase();
     if (cName === target || cName.replace(/^phường |^xã /, "") === target.replace(/^phường |^xã /, "")) {
-      return { lat: c.lat, lng: c.lng, name: c.name };
+      return { code: c.code, lat: c.lat, lng: c.lng, name: c.name };
     }
   }
 
   // 3) Tìm mờ (text chứa tên)
   for (const c of Object.values(HCM_2LEVEL_COMMUNES)) {
     const base = c.name.toLowerCase().replace(/^phường |^xã /, "");
-    if (target.includes(base) || base.includes(target)) {
-      return { lat: c.lat, lng: c.lng, name: c.name };
+    if (base.length >= 3 && (target.includes(base) || base.includes(target))) {
+      return { code: c.code, lat: c.lat, lng: c.lng, name: c.name };
     }
   }
 
   return null;
+}
+
+/**
+ * Kiểm tra xem thông tin tỉnh/thành phố truyền lên có thuộc TP.HCM (mã 79) không.
+ * Cho phép bỏ trống (mặc định là 79 - TP.HCM), hoặc truyền mã "79" / tên TP.HCM.
+ */
+export function isHcmProvinceInput(
+  provinceId?: string,
+  provinceName?: string,
+  serviceProvinceId = "79"
+): boolean {
+  const cleanId = (provinceId || "").trim();
+  if (cleanId) {
+    return cleanId === serviceProvinceId;
+  }
+  const cleanName = (provinceName || "").trim().toLowerCase();
+  if (!cleanName) {
+    return true;
+  }
+  if (
+    cleanName === serviceProvinceId ||
+    cleanName.includes("hồ chí minh") ||
+    cleanName.includes("ho chi minh") ||
+    cleanName.includes("hcm") ||
+    cleanName.includes("sài gòn") ||
+    cleanName.includes("sai gon") ||
+    cleanName.includes("tp.hcm") ||
+    cleanName.includes("tphcm")
+  ) {
+    return true;
+  }
+  return false;
 }

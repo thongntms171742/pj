@@ -1,12 +1,12 @@
 import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { Order, VALID_TRANSITIONS, OrderStatus } from "../models/Order";
+import { User } from "../models/User";
 import { Cart } from "../models/Cart";
-import { CartItem } from "../models/CartItem";
 import { Notification } from "../models/Notification";
 import { restoreTreeStock } from "../services/inventoryService";
 import { SHIPPING_FEE } from "../config/business";
-import { calculateShippingQuote } from "../services/shippingService";
+import { calculateShippingQuote, getActiveWarehouse } from "../services/shippingService";
 import {
   sendError,
   ErrorCode,
@@ -26,9 +26,11 @@ import {
 } from "../services/orderService";
 import {
   assertValidHcmCommune,
+  lookupHcmCommune,
   InvalidCommuneError,
   WrongProvinceError,
 } from "../services/addressService";
+import { isHcmProvinceInput, lookupCommuneCoords } from "../services/hcmCommunesData";
 import { SERVICE_PROVINCE_ID } from "../config/business";
 import type { PricingInput } from "../services/pricingService";
 
@@ -49,59 +51,147 @@ export const createOrder = async (
 ): Promise<void> => {
   try {
     const userId = req.user!.id;
-    const body = req.body as {
-      shippingName?: string;
-      shippingPhone?: string;
-      shippingAddress?: string;
-      shippingProvinceId?: string;
-      shippingProvinceName?: string;
-      shippingCommuneId?: string;
-      shippingCommuneName?: string;
-      addressEffectiveDate?: string;
-      paymentMethod?: string;
-      idempotencyKey?: string;
-      designConfirmed?: boolean;
-      cartItemIds?: string[];
-      items?: Array<{ config?: PricingInput; quantity?: number }>;
-      couponCode?: string;
-      discountCode?: string;
-      internalNotes?: string;
-      shippingFee?: number;
-      distanceKm?: number;
-      fromAddress?: {
-        address?: string;
-        communeId?: string;
-        communeName?: string;
-        provinceId?: string;
-        provinceName?: string;
-        lat?: number;
-        lng?: number;
-      };
-      warehouseAddress?: {
-        address?: string;
-        communeId?: string;
-        communeName?: string;
-        provinceId?: string;
-        provinceName?: string;
-        lat?: number;
-        lng?: number;
-      };
-    };
-    const {
-      shippingName,
-      shippingPhone,
-      shippingAddress,
-      shippingProvinceId,
-      shippingProvinceName,
-      shippingCommuneId,
-      shippingCommuneName,
-      addressEffectiveDate,
-      paymentMethod = "COD",
-      idempotencyKey,
-      designConfirmed,
-      cartItemIds,
-      items: directItems,
-    } = body;
+    const body = (req.body || {}) as Record<string, any>;
+    const nestedShipping =
+      body.shipping && typeof body.shipping === "object"
+        ? body.shipping
+        : body.deliveryAddress && typeof body.deliveryAddress === "object"
+        ? body.deliveryAddress
+        : typeof body.shippingAddress === "object" && body.shippingAddress !== null
+        ? body.shippingAddress
+        : {};
+
+    // If FE selected a saved addressId or didn't supply address fields, fallback to User.addresses
+    let savedAddr: any = null;
+    const requestedAddressId = String(
+      body.addressId ?? nestedShipping.addressId ?? ""
+    ).trim();
+    const hasExplicitAddressInput = Boolean(
+      (typeof body.shippingAddress === "string" && body.shippingAddress.trim()) ||
+        nestedShipping.address ||
+        body.address
+    );
+
+    if (requestedAddressId || !hasExplicitAddressInput) {
+      const buyerDoc = await User.findById(userId).select("name phone addresses").lean();
+      if (buyerDoc && Array.isArray(buyerDoc.addresses) && buyerDoc.addresses.length > 0) {
+        if (requestedAddressId) {
+          savedAddr = buyerDoc.addresses.find(
+            (a: any) => a._id && String(a._id) === requestedAddressId
+          );
+        }
+        if (!savedAddr && !hasExplicitAddressInput) {
+          savedAddr =
+            buyerDoc.addresses.find((a: any) => a.isDefault) || buyerDoc.addresses[0];
+        }
+      }
+    }
+
+    const shippingName = String(
+      body.shippingName ??
+        nestedShipping.name ??
+        body.name ??
+        savedAddr?.name ??
+        ""
+    ).trim();
+    const shippingPhone = String(
+      body.shippingPhone ??
+        nestedShipping.phone ??
+        body.phone ??
+        savedAddr?.phone ??
+        ""
+    ).trim();
+    const shippingAddress = String(
+      (typeof body.shippingAddress === "string" ? body.shippingAddress : undefined) ??
+        nestedShipping.address ??
+        body.address ??
+        savedAddr?.address ??
+        ""
+    ).trim();
+
+    const rawProvinceId = String(
+      body.shippingProvinceId ??
+        nestedShipping.provinceId ??
+        body.provinceId ??
+        savedAddr?.provinceId ??
+        ""
+    ).trim();
+    const rawProvinceName = String(
+      body.shippingProvinceName ??
+        nestedShipping.provinceName ??
+        nestedShipping.province ??
+        body.provinceName ??
+        body.province ??
+        savedAddr?.provinceName ??
+        savedAddr?.province ??
+        ""
+    ).trim();
+
+    // Giới hạn chỉ giao hàng tại TP.HCM (mã tỉnh 79)
+    if (!isHcmProvinceInput(rawProvinceId, rawProvinceName, SERVICE_PROVINCE_ID)) {
+      sendError(
+        res,
+        ErrorCode.DELIVERY_AREA_NOT_SUPPORTED,
+        `Hệ thống hiện chỉ hỗ trợ giao hàng tại TP. Hồ Chí Minh (mã tỉnh ${SERVICE_PROVINCE_ID})`
+      );
+      return;
+    }
+
+    const shippingProvinceId = SERVICE_PROVINCE_ID;
+    const shippingProvinceName = rawProvinceName || "Thành phố Hồ Chí Minh";
+
+    let shippingCommuneId = String(
+      body.shippingCommuneId ??
+        nestedShipping.communeId ??
+        body.communeId ??
+        savedAddr?.communeId ??
+        ""
+    ).trim();
+    let shippingCommuneName = String(
+      body.shippingCommuneName ??
+        nestedShipping.communeName ??
+        nestedShipping.ward ??
+        body.communeName ??
+        body.shippingWard ??
+        body.ward ??
+        savedAddr?.communeName ??
+        savedAddr?.ward ??
+        ""
+    ).trim();
+
+    if (shippingCommuneId) {
+      const foundByCode = lookupCommuneCoords(shippingCommuneId);
+      if (foundByCode) {
+        shippingCommuneId = foundByCode.code;
+        if (!shippingCommuneName) shippingCommuneName = foundByCode.name;
+      } else if (!shippingCommuneName) {
+        try {
+          const lookup = await lookupHcmCommune(shippingCommuneId);
+          shippingCommuneId = lookup.id;
+          shippingCommuneName = lookup.name;
+        } catch {
+          // Keep user input
+        }
+      }
+    } else if (shippingCommuneName) {
+      const foundByName = lookupCommuneCoords(shippingCommuneName);
+      if (foundByName) {
+        shippingCommuneId = foundByName.code;
+        shippingCommuneName = foundByName.name;
+      }
+    } else if (shippingAddress) {
+      const foundInAddress = lookupCommuneCoords(shippingAddress);
+      if (foundInAddress) {
+        shippingCommuneId = foundInAddress.code;
+        shippingCommuneName = foundInAddress.name;
+      }
+    }
+
+    const addressEffectiveDate = String(body.addressEffectiveDate || "latest");
+    const paymentMethod = body.paymentMethod || "COD";
+    const idempotencyKey = body.idempotencyKey;
+    const cartItemIds = body.cartItemIds;
+    const directItems = body.items;
 
     // 1) Idempotency
     if (idempotencyKey) {
@@ -152,7 +242,7 @@ export const createOrder = async (
       }
       throw err;
     }
-    const { items: built, stockToReserve, subtotal, decorationFee: decorationFeeTotal, productionDaysMax } = builtResult;
+    const { items: built, stockToReserve, subtotal, decorationFee: decorationFeeTotal } = builtResult;
     if (built.length === 0) {
       sendError(res, ErrorCode.ITEMS_REQUIRED, "Không có thiết kế hợp lệ để đặt hàng");
       return;
@@ -467,7 +557,6 @@ export const createOrderShipment = async (
 ): Promise<void> => {
   try {
     const id = String(req.params.id);
-    const userId = req.user!.id;
     const isAdmin = req.user?.roles?.includes("admin") ?? false;
     if (!isAdmin) {
       sendError(res, ErrorCode.FORBIDDEN, "Chỉ admin mới có thể tạo vận đơn");
@@ -517,41 +606,52 @@ export const createOrderShipment = async (
       return;
     }
 
-    // Validate pickup address: must be inside TP.HCM, commune must exist
-    // in AddressKit. provinceId defaults to HCM if FE doesn't send it.
-    const pickupProvinceId =
-      (pickup.provinceId || SERVICE_PROVINCE_ID).trim() || SERVICE_PROVINCE_ID;
-    const pickupCommuneId = (pickup.communeId || "").trim();
-    if (!pickupCommuneId) {
+    // Validate pickup address: defaults to active warehouse if FE/admin doesn't send it.
+    // Must be inside TP.HCM (provinceId="79").
+    const activeWh = await getActiveWarehouse();
+    const rawPickupProvinceId = (pickup.provinceId || "").trim();
+    if (rawPickupProvinceId && rawPickupProvinceId !== SERVICE_PROVINCE_ID) {
       sendError(
         res,
-        ErrorCode.MISSING_FIELD,
-        "Thiếu mã phường/xã (pickup.communeId) — admin cần chọn từ dropdown AddressKit"
+        ErrorCode.INVALID_INPUT,
+        `Hệ thống chỉ hỗ trợ giao/nhận tại TP.HCM (provinceId=${SERVICE_PROVINCE_ID})`,
+        400
       );
       return;
     }
+    const pickupProvinceId = SERVICE_PROVINCE_ID;
+    let pickupCommuneId = (pickup.communeId || activeWh.communeId || "").trim();
+    let communeName = (pickup as any).communeName || (pickup as any).ward || activeWh.communeName || "";
+    let provinceName = "Thành phố Hồ Chí Minh";
 
-    let communeName = "";
-    let provinceName = "";
-    try {
-      const lookup = await assertValidHcmCommune(
-        pickupProvinceId,
-        pickupCommuneId,
-        pickup.addressEffectiveDate || "latest"
-      );
-      communeName = lookup.name;
-      provinceName = lookup.provinceName;
-    } catch (err) {
-      if (err instanceof InvalidCommuneError || err instanceof WrongProvinceError) {
-        sendError(
-          res,
-          ErrorCode.INVALID_INPUT,
-          err.message,
-          err.httpCode
+    if (pickup.communeId && pickup.communeId.trim()) {
+      try {
+        const lookup = await assertValidHcmCommune(
+          pickupProvinceId,
+          pickup.communeId.trim(),
+          pickup.addressEffectiveDate || "latest"
         );
-        return;
+        pickupCommuneId = lookup.id;
+        communeName = lookup.name;
+        provinceName = lookup.provinceName;
+      } catch (err) {
+        if (err instanceof InvalidCommuneError || err instanceof WrongProvinceError) {
+          sendError(
+            res,
+            ErrorCode.INVALID_INPUT,
+            err.message,
+            err.httpCode
+          );
+          return;
+        }
+        throw err;
       }
-      throw err;
+    } else if (pickup.address) {
+      const foundInAddr = lookupCommuneCoords(pickup.address);
+      if (foundInAddr) {
+        pickupCommuneId = foundInAddr.code;
+        communeName = foundInAddr.name;
+      }
     }
 
     order.status = "SHIPPING";
@@ -562,14 +662,14 @@ export const createOrderShipment = async (
       (trackingUrl || "").trim() ||
       `https://buildyourchristmas.vn/track/${cleanTracking}`;
     order.pickupInfo = {
-      name: pickup.name || "",
-      phone: pickup.phone || "",
-      address: pickup.address || "",
+      name: pickup.name || activeWh.name || "",
+      phone: pickup.phone || activeWh.phone || "",
+      address: pickup.address || activeWh.address || "",
       provinceId: pickupProvinceId,
       provinceName,
       communeId: pickupCommuneId,
       communeName,
-      district: pickup.district || "",
+      district: pickup.district || activeWh.district || "",
       email: pickup.email || "",
       note: pickup.note || "",
     };
@@ -883,5 +983,190 @@ export const getOrderShipment = async (
     });
   } catch (err) {
     handleInternalError(res, err, "[orders] getOrderShipment error");
+  }
+};
+
+// ── PATCH /api/orders/:id/shipping-address (hoặc /:id/address) ────────────────
+// Cho phép khách (khi đơn chưa giao) hoặc admin cập nhật địa chỉ giao hàng của đơn
+// (vẫn giới hạn trong khu vực TP.HCM - mã 79).
+export const updateOrderShippingAddress = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const id = String(req.params.id);
+    const userId = req.user!.id;
+    const isAdmin = req.user?.roles?.includes("admin") ?? false;
+
+    const order = await Order.findOne(findOrderByIdOrCode(id));
+    if (!order) {
+      sendError(res, ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng");
+      return;
+    }
+
+    const isBuyer = String(order.buyerId) === userId;
+    if (!isBuyer && !isAdmin) {
+      sendError(res, ErrorCode.FORBIDDEN, "Bạn không có quyền cập nhật đơn hàng này");
+      return;
+    }
+
+    if (
+      !isAdmin &&
+      ["SHIPPING", "DELIVERING", "DELIVERED", "COMPLETED", "CANCELLED", "REFUNDED"].includes(
+        order.status
+      )
+    ) {
+      sendError(
+        res,
+        ErrorCode.ORDER_INVALID_TRANSITION,
+        "Không thể thay đổi địa chỉ giao hàng khi đơn hàng đã xuất kho hoặc đã kết thúc"
+      );
+      return;
+    }
+
+    const body = (req.body || {}) as Record<string, any>;
+    const nested =
+      body.shipping && typeof body.shipping === "object"
+        ? body.shipping
+        : body.deliveryAddress && typeof body.deliveryAddress === "object"
+        ? body.deliveryAddress
+        : typeof body.shippingAddress === "object" && body.shippingAddress !== null
+        ? body.shippingAddress
+        : {};
+
+    const rawProvinceId =
+      body.shippingProvinceId !== undefined ||
+      nested.provinceId !== undefined ||
+      body.provinceId !== undefined
+        ? String(body.shippingProvinceId ?? nested.provinceId ?? body.provinceId ?? "").trim()
+        : undefined;
+    const rawProvinceName =
+      body.shippingProvinceName !== undefined ||
+      nested.provinceName !== undefined ||
+      nested.province !== undefined ||
+      body.provinceName !== undefined ||
+      body.province !== undefined
+        ? String(
+            body.shippingProvinceName ??
+              nested.provinceName ??
+              nested.province ??
+              body.provinceName ??
+              body.province ??
+              ""
+          ).trim()
+        : undefined;
+
+    if (
+      (rawProvinceId !== undefined || rawProvinceName !== undefined) &&
+      !isHcmProvinceInput(rawProvinceId, rawProvinceName, SERVICE_PROVINCE_ID)
+    ) {
+      sendError(
+        res,
+        ErrorCode.DELIVERY_AREA_NOT_SUPPORTED,
+        `Hệ thống hiện chỉ hỗ trợ giao hàng tại TP. Hồ Chí Minh (mã tỉnh ${SERVICE_PROVINCE_ID})`
+      );
+      return;
+    }
+
+    order.shippingProvinceId = SERVICE_PROVINCE_ID;
+    order.shippingProvinceName =
+      rawProvinceName || order.shippingProvinceName || "Thành phố Hồ Chí Minh";
+
+    const nextName = body.shippingName ?? nested.name ?? body.name;
+    const nextPhone = body.shippingPhone ?? nested.phone ?? body.phone;
+    const nextAddress =
+      (typeof body.shippingAddress === "string" ? body.shippingAddress : undefined) ??
+      nested.address ??
+      body.address;
+
+    if (nextName !== undefined) order.shippingName = String(nextName).trim();
+    if (nextPhone !== undefined) order.shippingPhone = String(nextPhone).trim();
+    if (nextAddress !== undefined) order.shippingAddress = String(nextAddress).trim();
+
+    let nextCommuneId =
+      body.shippingCommuneId !== undefined ||
+      nested.communeId !== undefined ||
+      body.communeId !== undefined
+        ? String(body.shippingCommuneId ?? nested.communeId ?? body.communeId ?? "").trim()
+        : order.shippingCommuneId || "";
+    let nextCommuneName =
+      body.shippingCommuneName !== undefined ||
+      nested.communeName !== undefined ||
+      nested.ward !== undefined ||
+      body.communeName !== undefined ||
+      body.ward !== undefined
+        ? String(
+            body.shippingCommuneName ??
+              nested.communeName ??
+              nested.ward ??
+              body.communeName ??
+              body.ward ??
+              ""
+          ).trim()
+        : order.shippingCommuneName || "";
+
+    if (nextCommuneId) {
+      const foundByCode = lookupCommuneCoords(nextCommuneId);
+      if (foundByCode) {
+        nextCommuneId = foundByCode.code;
+        if (!nextCommuneName) nextCommuneName = foundByCode.name;
+      } else if (!nextCommuneName) {
+        try {
+          const lookup = await lookupHcmCommune(nextCommuneId);
+          nextCommuneId = lookup.id;
+          nextCommuneName = lookup.name;
+        } catch {
+          // Keep user input
+        }
+      }
+    } else if (nextCommuneName) {
+      const foundByName = lookupCommuneCoords(nextCommuneName);
+      if (foundByName) {
+        nextCommuneId = foundByName.code;
+        nextCommuneName = foundByName.name;
+      }
+    } else if (order.shippingAddress) {
+      const foundInAddr = lookupCommuneCoords(order.shippingAddress);
+      if (foundInAddr) {
+        nextCommuneId = foundInAddr.code;
+        nextCommuneName = foundInAddr.name;
+      }
+    }
+
+    order.shippingCommuneId = nextCommuneId;
+    order.shippingCommuneName = nextCommuneName;
+
+    // Recalculate shipping fee if order has not been paid yet or explicit shippingFee provided
+    if (typeof body.shippingFee === "number" && body.shippingFee >= 0) {
+      order.shippingFee = body.shippingFee;
+      order.totalAmount = Math.max(
+        0,
+        order.subtotal + order.shippingFee - (order.discountAmount || 0)
+      );
+    } else if (!order.paidAt) {
+      try {
+        const quote = await calculateShippingQuote({
+          toAddress: order.shippingAddress,
+          toCommuneId: order.shippingCommuneId,
+          toCommuneName: order.shippingCommuneName,
+          toProvinceId: order.shippingProvinceId,
+          toProvinceName: order.shippingProvinceName,
+        });
+        if (quote.supported) {
+          order.shippingFee = quote.fee;
+          order.totalAmount = Math.max(
+            0,
+            order.subtotal + order.shippingFee - (order.discountAmount || 0)
+          );
+        }
+      } catch {
+        // Keep current shippingFee
+      }
+    }
+
+    await order.save();
+    ok(res, { order: orderToDto(order) });
+  } catch (err) {
+    handleInternalError(res, err, "[orders] updateOrderShippingAddress error");
   }
 };

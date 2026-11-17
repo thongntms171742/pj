@@ -38,3 +38,4 @@ export * from "./Conversation";
 export * from "./Message";
 export * from "./HandoffRequest";
 export * from "./KnowledgeDocument";
+export * from "./WarehouseConfig";

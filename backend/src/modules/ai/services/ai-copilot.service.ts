@@ -16,7 +16,6 @@
 
 import { Types } from "mongoose";
 import {
-  AiProviderError,
   type AiMessage as AiChatMessage,
   type AiProvider,
 } from "../providers/ai-provider.interface";
@@ -496,7 +495,6 @@ export async function generateInternalNote(
     };
   }
 
-  const startedAt = Date.now();
   const history = await loadPublicHistory(conversation._id);
 
   if (history.length === 0) {

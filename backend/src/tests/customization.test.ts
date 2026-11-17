@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import mongoose from "mongoose";
 import app from "../app";
-import { Accessory, Cart, Design, Order, SlotMap, Tree, TreeCode, TreeProduct, User } from "../models";
+import { Accessory, Design, SlotMap, Tree, TreeCode, TreeProduct, User } from "../models";
 import { getMongoUri } from "../config/env";
 import manifest from "../data/customization-accessories.json";
 import { priceDesign } from "../services/pricingService";

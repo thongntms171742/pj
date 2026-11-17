@@ -27,7 +27,6 @@ import {
   type ChatActor,
 } from "./chatPermission.service";
 import {
-  transitionConversation,
   updateConversationState,
 } from "./conversation.service";
 

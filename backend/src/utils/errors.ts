@@ -313,7 +313,6 @@ export function handleInternalError(
 ): Response {
   const req = res.req as { id?: string } | undefined;
   const reqId = req?.id ?? "—";
-  const errorMessage = err instanceof Error ? err.message : String(err);
   console.error(`[req=${reqId}] ${context}:`, err);
 
   // Build a message that surfaces the real cause, but stays concise and

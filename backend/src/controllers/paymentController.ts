@@ -3,7 +3,7 @@ import { Order } from "../models/Order";
 import { Notification } from "../models/Notification";
 import { orderToDto } from "../dto/order";
 import { findOrderByIdOrCode } from "../utils/ids";
-import { ok, created } from "../utils/respond";
+import { ok } from "../utils/respond";
 import { markOrderAsPaid } from "../services/orderService";
 import {
   getSepayPaymentInfo,

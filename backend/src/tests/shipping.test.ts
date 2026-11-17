@@ -1,6 +1,9 @@
 import {
   calcShippingFee,
   calculateShippingQuote,
+  getActiveWarehouse,
+  updateActiveWarehouse,
+  resetActiveWarehouseCache,
 } from "../services/shippingService";
 import { SHIPPING_RATES } from "../config/business";
 
@@ -56,7 +59,7 @@ async function run() {
   const expected8 = SHIPPING_RATES.BASE_FEE + 3 * SHIPPING_RATES.TIER1_PER_KM;
   assert(quoteExplicit.fee === expected8, `8km fee matches rate formula (${expected8}đ)`);
   assert(quoteExplicit.supported === true, "quote is supported");
-  assert(quoteExplicit.warehouse.name !== "", "warehouse info returned");
+  assert(quoteExplicit.warehouse.provinceName === "Thành phố Hồ Chí Minh", "warehouse provinceName returned");
 
   console.log("\n── Test 3: calculateShippingQuote with custom FE warehouse ──\n");
 
@@ -78,6 +81,14 @@ async function run() {
 
   console.log("\n── Test 4: 2-level administrative communes lookup (Nghị quyết 1685) ──\n");
 
+  // Configure warehouse at Phường Tăng Nhơn Phú (26842) dynamically via updateActiveWarehouse
+  await updateActiveWarehouse({
+    name: "Kho Thủ Đức",
+    address: "Khu Công Nghệ Cao",
+    communeId: "26842",
+    provinceId: "79",
+  });
+
   const qNear = await calculateShippingQuote({ toCommuneId: "26842" }); // Phường Tăng Nhơn Phú
   assert(qNear.distanceKm <= 2, `Tăng Nhơn Phú near warehouse (got ${qNear.distanceKm}km)`);
   assert(qNear.fee === SHIPPING_RATES.BASE_FEE, `Tăng Nhơn Phú base fee ${SHIPPING_RATES.BASE_FEE}đ (got ${qNear.fee}đ)`);
@@ -92,6 +103,54 @@ async function run() {
   const qBinhTan = await calculateShippingQuote({ toCommuneId: "27442" }); // Phường Bình Tân
   assert(qBinhTan.distanceKm > 24, `Bình Tân distance > 24km (got ${qBinhTan.distanceKm}km)`);
   assert(qBinhTan.fee > 100_000, `Bình Tân fee tier 2 (got ${qBinhTan.fee}đ)`);
+
+  console.log("\n── Test 5: Dynamic warehouse configuration (no longer hardcoded) ──\n");
+
+  const updatedWh = await updateActiveWarehouse({
+    name: "Kho Chi Nhánh Sài Gòn",
+    phone: "0909999999",
+    address: "100 Nguyễn Huệ",
+    communeId: "26740", // Phường Sài Gòn
+    provinceId: "79",
+  });
+  assert(updatedWh.name === "Kho Chi Nhánh Sài Gòn", "Warehouse name updated");
+  assert(updatedWh.communeId === "26740", "Warehouse communeId updated");
+  assert(updatedWh.communeName === "Phường Sài Gòn", "Warehouse communeName auto-resolved");
+
+  const activeWh = await getActiveWarehouse();
+  assert(activeWh.address === "100 Nguyễn Huệ", "getActiveWarehouse returns updated warehouse");
+
+  // Quote from new active warehouse (Phường Sài Gòn) to nearby Phường Bến Thành ("26743")
+  const qFromNewWh = await calculateShippingQuote({ communeId: "26743" });
+  assert(qFromNewWh.distanceKm <= 2, `Bến Thành near new warehouse Sài Gòn (got ${qFromNewWh.distanceKm}km)`);
+  assert(qFromNewWh.warehouse.address === "100 Nguyễn Huệ", "Quote uses updated active warehouse");
+
+  // Reject non-HCM province for warehouse
+  let nonHcmWhRejected = false;
+  try {
+    await updateActiveWarehouse({ address: "Hà Nội", provinceId: "01" });
+  } catch {
+    nonHcmWhRejected = true;
+  }
+  assert(nonHcmWhRejected, "Updating warehouse outside TP.HCM (provinceId !== 79) is rejected");
+
+  // Reset warehouse cache back to default
+  resetActiveWarehouseCache();
+
+  console.log("\n── Test 6: Flexible FE address input & TP.HCM (79) enforcement ──\n");
+
+  const qFreeText = await calculateShippingQuote({
+    address: "45 Lê Lợi, Phường Bến Thành",
+    provinceId: "79",
+  });
+  assert(qFreeText.supported === true, "Free-text address in HCM is supported");
+  assert(qFreeText.destination.communeId === "26743", "Commune auto-detected from free-text address");
+
+  const qOutsideHcm = await calculateShippingQuote({
+    address: "10 Hoàn Kiếm",
+    provinceId: "01",
+  });
+  assert(qOutsideHcm.supported === false, "Province 01 (outside HCM 79) is rejected in quote");
 
   console.log(`\n── Results: ${passed} passed, ${failed} failed ──\n`);
   process.exit(failed > 0 ? 1 : 0);

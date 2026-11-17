@@ -1,4 +1,3 @@
-import assert from "assert";
 import mongoose, { Types } from "mongoose";
 import dotenv from "dotenv";
 import { ErrorCode } from "../utils/errors";
@@ -20,7 +19,6 @@ import {
 import {
   ChatIntent,
   classifyByRules,
-  classifyIntent,
   shouldEscalate,
   normalizeText,
 } from "../modules/ai/services/intent.service";
@@ -442,7 +440,6 @@ async function runDatabaseTests() {
     const adminId = new Types.ObjectId();
 
     const userActor = { userId: String(userId), roles: ["buyer"] };
-    const otherActor = { userId: String(otherUserId), roles: ["buyer"] };
     const adminActor = { userId: String(adminId), roles: ["buyer", "admin"] };
 
     // ── Knowledge base ───────────────────────────────────────────────────────

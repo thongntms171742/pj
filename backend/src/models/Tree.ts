@@ -28,7 +28,7 @@ import mongoose, { Schema, Document, Types } from "mongoose";
  * cây (TreeCode) có thể có bộ size riêng. Giá trị mặc định khi FE không gửi
  * size là "STANDARD" (xem createTreeVariant).
  */
-export type TreeSize = "S" | "M" | "L" | "XL" | (string & {});
+export type TreeSize = "S" | "M" | "L" | "XL" | "2XL" | (string & {});
 
 export interface ITree extends Document {
   productId: Types.ObjectId;

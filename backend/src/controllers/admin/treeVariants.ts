@@ -1,9 +1,7 @@
-import { Response } from "express";
 import { Tree, TreeCode, TreeProduct, Review, Design, CartItem } from "../../models";
 import { sendError, ErrorCode } from "../../utils/errors";
 import { ah } from "../../utils/asyncRoute";
 import { ok, created } from "../../utils/respond";
-import { V, requireField } from "../../utils/validation";
 
 // ── Tree Variants (size × code SKU) ──────────────────────────────────────────
 

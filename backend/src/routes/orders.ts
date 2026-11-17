@@ -8,6 +8,7 @@ import {
   createOrderShipment,
   updateOrderShipment,
   getOrderShipment,
+  updateOrderShippingAddress,
 } from "../controllers/orderController";
 
 import { getOrderReviewableItemsHandler } from "../controllers/reviewController";
@@ -21,6 +22,8 @@ router.get("/:orderId/reviewable-items", requireAuth, getOrderReviewableItemsHan
 router.get("/:id/shipment", requireAuth, getOrderShipment);
 router.post("/:id/shipment", requireAuth, createOrderShipment);
 router.patch("/:id/shipment", requireAuth, updateOrderShipment);
+router.patch("/:id/shipping-address", requireAuth, updateOrderShippingAddress);
+router.patch("/:id/address", requireAuth, updateOrderShippingAddress);
 router.patch("/:id/status", requireAuth, updateOrderStatus);
 
 export default router;

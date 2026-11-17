@@ -1,4 +1,3 @@
-import { Response } from "express";
 import { TreeCode, TreeProduct, Tree, Review, Design, CartItem } from "../../models";
 import { sendError, ErrorCode } from "../../utils/errors";
 import { ah } from "../../utils/asyncRoute";

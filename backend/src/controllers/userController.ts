@@ -13,7 +13,10 @@ import {
   HandoffRequest,
 } from "../models";
 import { deleteAsset } from "../services/cloudinaryService";
-import { sendError, ErrorCode, handleInternalError } from "../utils/errors";
+import { SERVICE_PROVINCE_ID } from "../config/business";
+import { lookupHcmCommune } from "../services/addressService";
+import { isHcmProvinceInput, lookupCommuneCoords } from "../services/hcmCommunesData";
+import { sendError, ErrorCode } from "../utils/errors";
 import { ah } from "../utils/asyncRoute";
 import { ok, created } from "../utils/respond";
 
@@ -26,24 +29,77 @@ export const getAddresses = ah(async (req, res) => {
 });
 
 export const addAddress = ah(async (req, res) => {
-  const { name, phone, address, province, district, ward, isDefault: rawIsDefault } =
-    req.body as {
-      name?: unknown;
-      phone?: unknown;
-      address?: unknown;
-      province?: unknown;
-      district?: unknown;
-      ward?: unknown;
-      isDefault?: unknown;
-    };
+  const body = (req.body || {}) as Record<string, any>;
+  const cleanName = String(body.name ?? body.fullName ?? body.recipientName ?? "").trim();
+  const cleanPhone = String(body.phone ?? body.phoneNumber ?? "").trim();
+  const cleanAddress = String(
+    body.address ?? body.street ?? body.detailAddress ?? body.shippingAddress ?? ""
+  ).trim();
 
-  if (!name || !phone || !address || !province || !district || !ward) {
+  if (!cleanName || !cleanPhone || !cleanAddress) {
     return sendError(
       res,
       ErrorCode.MISSING_FIELD,
-      "Vui lòng điền đầy đủ thông tin địa chỉ",
+      "Vui lòng nhập đầy đủ họ tên, số điện thoại và địa chỉ giao hàng",
       400
     );
+  }
+
+  const rawProvinceId = String(body.provinceId ?? body.shippingProvinceId ?? "").trim();
+  const rawProvinceName = String(
+    body.provinceName ?? body.province ?? body.shippingProvinceName ?? ""
+  ).trim();
+
+  // Giới hạn chỉ lưu địa chỉ giao hàng tại TP.HCM (mã tỉnh 79)
+  if (!isHcmProvinceInput(rawProvinceId, rawProvinceName, SERVICE_PROVINCE_ID)) {
+    return sendError(
+      res,
+      ErrorCode.DELIVERY_AREA_NOT_SUPPORTED,
+      `Hệ thống hiện chỉ hỗ trợ giao hàng tại TP. Hồ Chí Minh (mã tỉnh ${SERVICE_PROVINCE_ID})`
+    );
+  }
+
+  const provinceId = SERVICE_PROVINCE_ID;
+  const provinceName = rawProvinceName || "Thành phố Hồ Chí Minh";
+  const province = String(body.province ?? "").trim() || provinceName;
+  const district = String(body.district ?? body.shippingDistrict ?? "").trim();
+
+  let communeId = String(body.communeId ?? body.shippingCommuneId ?? "").trim();
+  let communeName = String(
+    body.communeName ?? body.ward ?? body.shippingCommuneName ?? ""
+  ).trim();
+  let ward = String(body.ward ?? "").trim() || communeName;
+
+  if (communeId) {
+    const foundByCode = lookupCommuneCoords(communeId);
+    if (foundByCode) {
+      communeId = foundByCode.code;
+      if (!communeName) communeName = foundByCode.name;
+      if (!ward) ward = foundByCode.name;
+    } else if (!communeName) {
+      try {
+        const lookup = await lookupHcmCommune(communeId);
+        communeId = lookup.id;
+        communeName = lookup.name;
+        if (!ward) ward = lookup.name;
+      } catch {
+        // Giữ nguyên thông tin khách nhập
+      }
+    }
+  } else if (communeName) {
+    const foundByName = lookupCommuneCoords(communeName);
+    if (foundByName) {
+      communeId = foundByName.code;
+      communeName = foundByName.name;
+      if (!ward) ward = foundByName.name;
+    }
+  } else {
+    const foundInAddress = lookupCommuneCoords(cleanAddress);
+    if (foundInAddress) {
+      communeId = foundInAddress.code;
+      communeName = foundInAddress.name;
+      ward = foundInAddress.name;
+    }
   }
 
   const user = await User.findById(req.user!.id);
@@ -55,8 +111,8 @@ export const addAddress = ah(async (req, res) => {
   // First address always becomes default; explicit `isDefault: true` flips
   // the default to the new one.
   const isDefault =
-    !!rawIsDefault ||
-    (user.addresses.length === 0);
+    !!body.isDefault ||
+    user.addresses.length === 0;
 
   if (isDefault) {
     user.addresses.forEach((a) => {
@@ -65,12 +121,16 @@ export const addAddress = ah(async (req, res) => {
   }
 
   const newAddress = {
-    name,
-    phone,
-    address,
+    name: cleanName,
+    phone: cleanPhone,
+    address: cleanAddress,
     province,
+    provinceId,
+    provinceName,
     district,
     ward,
+    communeId,
+    communeName,
     isDefault,
   };
 
@@ -83,15 +143,7 @@ export const addAddress = ah(async (req, res) => {
 
 export const updateAddress = ah(async (req, res) => {
   const { id } = req.params;
-  const { name, phone, address, province, district, ward, isDefault } = req.body as {
-    name?: string;
-    phone?: string;
-    address?: string;
-    province?: string;
-    district?: string;
-    ward?: string;
-    isDefault?: boolean;
-  };
+  const body = (req.body || {}) as Record<string, any>;
 
   const user = await User.findById(req.user!.id);
   if (!user) {
@@ -105,21 +157,98 @@ export const updateAddress = ah(async (req, res) => {
     return sendError(res, ErrorCode.NOT_FOUND, "Không tìm thấy địa chỉ", 404);
   }
 
-  if (isDefault === true) {
+  const rawProvinceId =
+    body.provinceId !== undefined || body.shippingProvinceId !== undefined
+      ? String(body.provinceId ?? body.shippingProvinceId ?? "").trim()
+      : undefined;
+  const rawProvinceName =
+    body.provinceName !== undefined || body.province !== undefined || body.shippingProvinceName !== undefined
+      ? String(body.provinceName ?? body.province ?? body.shippingProvinceName ?? "").trim()
+      : undefined;
+
+  if (rawProvinceId !== undefined || rawProvinceName !== undefined) {
+    if (!isHcmProvinceInput(rawProvinceId, rawProvinceName, SERVICE_PROVINCE_ID)) {
+      return sendError(
+        res,
+        ErrorCode.DELIVERY_AREA_NOT_SUPPORTED,
+        `Hệ thống hiện chỉ hỗ trợ giao hàng tại TP. Hồ Chí Minh (mã tỉnh ${SERVICE_PROVINCE_ID})`
+      );
+    }
+    addressDoc.provinceId = SERVICE_PROVINCE_ID;
+    addressDoc.provinceName = rawProvinceName || "Thành phố Hồ Chí Minh";
+    addressDoc.province =
+      body.province !== undefined && String(body.province).trim()
+        ? String(body.province).trim()
+        : addressDoc.provinceName;
+  }
+
+  if (body.isDefault === true) {
     user.addresses.forEach((a) => {
       a.isDefault = false;
     });
   }
 
-  if (name !== undefined) addressDoc.name = name;
-  if (phone !== undefined) addressDoc.phone = phone;
-  if (address !== undefined) addressDoc.address = address;
-  if (province !== undefined) addressDoc.province = province;
-  if (district !== undefined) addressDoc.district = district;
-  if (ward !== undefined) addressDoc.ward = ward;
-  if (isDefault !== undefined) addressDoc.isDefault = isDefault;
+  const nextName = body.name ?? body.fullName ?? body.recipientName;
+  const nextPhone = body.phone ?? body.phoneNumber;
+  const nextAddr = body.address ?? body.street ?? body.detailAddress ?? body.shippingAddress;
 
-  if (isDefault === false) {
+  if (nextName !== undefined) addressDoc.name = String(nextName).trim();
+  if (nextPhone !== undefined) addressDoc.phone = String(nextPhone).trim();
+  if (nextAddr !== undefined) addressDoc.address = String(nextAddr).trim();
+  if (body.district !== undefined) addressDoc.district = String(body.district).trim();
+
+  const hasCommuneUpdate =
+    body.communeId !== undefined ||
+    body.communeName !== undefined ||
+    body.ward !== undefined ||
+    body.shippingCommuneId !== undefined ||
+    body.shippingCommuneName !== undefined;
+
+  if (hasCommuneUpdate) {
+    let nextCommuneId =
+      body.communeId !== undefined || body.shippingCommuneId !== undefined
+        ? String(body.communeId ?? body.shippingCommuneId ?? "").trim()
+        : addressDoc.communeId || "";
+    let nextCommuneName =
+      body.communeName !== undefined || body.ward !== undefined || body.shippingCommuneName !== undefined
+        ? String(body.communeName ?? body.ward ?? body.shippingCommuneName ?? "").trim()
+        : addressDoc.communeName || addressDoc.ward || "";
+
+    if (nextCommuneId) {
+      const foundByCode = lookupCommuneCoords(nextCommuneId);
+      if (foundByCode) {
+        nextCommuneId = foundByCode.code;
+        if (body.communeName === undefined && body.ward === undefined) {
+          nextCommuneName = foundByCode.name;
+        }
+      } else if (body.communeName === undefined && body.ward === undefined) {
+        try {
+          const lookup = await lookupHcmCommune(nextCommuneId);
+          nextCommuneId = lookup.id;
+          nextCommuneName = lookup.name;
+        } catch {
+          // Keep user input
+        }
+      }
+    } else if (nextCommuneName) {
+      const foundByName = lookupCommuneCoords(nextCommuneName);
+      if (foundByName) {
+        nextCommuneId = foundByName.code;
+        nextCommuneName = foundByName.name;
+      }
+    }
+
+    addressDoc.communeId = nextCommuneId;
+    addressDoc.communeName = nextCommuneName;
+    addressDoc.ward =
+      body.ward !== undefined && String(body.ward).trim()
+        ? String(body.ward).trim()
+        : nextCommuneName;
+  }
+
+  if (body.isDefault !== undefined) addressDoc.isDefault = Boolean(body.isDefault);
+
+  if (body.isDefault === false) {
     const hasDefault = user.addresses.some((a) => a.isDefault);
     if (!hasDefault && user.addresses.length > 0) {
       user.addresses[0].isDefault = true;

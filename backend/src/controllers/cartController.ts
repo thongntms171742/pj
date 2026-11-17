@@ -291,6 +291,14 @@ export const updateCartItem = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!Types.ObjectId.isValid(String(id))) {
+      sendError(
+        res,
+        ErrorCode.CART_ITEM_NOT_FOUND,
+        "Không tìm thấy sản phẩm trong giỏ"
+      );
+      return;
+    }
     const cart = await getOrCreateCart(req);
     const item = await CartItem.findOne({ _id: id, cartId: cart._id });
     if (!item) {
@@ -371,6 +379,14 @@ export const deleteCartItem = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    if (!Types.ObjectId.isValid(String(id))) {
+      sendError(
+        res,
+        ErrorCode.CART_ITEM_NOT_FOUND,
+        "Không tìm thấy sản phẩm trong giỏ"
+      );
+      return;
+    }
     const cart = await getOrCreateCart(req);
     const item = await CartItem.findOneAndDelete({ _id: id, cartId: cart._id });
     if (!item) {

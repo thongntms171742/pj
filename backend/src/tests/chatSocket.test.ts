@@ -12,7 +12,6 @@
  *   - Rate limit socket.
  */
 
-import assert from "assert";
 import http from "http";
 import mongoose, { Types } from "mongoose";
 import dotenv from "dotenv";
@@ -111,7 +110,13 @@ function connectClient(
     // Đăng ký listener NGAY khi tạo socket (trước khi connect hoàn tất).
     const connectedPromise = waitForEvent<any>(socket, ChatServerEvents.CONNECTED);
 
+    const timer = setTimeout(() => {
+      cleanup();
+      socket.disconnect();
+      reject(new Error("Socket connect timeout"));
+    }, 6000);
     const cleanup = () => {
+      clearTimeout(timer);
       socket.off("connect", onConnect);
       socket.off("connect_error", onError);
     };
@@ -125,11 +130,6 @@ function connectClient(
       socket.disconnect();
       reject(err);
     };
-    const timer = setTimeout(() => {
-      cleanup();
-      socket.disconnect();
-      reject(new Error("Socket connect timeout"));
-    }, 6000);
     socket.on("connect", onConnect);
     socket.on("connect_error", onError);
   });
@@ -451,15 +451,6 @@ async function runSocketTests() {
     // Nếu chờ ack từng cái thì mỗi lần chờ DB write đủ lâu để window
     // (1s) reset ⇒ không bao giờ chạm limit.
     const acks: any[] = [];
-    const allAcks = new Promise<void>((resolve) => {
-      let remaining = 30;
-      otherSocket.on("ack-collect", () => {
-        remaining -= 1;
-        if (remaining <= 0) resolve();
-      });
-      // Gom ack thực tế qua handler message:send riêng.
-      otherSocket.on("ack", () => {});
-    });
 
     // Dùng kênh ack chuẩn: emit 30 event, mỗi event có callback riêng.
     const ackPromises: Promise<any>[] = [];

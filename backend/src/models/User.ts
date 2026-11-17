@@ -20,11 +20,11 @@ const AddressSchema = new Schema({
   name: { type: String, required: true },
   phone: { type: String, required: true },
   address: { type: String, required: true },
-  province: { type: String, required: true },
-  provinceId: { type: String, default: "" },    // Mã hành chính (VD: "79" cho TP.HCM)
-  provinceName: { type: String, default: "" },  // Tên tỉnh/thành phố
-  district: { type: String, required: true },
-  ward: { type: String, required: true },
+  province: { type: String, default: "Thành phố Hồ Chí Minh" },
+  provinceId: { type: String, default: "79" },    // Mã hành chính (VD: "79" cho TP.HCM)
+  provinceName: { type: String, default: "Thành phố Hồ Chí Minh" },  // Tên tỉnh/thành phố
+  district: { type: String, default: "" },
+  ward: { type: String, default: "" },
   communeId: { type: String, default: "" },      // Mã phường/xã từ AddressKit
   communeName: { type: String, default: "" },   // Tên phường/xã
   isDefault: { type: Boolean, default: false },

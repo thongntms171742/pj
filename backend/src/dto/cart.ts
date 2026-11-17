@@ -1,5 +1,4 @@
 import { toStr } from "../utils/ids";
-import { buildRoomDesignResponse } from "../services/designService";
 import type { PriceBreakdown } from "../services/pricingService";
 import type { ResolvedRoomDesign } from "../services/designService";
 

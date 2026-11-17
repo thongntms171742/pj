@@ -19,7 +19,7 @@
 //
 // REMOVAL: 2026-12-01 — after confirming no FE build calls this endpoint.
 
-import { Request, Response } from "express";
+import { Response } from "express";
 import { Tree } from "../../models/Tree";
 import { sendError, ErrorCode } from "../../utils/errors";
 import { ah } from "../../utils/asyncRoute";

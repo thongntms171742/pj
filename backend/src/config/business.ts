@@ -3,7 +3,7 @@
 // illustrative — replace with supplier quotes via admin API.
 
 export type DeliveryOption = "READY_TO_DISPLAY" | "DIY_KIT" | "SEPARATE";
-export type TreeSize = "S" | "M" | "L";
+export type TreeSize =  "M" | "L" | "XL" | "2XL";
 
 export const DELIVERY_OPTIONS: ReadonlyArray<DeliveryOption> = [
   "READY_TO_DISPLAY",
@@ -16,9 +16,10 @@ export const SHIPPING_FEE = 20_000;
 
 // Decoration fee has been removed: 0 VND for all sizes.
 export const DECORATION_FEE_BY_SIZE: Record<TreeSize, number> = {
-  S: 0,
   M: 0,
   L: 0,
+  XL: 0,
+  "2XL": 0,
 };
 
 // ── Shipping distance & fee policy ──────────────────────────────────────────
@@ -32,7 +33,14 @@ export const SHIPPING_RATES = {
   TIER2_PER_KM: 4_300,
 };
 
-// ── Default Shop Warehouse ──────────────────────────────────────────────────
+// CAS Address Kit province id for TP.HCM. Override via SERVICE_PROVINCE_ID
+// if you switch delivery regions later.
+export const SERVICE_PROVINCE_ID =
+  process.env.SERVICE_PROVINCE_ID?.trim() || "79";
+
+// ── Shop Warehouse Location Type ────────────────────────────────────────────
+// Không hardcode địa chỉ hay toạ độ kho tại đây; toàn bộ thông tin địa chỉ
+// được nhập từ FE / Admin và lưu trong DB (WarehouseConfig).
 export interface WarehouseLocation {
   name: string;
   phone: string;
@@ -42,26 +50,9 @@ export interface WarehouseLocation {
   district?: string;
   provinceId: string;
   provinceName: string;
-  lat: number;
-  lng: number;
+  lat?: number;
+  lng?: number;
 }
-
-export const DEFAULT_WAREHOUSE: WarehouseLocation = {
-  name: "Kho Trung Tâm Rừng Trong Phố",
-  phone: "0901234567",
-  address: "Lô E2a-7, Đường D1, Khu Công Nghệ Cao",
-  communeId: "26842",
-  communeName: "Phường Tăng Nhơn Phú",
-  provinceId: "79",
-  provinceName: "Thành phố Hồ Chí Minh",
-  lat: 10.8447,
-  lng: 106.7909,
-};
-
-// CAS Address Kit province id for TP.HCM. Override via SERVICE_PROVINCE_ID
-// if you switch delivery regions later.
-export const SERVICE_PROVINCE_ID =
-  process.env.SERVICE_PROVINCE_ID?.trim() || "79";
 
 // Personalization regex (Unicode letters/digits + space + . ' - &)
 export const PERSONALIZATION_REGEX = /^[\p{L}\p{N} .'\-&]+$/u;

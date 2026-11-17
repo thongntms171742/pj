@@ -1,5 +1,6 @@
 import { ErrorCode } from "../utils/errors";
 import { SERVICE_PROVINCE_ID } from "../config/business";
+import { HCM_2LEVEL_COMMUNES, lookupCommuneCoords } from "./hcmCommunesData";
 
 const CAS_BASE_URL = process.env.CAS_ADDRESS_KIT_URL || "https://production.cas.so/address-kit";
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -157,23 +158,38 @@ export async function getCommunesByProvince(
     return cached;
   }
 
-  const url = `${CAS_BASE_URL}/${effectiveDate}/provinces/${provinceId}/communes`;
-  const raw = await fetchWithTimeout(url);
+  try {
+    const url = `${CAS_BASE_URL}/${effectiveDate}/provinces/${provinceId}/communes`;
+    const raw = await fetchWithTimeout(url);
 
-  // CAS response structure: { requestId, communes: [{ code, name, provinceCode, ... }] }
-  const rawList: any[] = Array.isArray(raw) ? raw : raw.communes || raw.data || [];
-  const normalized: NormalizedCommune[] = rawList.map((item) => ({
-    id: String(item.code || item.id || ""),
-    name: String(item.name || "").trim(),
-  }));
+    // CAS response structure: { requestId, communes: [{ code, name, provinceCode, ... }] }
+    const rawList: any[] = Array.isArray(raw) ? raw : raw.communes || raw.data || [];
+    const normalized: NormalizedCommune[] = rawList.map((item) => ({
+      id: String(item.code || item.id || ""),
+      name: String(item.name || "").trim(),
+    }));
 
-  const result: AddressResponse<NormalizedCommune> = {
-    data: normalized,
-    effectiveDate,
-  };
+    const result: AddressResponse<NormalizedCommune> = {
+      data: normalized,
+      effectiveDate,
+    };
 
-  setInCache(cacheKey, result);
-  return result;
+    setInCache(cacheKey, result);
+    return result;
+  } catch (err) {
+    // Fallback to built-in HCM communes if upstream CAS is temporarily unreachable
+    if (provinceId === SERVICE_PROVINCE_ID) {
+      const fallbackData: NormalizedCommune[] = Object.values(HCM_2LEVEL_COMMUNES).map((c) => ({
+        id: c.code,
+        name: c.name,
+      }));
+      return {
+        data: fallbackData,
+        effectiveDate,
+      };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -242,13 +258,32 @@ export async function lookupHcmCommune(
   if (!communeId || typeof communeId !== "string") {
     throw new InvalidCommuneError("Thiếu mã phường/xã");
   }
+  const target = communeId.trim();
+
+  // Fast local check first (supports both code and commune name in TP.HCM)
+  const localMatch = lookupCommuneCoords(target);
+  if (localMatch) {
+    return {
+      id: localMatch.code,
+      name: localMatch.name,
+      provinceId: SERVICE_PROVINCE_ID,
+      provinceName: "Thành phố Hồ Chí Minh",
+    };
+  }
+
   // Always look up against the configured service province (HCM by default)
   const { data, effectiveDate: ed } = await getCommunesByProvince(
     SERVICE_PROVINCE_ID,
     effectiveDate
   );
-  const target = communeId.trim();
-  const found = data.find((c) => c.id === target);
+  const targetLower = target.toLowerCase();
+  const found = data.find(
+    (c) =>
+      c.id === target ||
+      c.name.toLowerCase() === targetLower ||
+      c.name.toLowerCase().replace(/^phường |^xã /, "") ===
+        targetLower.replace(/^phường |^xã /, "")
+  );
   if (!found) {
     throw new InvalidCommuneError(
       `Phường/xã "${communeId}" không tồn tại hoặc không thuộc TP.HCM (effectiveDate=${ed})`
@@ -258,7 +293,7 @@ export async function lookupHcmCommune(
     id: found.id,
     name: found.name,
     provinceId: SERVICE_PROVINCE_ID,
-    provinceName: "TP. Hồ Chí Minh",
+    provinceName: "Thành phố Hồ Chí Minh",
   };
 }
 

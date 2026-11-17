@@ -6,11 +6,6 @@
  *   - Ai đổi rule (độ dài tin nhắn, số tin nhắn/trang) chỉ cần sửa env.
  */
 
-function str(name: string, fallback: string): string {
-  const v = process.env[name]?.trim();
-  return v && v.length > 0 ? v : fallback;
-}
-
 function num(name: string, fallback: number): number {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;

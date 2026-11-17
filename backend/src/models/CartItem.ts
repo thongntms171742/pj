@@ -43,23 +43,6 @@ export interface ICartItem extends Document {
   checked: boolean;
 }
 
-const FrozenPlacementSchema = new Schema(
-  {
-    slotId: { type: String, required: true },
-    accessoryId: { type: Schema.Types.ObjectId, ref: "Accessory", required: true },
-    x: { type: Number, required: true, min: 0, max: 1 },
-    y: { type: Number, required: true, min: 0, max: 1 },
-    rotation: { type: Number, default: 0 },
-    scale: { type: Number, default: 1 },
-    depth: {
-      type: String,
-      enum: ["behind", "front"],
-      required: false,
-    },
-  },
-  { _id: false }
-);
-
 const FrozenConfigSchema = new Schema<ICartDesignFrozenConfig>(
   {
     placementMode: { type: String, enum: ["slots", "free"], default: "slots" },

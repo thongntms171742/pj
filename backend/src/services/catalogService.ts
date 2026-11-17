@@ -6,7 +6,6 @@ import { TreeCode } from "../models/TreeCode";
 import {
   priceDesign,
   type CatalogSnapshot,
-  type TreeLean,
   type PriceBreakdown,
   type PricingInput,
   DesignValidationError,
@@ -205,8 +204,8 @@ export async function loadGroupedTreeCatalog(opts?: {
   const codeIds = codes.map((c) => c._id);
   const variants = codeIds.length
     ? await Tree.find({ codeId: { $in: codeIds } })
-        .sort({ sortOrder: 1, size: 1 })
-        .lean()
+      .sort({ sortOrder: 1, size: 1 })
+      .lean()
     : [];
 
   const variantsByCode = new Map<string, Array<typeof variants[number]>>();

@@ -1,6 +1,6 @@
 import { toStr } from "../utils/ids";
 import { isObjectIdLike } from "../utils/ids";
-import type { IOrder, IOrderItem } from "../models/Order";
+import type { IOrderItem } from "../models/Order";
 
 /**
  * Map an Order document (or lean object) to the FE-facing shape.
