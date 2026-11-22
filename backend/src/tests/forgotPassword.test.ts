@@ -12,10 +12,12 @@ import {
 import {
   buildPasswordResetEmailContent,
   EmailDeliveryError,
+  getEmailLogoUrl,
   isEmailProviderConfigured,
   sendEmail,
   setEmailTransportForTest,
 } from "../services/emailService";
+import { BRAND_LOGO_PNG, BRAND_LOGO_SVG } from "../assets/brandLogo";
 import {
   clearResetCooldownsForTest,
   generateOtpCode,
@@ -132,18 +134,57 @@ async function runUnitTests() {
   });
   check("Email HTML escapes user name", emailContent.html.includes("&lt;script&gt;") && !emailContent.html.includes("<script>alert"));
   check("Email includes OTP & TTL", emailContent.html.includes("654321") && emailContent.text.includes("654321"));
+  check(
+    "Brand logo PNG & SVG assets valid",
+    BRAND_LOGO_PNG.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+      BRAND_LOGO_SVG.includes("<svg") &&
+      BRAND_LOGO_SVG.includes("#2D6A4F")
+  );
+  check(
+    "Email embeds PNG logo img tag",
+    emailContent.html.includes("<img src=\"") && emailContent.html.includes("/api/brand/logo.png\"")
+  );
 
   const prevEnv = {
     NODE_ENV: process.env.NODE_ENV,
     EMAIL_WEBHOOK_URL: process.env.EMAIL_WEBHOOK_URL,
     EMAIL_WEBHOOK_SECRET: process.env.EMAIL_WEBHOOK_SECRET,
     EMAIL_CONSOLE_FALLBACK: process.env.EMAIL_CONSOLE_FALLBACK,
+    EMAIL_LOGO_URL: process.env.EMAIL_LOGO_URL,
+    BACKEND_PUBLIC_URL: process.env.BACKEND_PUBLIC_URL,
+    RENDER_EXTERNAL_URL: process.env.RENDER_EXTERNAL_URL,
   };
   const origFetch = globalThis.fetch;
 
   try {
     delete process.env.EMAIL_WEBHOOK_URL;
     delete process.env.EMAIL_WEBHOOK_SECRET;
+    delete process.env.EMAIL_LOGO_URL;
+    delete process.env.BACKEND_PUBLIC_URL;
+    delete process.env.RENDER_EXTERNAL_URL;
+
+    check(
+      "getEmailLogoUrl defaults to production Render brand PNG URL",
+      getEmailLogoUrl() === "https://christmas-8ca4.onrender.com/api/brand/logo.png"
+    );
+    process.env.RENDER_EXTERNAL_URL = "https://custom-service.onrender.com/";
+    check(
+      "getEmailLogoUrl uses RENDER_EXTERNAL_URL when set",
+      getEmailLogoUrl() === "https://custom-service.onrender.com/api/brand/logo.png"
+    );
+    process.env.EMAIL_LOGO_URL = "https://cdn.example.com/logo.png";
+    check(
+      "getEmailLogoUrl prioritizes explicit EMAIL_LOGO_URL",
+      getEmailLogoUrl() === "https://cdn.example.com/logo.png"
+    );
+    process.env.EMAIL_LOGO_URL = "none";
+    check(
+      "getEmailLogoUrl hides img when EMAIL_LOGO_URL=none",
+      getEmailLogoUrl() === "" &&
+        !buildPasswordResetEmailContent({ name: "A", otp: "111222", expiresInMinutes: 10 }).html.includes("<img")
+    );
+    delete process.env.EMAIL_LOGO_URL;
+    delete process.env.RENDER_EXTERNAL_URL;
     process.env.NODE_ENV = "test";
     check("isEmailProviderConfigured false when webhook unset", !isEmailProviderConfigured());
 

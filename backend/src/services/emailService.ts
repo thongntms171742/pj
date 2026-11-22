@@ -174,6 +174,24 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   };
 }
 
+const DEFAULT_PUBLIC_BACKEND_URL = "https://christmas-8ca4.onrender.com";
+
+export function getEmailLogoUrl(): string {
+  const explicit = process.env.EMAIL_LOGO_URL?.trim();
+  if (explicit) {
+    if (/^(none|false|off)$/i.test(explicit)) return "";
+    if (/^https?:\/\//i.test(explicit)) return explicit;
+  }
+
+  const baseUrl = (
+    process.env.BACKEND_PUBLIC_URL?.trim() ||
+    process.env.RENDER_EXTERNAL_URL?.trim() ||
+    DEFAULT_PUBLIC_BACKEND_URL
+  ).replace(/\/+$/, "");
+
+  return `${baseUrl}/api/brand/logo.png`;
+}
+
 function renderOtpEmailContent(params: {
   name: string;
   otp: string;
@@ -185,6 +203,7 @@ function renderOtpEmailContent(params: {
   const safeName = escapeHtml(params.name || "bạn");
   const safeOtp = escapeHtml(params.otp);
   const mins = params.expiresInMinutes;
+  const logoUrl = getEmailLogoUrl();
 
   const text = [
     `Xin chào ${params.name || "bạn"},`,
@@ -195,9 +214,23 @@ function renderOtpEmailContent(params: {
     params.footerText,
   ].join("\n");
 
+  const logoCell = logoUrl
+    ? `<td style="width:52px;vertical-align:middle;padding-right:12px;">
+        <img src="${escapeHtml(logoUrl)}" alt="Rừng Trong Phố" width="48" height="48" style="display:block;width:48px;height:48px;border-radius:50%;border:0;outline:none;text-decoration:none;" />
+      </td>`
+    : "";
+
   const html = `
-<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;margin:0 auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px;color:#111827;">
-  <h2 style="margin:0 0 12px;color:#b91c1c;">Build Your Christmas</h2>
+<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;margin:0 auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px;color:#111827;background-color:#ffffff;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:0 0 16px;padding-bottom:14px;border-bottom:1px solid #f3f4f6;">
+    <tr>
+      ${logoCell}
+      <td style="vertical-align:middle;">
+        <h2 style="margin:0;color:#2D6A4F;font-size:20px;line-height:1.25;">Rừng Trong Phố</h2>
+        <p style="margin:2px 0 0;font-size:12px;color:#C4973B;font-weight:600;letter-spacing:0.4px;">Build Your Christmas</p>
+      </td>
+    </tr>
+  </table>
   <p style="margin:0 0 12px;">Xin chào <strong>${safeName}</strong>,</p>
   <p style="margin:0 0 16px;">${escapeHtml(params.introText)} Vui lòng nhập mã OTP 6 số dưới đây:</p>
   <div style="background:#fef2f2;border:1px dashed #dc2626;border-radius:8px;padding:16px;text-align:center;margin:0 0 16px;">
@@ -217,7 +250,7 @@ export function buildPasswordResetEmailContent(params: {
 }): { subject: string; html: string; text: string } {
   return renderOtpEmailContent({
     ...params,
-    subject: "[Build Your Christmas] Mã OTP khôi phục mật khẩu",
+    subject: "[Rừng Trong Phố] Mã OTP khôi phục mật khẩu",
     introText: "Bạn vừa yêu cầu đặt lại mật khẩu.",
     footerText: "Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email này để giữ an toàn cho tài khoản.",
   });
@@ -230,7 +263,7 @@ export function buildEmailVerificationContent(params: {
 }): { subject: string; html: string; text: string } {
   return renderOtpEmailContent({
     ...params,
-    subject: "[Build Your Christmas] Mã OTP xác thực tài khoản",
+    subject: "[Rừng Trong Phố] Mã OTP xác thực tài khoản",
     introText: "Cảm ơn bạn đã đăng ký tài khoản Build Your Christmas.",
     footerText: "Nếu bạn không đăng ký tài khoản này, vui lòng bỏ qua email này.",
   });
