@@ -411,8 +411,8 @@ async function runDbIntegrationTests() {
   } finally {
     setEmailTransportForTest(null);
     clearResetCooldownsForTest();
-    await PasswordReset.deleteMany({ email: testEmail }).catch(() => { });
-    await User.deleteMany({ email: testEmail }).catch(() => { });
+    await PasswordReset.deleteMany({ email: testEmail }).catch(() => {});
+    await User.deleteMany({ email: testEmail }).catch(() => {});
   }
 }
 
