@@ -17,6 +17,8 @@ export interface UserDto {
   avatarUrl: string;
   accountStatus: string;
   accountStatusReason: string;
+  emailVerified: boolean;
+  authProvider: string;
   addresses: any[];
   createdAt?: string;
 }
@@ -31,6 +33,8 @@ export function userToDto(u: any): UserDto {
     avatarUrl: u.avatarUrl || "",
     accountStatus: u.accountStatus,
     accountStatusReason: u.accountStatusReason ?? "",
+    emailVerified: u.emailVerified !== false,
+    authProvider: u.authProvider || "local",
     addresses: u.addresses ?? [],
     ...(u.createdAt ? { createdAt: new Date(u.createdAt).toISOString() } : {}),
   };

@@ -7,6 +7,8 @@
 // nằm gọn trong TreeProduct.description.
 // AI render dùng TreeProduct.coverImage + description làm reference.
 export * from "./User";
+export * from "./PasswordReset";
+export * from "./EmailVerification";
 export { Tree } from "./Tree";
 export type { ITree, TreeSize } from "./Tree";
 export { TreeProduct } from "./TreeProduct";
@@ -36,6 +38,4 @@ export * from "./MediaAsset";
 export * from "./Review";
 export * from "./Conversation";
 export * from "./Message";
-export * from "./HandoffRequest";
-export * from "./KnowledgeDocument";
 export * from "./WarehouseConfig";

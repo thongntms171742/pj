@@ -1,17 +1,17 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 
 /**
- * Message (TDD v1.0 §6.2) — 1 tin nhắn trong hội thoại.
+ * Message — 1 tin nhắn trong hội thoại 1-1 (user ↔ admin).
  *
  * `visibility` quyết định ai được thấy:
- *   - `public`  : user + admin + ai đều thấy.
- *   - `internal`: chỉ admin (ghi chú nội bộ, gợi ý của AI Copilot).
+ *   - `public`  : user + admin đều thấy.
+ *   - `internal`: chỉ admin (ghi chú nội bộ).
  *
  * `clientMessageId` là idempotency key từ client — server upsert theo key này
  * để user bấm gửi 2 lần / mất mạng retry KHÔNG tạo tin nhắn trùng.
  */
 
-export type MessageSenderType = "user" | "admin" | "ai" | "system";
+export type MessageSenderType = "user" | "admin" | "system";
 
 export type MessageType = "text" | "image" | "file" | "system";
 
@@ -25,27 +25,6 @@ export interface IMessageAttachment {
   size?: number;
 }
 
-export interface IMessageAiMetadata {
-  /** Model đã sinh ra tin nhắn này. */
-  model?: string;
-  /** Version system prompt. */
-  promptVersion?: string;
-  /** Intent được phân loại. */
-  intent?: string;
-  /** Confidence của intent (0..1). */
-  intentConfidence?: number;
-  /** Sentiment của tin nhắn user. */
-  sentiment?: string;
-  /** Token đã dùng (prompt + output). */
-  tokensUsed?: number;
-  /** Thời gian xử lý AI (ms). */
-  latencyMs?: number;
-  /** Tool calls đã chạy trong lượt này. */
-  toolsUsed?: string[];
-  /** Câu trả lời có cần admin duyệt không. */
-  needsHumanReview?: boolean;
-}
-
 export interface IMessage extends Document {
   conversationId: Types.ObjectId;
   senderId?: Types.ObjectId | null;
@@ -54,7 +33,6 @@ export interface IMessage extends Document {
   messageType: MessageType;
   visibility: MessageVisibility;
   attachments: IMessageAttachment[];
-  aiMetadata?: IMessageAiMetadata | null;
   /** Idempotency key từ client. */
   clientMessageId?: string | null;
   userReadAt?: Date | null;
@@ -74,21 +52,6 @@ const AttachmentSchema = new Schema<IMessageAttachment>(
   { _id: false }
 );
 
-const AiMetadataSchema = new Schema<IMessageAiMetadata>(
-  {
-    model: { type: String, default: "" },
-    promptVersion: { type: String, default: "" },
-    intent: { type: String, default: "" },
-    intentConfidence: { type: Number, default: 0, min: 0, max: 1 },
-    sentiment: { type: String, default: "" },
-    tokensUsed: { type: Number, default: 0, min: 0 },
-    latencyMs: { type: Number, default: 0, min: 0 },
-    toolsUsed: { type: [String], default: [] },
-    needsHumanReview: { type: Boolean, default: false },
-  },
-  { _id: false }
-);
-
 const MessageSchema = new Schema<IMessage>(
   {
     conversationId: {
@@ -103,7 +66,7 @@ const MessageSchema = new Schema<IMessage>(
     },
     senderType: {
       type: String,
-      enum: ["user", "admin", "ai", "system"],
+      enum: ["user", "admin", "system"],
       required: true,
       index: true,
     },
@@ -120,7 +83,6 @@ const MessageSchema = new Schema<IMessage>(
       index: true,
     },
     attachments: { type: [AttachmentSchema], default: [] },
-    aiMetadata: { type: AiMetadataSchema, default: null },
     clientMessageId: { type: String, default: null },
     userReadAt: { type: Date, default: null },
     adminReadAt: { type: Date, default: null },

@@ -16,26 +16,12 @@ import type {
 } from "../../../models/Conversation";
 import type {
   IMessageAttachment,
-  IMessageAiMetadata,
   MessageSenderType,
   MessageType,
   MessageVisibility,
 } from "../../../models/Message";
-import type {
-  HandoffPriority,
-  HandoffStatus,
-} from "../../../models/HandoffRequest";
 
 // ── Conversation ───────────────────────────────────────────────────────────────
-
-export interface ConversationAiConfigDto {
-  model: string;
-  promptVersion: string;
-  intent: string;
-  intentConfidence: number;
-  sentiment: string;
-  enabled: boolean;
-}
 
 export interface ConversationDto {
   id: string;
@@ -44,7 +30,6 @@ export interface ConversationDto {
   supportMode: SupportMode;
   assignedAdminId: string | null;
   assignedAdminName: string | null;
-  aiConfig: ConversationAiConfigDto;
   lastMessageId: string | null;
   lastMessageAt: string | null;
   unreadCount: { user: number; admin: number };
@@ -80,18 +65,6 @@ export interface MessageAttachmentDto {
   size: number;
 }
 
-export interface MessageAiMetadataDto {
-  model: string;
-  promptVersion: string;
-  intent: string;
-  intentConfidence: number;
-  sentiment: string;
-  tokensUsed: number;
-  latencyMs: number;
-  toolsUsed: string[];
-  needsHumanReview: boolean;
-}
-
 export interface MessageDto {
   id: string;
   conversationId: string;
@@ -101,7 +74,6 @@ export interface MessageDto {
   messageType: MessageType;
   visibility: MessageVisibility;
   attachments: MessageAttachmentDto[];
-  aiMetadata: MessageAiMetadataDto | null;
   clientMessageId: string | null;
   userReadAt: string | null;
   adminReadAt: string | null;
@@ -140,39 +112,6 @@ export interface PaginatedResponse<T> {
   pagination: PaginationMeta;
 }
 
-// ── Handoff ───────────────────────────────────────────────────────────────────
-
-export interface HandoffRequestDto {
-  id: string;
-  conversationId: string;
-  userId: string;
-  reason: string;
-  priority: HandoffPriority;
-  status: HandoffStatus;
-  summary: string;
-  requestedAt: string;
-  assignedAdminId: string | null;
-  acceptedAt: string | null;
-  resolvedAt: string | null;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CreateHandoffRequest {
-  reason: string;
-  priority?: HandoffPriority;
-}
-
-/** Kết quả escalate — FE dùng để báo trạng thái lên UI. */
-export interface HandoffResultDto {
-  conversationId: string;
-  handoff: HandoffRequestDto;
-  conversation: ConversationDto;
-  /** true nếu AI đã trả lời được (không escalate). */
-  resolvedByAi: boolean;
-}
-
 // ── Admin list ────────────────────────────────────────────────────────────────
 
 export interface AdminConversationListItemDto {
@@ -198,8 +137,5 @@ export type {
   MessageSenderType,
   MessageType,
   MessageVisibility,
-  HandoffPriority,
-  HandoffStatus,
   IMessageAttachment,
-  IMessageAiMetadata,
 };

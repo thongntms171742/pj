@@ -2,7 +2,7 @@
  * message.service.ts — nghiệp vụ tin nhắn (TDD §6.2).
  *
  * Trách nhiệm:
- *   - Ghi tin nhắn (user / admin / ai / system) với idempotency key.
+ *   - Ghi tin nhắn (user / admin / system) với idempotency key.
  *   - Đọc tin nhắn theo phân trang (cursor-based cho chat).
  *   - Read receipt 2 chiều (user đã đọc / admin đã đọc).
  *   - Lọc tin nhắn `internal` (user không bao giờ thấy).
@@ -52,7 +52,6 @@ export interface SendMessageInput {
   clientMessageId?: string;
   /** Tin nhắn nội bộ — chỉ admin tạo được. */
   visibility?: "public" | "internal";
-  aiMetadata?: IMessage["aiMetadata"];
 }
 
 export interface ListMessagesOptions {
@@ -127,7 +126,7 @@ export function validateMessageInput(input: {
  *
  * Unread count:
  *   - Tin nhắn từ user ⇒ tăng unread cho admin.
- *   - Tin nhắn từ admin/ai ⇒ tăng unread cho user.
+ *   - Tin nhắn từ admin ⇒ tăng unread cho user.
  */
 export async function sendMessage(
   actor: ChatActor,
@@ -153,7 +152,7 @@ export async function sendMessage(
     );
   }
 
-  // User không được giả danh senderType "admin"/"ai".
+  // User không được giả danh senderType "admin".
   const senderType: MessageSenderType = isAdmin(actor) ? "admin" : "user";
 
   const { content, attachments } = validateMessageInput(input);
@@ -177,7 +176,6 @@ export async function sendMessage(
     messageType: input.messageType ?? "text",
     visibility,
     attachments,
-    aiMetadata: input.aiMetadata ?? null,
     clientMessageId: input.clientMessageId ?? null,
   });
 
@@ -198,41 +196,11 @@ export async function sendMessage(
     message: messageToDto(message),
   });
 
-  // ── AI trigger ────────────────────────────────────────────────────────────
-  // Khi user gửi tin nhắn và conversation đang ở mode AI ⇒ orchestrator xử lý.
-  // Fire-and-forget: KHÔNG chặn response — lỗi AI không được làm fail API chat.
-  //
-  // Dynamic import ⇒ không circular dependency (ai-orchestrator import lại
-  // message.service cho `sendSystemMessage`).
-  if (senderType === "user" && conversation.supportMode === "ai") {
-    void triggerAiReply(conversation._id, message);
-  }
-
   return { message, duplicate: false };
 }
 
 /**
- * Kích hoạt AI trả lời — fire-and-forget, không bao giờ throw ra ngoài.
- */
-async function triggerAiReply(
-  conversationId: Types.ObjectId,
-  userMessage: IMessage
-): Promise<void> {
-  try {
-    const { processUserMessage } = await import(
-      "../../ai/services/ai-orchestrator.service"
-    );
-    await processUserMessage(String(conversationId), userMessage);
-  } catch (err) {
-    console.error(
-      "[message.service] AI reply failed:",
-      err instanceof Error ? err.message : err
-    );
-  }
-}
-
-/**
- * Gửi tin nhắn hệ thống (ví dụ: thông báo AI escalate, gợi ý quick reply).
+ * Gửi tin nhắn hệ thống (ví dụ: thông báo admin tiếp nhận hội thoại).
  * Không qua kiểm tra quyền actor — dùng nội bộ từ service khác.
  */
 export async function sendSystemMessage(
@@ -248,7 +216,6 @@ export async function sendSystemMessage(
     messageType: options.messageType ?? "system",
     visibility: options.visibility ?? "public",
     attachments: [],
-    aiMetadata: null,
     clientMessageId: null,
   });
 

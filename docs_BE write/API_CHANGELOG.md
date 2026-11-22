@@ -5,6 +5,62 @@ Track changes to the API contract over time to ensure synchronization between Ba
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Source of truth cho FE = `backend/src/`.
 
 ---
+## 2026-11-22 ✅ XÁC THỰC EMAIL KHI ĐĂNG KÝ & ĐĂNG NHẬP GOOGLE
+
+> **Feature added**: Xác thực email bằng OTP 6 số khi tạo tài khoản + Đăng ký / Đăng nhập bằng Google Account (`idToken`).
+
+### Added endpoints
+- `POST /api/auth/verify-email` — Xác thực OTP 6 số sau đăng ký, trả về JWT `token` và bật `emailVerified: true`.
+- `POST /api/auth/resend-verification-otp` — Gửi lại OTP kích hoạt (cooldown `60s`).
+- `POST /api/auth/google` — Verify Google ID Token RS256 qua Google JWKS (Web + Mobile), tự tạo tài khoản + Cart hoặc liên kết tài khoản hiện có.
+
+### Changed endpoints
+- `POST /api/auth/register` — Trả `201 { requiresEmailVerification: true, email, expiresInSeconds, user }` (không trả `token` trước khi verify email; có thể tắt bằng `REQUIRE_EMAIL_VERIFICATION=false`).
+- `POST /api/auth/login` — Trả `403 EMAIL_NOT_VERIFIED` nếu tài khoản chưa xác thực email (`emailVerified === false`), `403 FORBIDDEN` nếu bị suspended. Tài khoản cũ / seed vẫn giữ `emailVerified: true`.
+- `UserDto` bổ sung `emailVerified: boolean` và `authProvider: "local" | "google" | "both"`.
+
+### Added error codes
+- `EMAIL_NOT_VERIFIED` (403), `EMAIL_ALREADY_VERIFIED` (409), `VERIFY_OTP_INVALID` (400), `VERIFY_OTP_EXPIRED` (400), `VERIFY_OTP_TOO_MANY_ATTEMPTS` (429), `VERIFY_OTP_COOLDOWN` (429), `GOOGLE_TOKEN_INVALID` (401).
+
+---
+## 2026-11-22 🔐 FORGOT PASSWORD VỚI OTP 6 SỐ QUA EMAIL (GOOGLE APPS SCRIPT WEBHOOK)
+
+> **Feature added**: Thêm luồng Quên mật khẩu cho cả Web và Mobile App dùng mã OTP 6 số gửi trực tiếp từ tài khoản Gmail thông qua Google Apps Script Webhook (kèm console fallback khi dev).
+
+### Added endpoints
+- `POST /api/auth/forgot-password` — Sinh OTP 6 số lưu HMAC-SHA256 hash (`PasswordReset`, TTL 10 phút, cooldown 60s), chống email enumeration.
+- `POST /api/auth/verify-reset-otp` — Xác thực OTP cho UI 3 bước (giới hạn tối đa 5 lần nhập sai), trả về `resetToken` dùng 1 lần.
+- `POST /api/auth/reset-password` — Đặt lại mật khẩu bằng `{ email, resetToken, newPassword }` hoặc trực tiếp `{ email, otp, newPassword }`.
+- Siết validation ở `POST /api/auth/register` & `/api/auth/reset-password`: mật khẩu bắt buộc 8–128 ký tự, không khoảng trắng, có chữ hoa + thường + số + ký tự đặc biệt (VD: `Aa@12345`); `name` 2–100 ký tự có chữ cái; chuẩn hoá check email chặt hơn.
+
+### Added error codes
+- `RESET_OTP_INVALID` (400), `RESET_OTP_EXPIRED` (400), `RESET_TOKEN_INVALID` (400), `RESET_OTP_TOO_MANY_ATTEMPTS` (429), `RESET_OTP_COOLDOWN` (429).
+
+---
+## 2026-11-22 💬 CHAT 1-1 USER ↔ ADMIN (GỠ AI CHATBOT & HANDOFF)
+
+> **Breaking refactor**: Loại bỏ hoàn toàn AI Chatbot (Gemini), AI Copilot, Knowledge Base và cơ chế `HandoffRequest`. Chat chuyển thành **1-1 trực tiếp giữa User và Admin**.
+
+### Flow mới
+1. User gọi `POST /api/chat/conversations` → tạo hội thoại ở trạng thái `supportMode: "waiting_admin"` (vào hàng đợi chờ Admin).
+2. Admin gọi `POST /api/chat/admin/conversations/:id/assign` → claim hội thoại (`supportMode: "human"`, gán `assignedAdminId` + trả `assignedAdminName`).
+3. Hai bên nhắn realtime qua Socket.IO namespace `/chat` hoặc REST `POST .../messages`.
+4. Admin/User có thể `close` hoặc `reopen` (`status: "open"`, quay lại `waiting_admin`, reset `assignedAdminId: null`).
+
+### Removed endpoints & events
+- **User Handoff**: `GET / POST / DELETE /api/chat/conversations/:id/handoff`
+- **Admin Handoff queue**: `GET /api/chat/admin/handoffs`, `POST /api/chat/admin/conversations/:id/accept`, `POST /api/chat/admin/conversations/:id/handoff/assign`, `POST /api/chat/admin/conversations/:id/handoff/resolve`
+- **AI Copilot & Knowledge Base**: `/api/chat/admin/copilot/*`, `/api/chat/admin/knowledge/*`
+- **Socket events**: `ai:status`, `handoff:updated`
+- **Error codes**: `CHAT_AI_UNAVAILABLE`, `CHAT_AI_ESCALATED`, `CHAT_AI_QUOTA_EXCEEDED`, `CHAT_HANDOFF_NOT_FOUND`, `CHAT_HANDOFF_ALREADY_EXISTS`, `CHAT_HANDOFF_INVALID_TRANSITION`
+
+### Contract & Filter changes
+- `ConversationDto.supportMode`: chỉ còn `"waiting_admin" | "human"` (bỏ `"ai"`, `"ai_assisted"`, bỏ `aiConfig`).
+- `MessageDto.senderType`: chỉ còn `"user" | "admin" | "system"` (bỏ `"ai"`, bỏ `aiMetadata`).
+- `GET /api/chat/admin/conversations`: hỗ trợ thêm query `status=active|open|pending|closed|all` (mặc định `active`), `supportMode=waiting_admin|human|all`, `scope=unassigned|mine|all`.
+- Script migrate DB cũ: `npm --prefix backend run migrate:chat-1on1` (hỗ trợ `--dry-run`).
+
+---
 ## 2026-11-17 🚚 DYNAMIC WAREHOUSE & FLEXIBLE HCM SHIPPING ADDRESS
 
 > **Feature added**: Bỏ hoàn toàn hardcode địa chỉ kho dưới BE; cho phép FE/Admin cấu hình kho động vào DB và cho phép khách nhập địa chỉ giao hàng linh hoạt trong phạm vi TP.HCM (`provinceId = "79"`).

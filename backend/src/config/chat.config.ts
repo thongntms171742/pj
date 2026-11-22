@@ -35,7 +35,7 @@ export const CHAT_ATTACHMENT_MAX_BYTES = num(
   10 * 1024 * 1024
 );
 
-// ── Handoff ───────────────────────────────────────────────────────────────────
+// ── Admin SLA / hàng đợi ──────────────────────────────────────────────────────
 
 /** Số giờ tối đa admin giữ 1 hội thoại mà không phản hồi trước khi cảnh báo. */
 export const CHAT_ADMIN_RESPONSE_SLA_MS = num(

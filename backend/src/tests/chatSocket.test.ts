@@ -175,7 +175,7 @@ async function runSocketTests() {
     const conv = await Conversation.create({
       userId,
       status: "open",
-      supportMode: "ai",
+      supportMode: "waiting_admin",
       unreadCount: { user: 0, admin: 0 },
       version: 1,
     });
@@ -426,7 +426,7 @@ async function runSocketTests() {
     const updatedEvent = await convUpdated;
     check("User receives conversation:updated", updatedEvent !== null);
     check(
-      "Updated event carries supportMode=human",
+      "Updated event carries supportMode=human (waiting_admin → human)",
       updatedEvent?.conversation?.supportMode === "human"
     );
     check(
@@ -439,7 +439,7 @@ async function runSocketTests() {
     const otherConv = await Conversation.create({
       userId: otherUserId,
       status: "open",
-      supportMode: "ai",
+      supportMode: "waiting_admin",
       unreadCount: { user: 0, admin: 0 },
       version: 1,
     });

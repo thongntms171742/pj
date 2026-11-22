@@ -6,14 +6,12 @@
  *   - FE contract ổn định, không bị ảnh hưởng khi đổi schema nội bộ.
  */
 
-import type { HydratedDocument, Types } from "mongoose";
-import { Conversation, type IConversation } from "../../../models/Conversation";
+import type { HydratedDocument } from "mongoose";
+import type { IConversation } from "../../../models/Conversation";
 import type { IMessage } from "../../../models/Message";
-import type { IHandoffRequest } from "../../../models/HandoffRequest";
 import type {
   ConversationDto,
   ConversationListItemDto,
-  HandoffRequestDto,
   MessageDto,
 } from "../dto/chat.dto";
 
@@ -65,19 +63,6 @@ export function messageToDto(doc: IMessage | HydratedDocument<IMessage>): Messag
       mimeType: a.mimeType ?? "",
       size: a.size ?? 0,
     })),
-    aiMetadata: m.aiMetadata
-      ? {
-        model: m.aiMetadata.model ?? "",
-        promptVersion: m.aiMetadata.promptVersion ?? "",
-        intent: m.aiMetadata.intent ?? "",
-        intentConfidence: m.aiMetadata.intentConfidence ?? 0,
-        sentiment: m.aiMetadata.sentiment ?? "",
-        tokensUsed: m.aiMetadata.tokensUsed ?? 0,
-        latencyMs: m.aiMetadata.latencyMs ?? 0,
-        toolsUsed: m.aiMetadata.toolsUsed ?? [],
-        needsHumanReview: m.aiMetadata.needsHumanReview ?? false,
-      }
-      : null,
     clientMessageId: m.clientMessageId ?? null,
     userReadAt: iso(m.userReadAt),
     adminReadAt: iso(m.adminReadAt),
@@ -100,14 +85,6 @@ export function conversationToDto(
     supportMode: c.supportMode,
     assignedAdminId: strId(c.assignedAdminId),
     assignedAdminName: options.admin?.name ?? null,
-    aiConfig: {
-      model: c.aiConfig?.model ?? "",
-      promptVersion: c.aiConfig?.promptVersion ?? "",
-      intent: c.aiConfig?.intent ?? "",
-      intentConfidence: c.aiConfig?.intentConfidence ?? 0,
-      sentiment: c.aiConfig?.sentiment ?? "",
-      enabled: c.aiConfig?.enabled ?? true,
-    },
     lastMessageId: strId(c.lastMessageId),
     lastMessageAt: iso(c.lastMessageAt),
     unreadCount: {
@@ -144,47 +121,4 @@ export function conversationToListItemDto(
     version: c.version,
     createdAt: isoDate(c.createdAt),
   };
-}
-
-// ── Handoff ───────────────────────────────────────────────────────────────────
-
-export function handoffToDto(
-  doc: IHandoffRequest | HydratedDocument<IHandoffRequest>
-): HandoffRequestDto {
-  const h = doc as IHandoffRequest;
-  return {
-    id: String(h._id),
-    conversationId: String(h.conversationId),
-    userId: String(h.userId),
-    reason: h.reason,
-    priority: h.priority,
-    status: h.status,
-    summary: h.summary,
-    requestedAt: isoDate(h.requestedAt),
-    assignedAdminId: strId(h.assignedAdminId),
-    acceptedAt: iso(h.acceptedAt),
-    resolvedAt: iso(h.resolvedAt),
-    version: h.version,
-    createdAt: isoDate(h.createdAt),
-    updatedAt: isoDate(h.updatedAt),
-  };
-}
-
-/**
- * Load lại `assignedAdminId` để mapper trả kèm tên admin.
- * Dùng cho các endpoint cần hiển thị "Tư vấn viên: <name>".
- *
- * KHÔNG populate — populate trả `null` khi user đã bị xoá ⇒ mất luôn
- * ObjectId gốc. Lookup riêng giữ được cả 2 thông tin.
- */
-export async function populateAdminName(
-  conversationId: Types.ObjectId
-): Promise<MaybeUser> {
-  const conv = await Conversation.findById(conversationId).lean();
-  const adminId = conv?.assignedAdminId;
-  if (!adminId) return null;
-
-  const { User } = await import("../../../models/User");
-  const admin = await User.findById(adminId).select("name email avatarUrl").lean();
-  return admin ?? null;
 }

@@ -181,6 +181,9 @@ async function upsertUsers() {
       passwordHash: adminPassword,
       roles: ["buyer", "admin"],
       accountStatus: "active",
+      authProvider: "local",
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
     },
     { upsert: true, new: true }
   );
@@ -198,6 +201,9 @@ async function upsertUsers() {
       passwordHash: buyerPassword,
       roles: ["buyer"],
       accountStatus: "active",
+      authProvider: "local",
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
     },
     { upsert: true, new: true }
   );

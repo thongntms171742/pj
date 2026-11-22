@@ -13,6 +13,7 @@ import { priceDesign } from "../services/pricingService";
 // customer account, stock or order in the configured database is changed.
 async function main(): Promise<void> {
   const databaseName = `byc_custom_test_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  process.env.REQUIRE_EMAIL_VERIFICATION = "false";
   const checks: string[] = [];
   await mongoose.connect(getMongoUri(), { dbName: databaseName });
   const server = app.listen(0, "127.0.0.1");

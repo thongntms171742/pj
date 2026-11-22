@@ -10,7 +10,8 @@ import {
   Notification,
   Conversation,
   Message,
-  HandoffRequest,
+  PasswordReset,
+  EmailVerification,
 } from "../models";
 import { deleteAsset } from "../services/cloudinaryService";
 import { SERVICE_PROVINCE_ID } from "../config/business";
@@ -369,8 +370,10 @@ export const deleteMyAccount = ah(async (req: Request, res: Response) => {
   // 4.3. Reviews
   await Review.deleteMany({ buyerId: userObjectId });
 
-  // 4.4. Notifications
+  // 4.4. Notifications, Password resets & Email verifications
   await Notification.deleteMany({ userId: userObjectId });
+  await PasswordReset.deleteMany({ userId: userObjectId });
+  await EmailVerification.deleteMany({ userId: userObjectId });
 
   // 4.5. Chat (xoá vĩnh viễn — không giữ dữ liệu hội thoại của người đã xoá)
   const chatConversations = await Conversation.find({ userId: userObjectId }).select(
@@ -379,7 +382,6 @@ export const deleteMyAccount = ah(async (req: Request, res: Response) => {
   const chatConversationIds = chatConversations.map((c) => c._id);
   if (chatConversationIds.length > 0) {
     await Message.deleteMany({ conversationId: { $in: chatConversationIds } });
-    await HandoffRequest.deleteMany({ conversationId: { $in: chatConversationIds } });
     await Conversation.deleteMany({ _id: { $in: chatConversationIds } });
   }
 

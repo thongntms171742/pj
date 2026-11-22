@@ -4,7 +4,7 @@
  * Route prefix: /api/chat/admin
  *
  * Admin quản lý toàn bộ hội thoại: xem danh sách, claim, trả lời,
- * đọc tin nhắn nội bộ, đóng/mở, quản lý handoff queue.
+ * đọc tin nhắn nội bộ, đóng/mở.
  */
 
 import { Request, Response } from "express";
@@ -22,12 +22,9 @@ import {
 } from "../services/chatPermission.service";
 import * as conversationService from "../services/conversation.service";
 import * as messageService from "../services/message.service";
-import * as handoffService from "../services/handoff.service";
 import {
-  conversationToDto,
   conversationToListItemDto,
   messageToDto,
-  handoffToDto,
 } from "../dto/chat.mapper";
 import type { PaginationMeta } from "../dto/chat.dto";
 
@@ -82,12 +79,13 @@ function buildPagination(page: number, limit: number, total: number): Pagination
 
 /**
  * GET /api/chat/admin/conversations
- * Query: scope=unassigned|mine|all, status, supportMode, page, limit
+ * Query: scope=unassigned|mine|all, status=active|open|pending|closed|all, supportMode=waiting_admin|human|all, page, limit
  */
 export const listConversations = ah(async (req, res) => {
   const { page, limit } = parsePage(req);
   const scope = String(req.query.scope ?? "all");
   const supportMode = String(req.query.supportMode ?? "all");
+  const status = req.query.status ? String(req.query.status) : undefined;
 
   try {
     const result = await conversationService.listAdminConversations(actorOf(req), {
@@ -95,12 +93,13 @@ export const listConversations = ah(async (req, res) => {
       limit,
       scope: scope as any,
       supportMode: supportMode as any,
+      status: status as any,
     });
 
     // Tên admin được lookup riêng — không populate (populate trả null khi
     // user đã bị xoá ⇒ mất luôn ObjectId gốc của assignedAdminId).
     const adminNames = await conversationService.loadAdminNames(
-      result.items.map((c) => c.assignedAdminId as any)
+      result.items.map((c) => conversationService.rawAssignedAdminId(c))
     );
 
     ok(res, {
@@ -128,19 +127,8 @@ export const getConversation = ah(async (req, res) => {
       actorOf(req)
     );
 
-    // Populate tên admin để FE hiển thị "Tư vấn viên: <name>".
-    let adminName: string | null = null;
-    const adminId = conversationService.rawAssignedAdminId(conversation);
-    if (adminId) {
-      const adminNames = await conversationService.loadAdminNames([adminId]);
-      adminName = adminNames.get(String(adminId)) ?? null;
-    }
-
     ok(res, {
-      conversation: conversationToDto(
-        conversation,
-        { admin: adminName ? { name: adminName } : null }
-      ),
+      conversation: await conversationService.mapConversationWithAdmin(conversation),
     });
   } catch (err) {
     handleServiceError(res, err);
@@ -155,43 +143,14 @@ export const assignConversation = ah(async (req, res) => {
   const body = req.body ?? {};
 
   try {
-    const conversation = await conversationService.transitionConversation(
+    const conversation = await conversationService.assignConversation(
       param(req, "id"),
       actorOf(req),
-      {
-        supportMode: "human",
-        assignedAdminId: new Types.ObjectId(req.user!.id),
-        expectedVersion:
-          typeof body.expectedVersion === "number" ? body.expectedVersion : undefined,
-      }
-    );
-
-    ok(res, { conversation: conversationToDto(conversation) });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
-
-/**
- * POST /api/chat/admin/conversations/:id/accept
- * Admin nhận handoff (assigned → accepted) + conversation sang mode human.
- */
-export const acceptHandoff = ah(async (req, res) => {
-  const body = req.body ?? {};
-
-  try {
-    const handoff = await handoffService.acceptHandoff(param(req, "id"), actorOf(req), {
-      expectedVersion:
-        typeof body.expectedVersion === "number" ? body.expectedVersion : undefined,
-    });
-    const conversation = await conversationService.getConversation(
-      param(req, "id"),
-      actorOf(req)
+      typeof body.expectedVersion === "number" ? body.expectedVersion : undefined
     );
 
     ok(res, {
-      handoff: handoffToDto(handoff),
-      conversation: conversationToDto(conversation),
+      conversation: await conversationService.mapConversationWithAdmin(conversation),
     });
   } catch (err) {
     handleServiceError(res, err);
@@ -206,7 +165,9 @@ export const closeConversation = ah(async (req, res) => {
       actorOf(req),
       { status: "closed", closedBy: new Types.ObjectId(req.user!.id) }
     );
-    ok(res, { conversation: conversationToDto(conversation) });
+    ok(res, {
+      conversation: await conversationService.mapConversationWithAdmin(conversation),
+    });
   } catch (err) {
     handleServiceError(res, err);
   }
@@ -218,9 +179,11 @@ export const reopenConversation = ah(async (req, res) => {
     const conversation = await conversationService.transitionConversation(
       param(req, "id"),
       actorOf(req),
-      { status: "open", supportMode: "ai" }
+      { status: "open", supportMode: "waiting_admin", assignedAdminId: null }
     );
-    ok(res, { conversation: conversationToDto(conversation) });
+    ok(res, {
+      conversation: await conversationService.mapConversationWithAdmin(conversation),
+    });
   } catch (err) {
     handleServiceError(res, err);
   }
@@ -296,68 +259,6 @@ export const reopenConversation = ah(async (req, res) => {
     try {
       const result = await messageService.markAsRead(param(req, "id"), actorOf(req));
       ok(res, { markedCount: result.markedCount });
-    } catch (err) {
-      handleServiceError(res, err);
-    }
-  });
-
-  // ── Handoff queue ─────────────────────────────────────────────────────────────
-
-  /** GET /api/chat/admin/handoffs — hàng đợi yêu cầu chuyển nhân viên. */
-  export const listHandoffs = ah(async (req, res) => {
-    const { page, limit } = parsePage(req);
-    const status = String(req.query.status ?? "all");
-
-    try {
-      const result = await handoffService.listHandoffs(actorOf(req), {
-        page,
-        limit,
-        status: status as any,
-      });
-
-      ok(res, {
-        items: result.items.map((h) => handoffToDto(h)),
-        pagination: buildPagination(result.page, result.limit, result.total),
-      });
-    } catch (err) {
-      handleServiceError(res, err);
-    }
-  });
-
-  /** POST /api/chat/admin/conversations/:id/handoff/assign — claim handoff. */
-  export const assignHandoff = ah(async (req, res) => {
-    const body = req.body ?? {};
-
-    try {
-      const handoff = await handoffService.assignHandoff(param(req, "id"), actorOf(req), {
-        expectedVersion:
-          typeof body.expectedVersion === "number" ? body.expectedVersion : undefined,
-      });
-      ok(res, { handoff: handoffToDto(handoff) });
-    } catch (err) {
-      handleServiceError(res, err);
-    }
-  });
-
-  /** POST /api/chat/admin/conversations/:id/handoff/resolve — kết thúc handoff. */
-  export const resolveHandoff = ah(async (req, res) => {
-    const body = req.body ?? {};
-
-    try {
-      const handoff = await handoffService.resolveHandoff(param(req, "id"), actorOf(req), {
-        expectedVersion:
-          typeof body.expectedVersion === "number" ? body.expectedVersion : undefined,
-        returnToAi: body.returnToAi !== false,
-      });
-      const conversation = await conversationService.getConversation(
-        param(req, "id"),
-        actorOf(req)
-      );
-
-      ok(res, {
-        handoff: handoffToDto(handoff),
-        conversation: conversationToDto(conversation),
-      });
     } catch (err) {
       handleServiceError(res, err);
     }

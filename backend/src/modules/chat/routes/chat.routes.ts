@@ -27,9 +27,4 @@ router.get("/conversations/:id/messages", chat.listMessages);
 router.post("/conversations/:id/messages", chat.sendMessage);
 router.post("/conversations/:id/read", chat.markAsRead);
 
-// ── Handoff ───────────────────────────────────────────────────────────────────
-router.get("/conversations/:id/handoff", chat.getHandoff);
-router.post("/conversations/:id/handoff", chat.createHandoff);
-router.delete("/conversations/:id/handoff", chat.cancelHandoff);
-
 export default router;

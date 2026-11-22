@@ -23,12 +23,7 @@ import {
 } from "../services/chatPermission.service";
 import * as conversationService from "../services/conversation.service";
 import * as messageService from "../services/message.service";
-import * as handoffService from "../services/handoff.service";
-import {
-  conversationToDto,
-  messageToDto,
-  handoffToDto,
-} from "../dto/chat.mapper";
+import { messageToDto } from "../dto/chat.mapper";
 import type { PaginationMeta } from "../dto/chat.dto";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -98,7 +93,7 @@ export const listConversations = ah(async (req, res) => {
     });
 
     ok(res, {
-      items: result.items.map((c) => conversationToDto(c)),
+      items: await conversationService.mapConversationsWithAdmin(result.items),
       pagination: buildPagination(result.page, result.limit, result.total),
     });
   } catch (err) {
@@ -113,7 +108,9 @@ export const createConversation = ah(async (req, res) => {
     const conversation = await conversationService.createConversation(actorOf(req), {
       forceNew,
     });
-    created(res, { conversation: conversationToDto(conversation) });
+    created(res, {
+      conversation: await conversationService.mapConversationWithAdmin(conversation),
+    });
   } catch (err) {
     handleServiceError(res, err);
   }
@@ -126,7 +123,9 @@ export const getConversation = ah(async (req, res) => {
       param(req, "id"),
       actorOf(req)
     );
-    ok(res, { conversation: conversationToDto(conversation) });
+    ok(res, {
+      conversation: await conversationService.mapConversationWithAdmin(conversation),
+    });
   } catch (err) {
     handleServiceError(res, err);
   }
@@ -149,7 +148,9 @@ export const closeConversation = ah(async (req, res) => {
       param(req, "id"),
       actorOf(req)
     );
-    ok(res, { conversation: conversationToDto(conversation) });
+    ok(res, {
+      conversation: await conversationService.mapConversationWithAdmin(conversation),
+    });
   } catch (err) {
     handleServiceError(res, err);
   }
@@ -162,7 +163,9 @@ export const reopenConversation = ah(async (req, res) => {
       param(req, "id"),
       actorOf(req)
     );
-    ok(res, { conversation: conversationToDto(conversation) });
+    ok(res, {
+      conversation: await conversationService.mapConversationWithAdmin(conversation),
+    });
   } catch (err) {
     handleServiceError(res, err);
   }
@@ -224,58 +227,6 @@ export const markAsRead = ah(async (req, res) => {
   try {
     const result = await messageService.markAsRead(param(req, "id"), actorOf(req));
     ok(res, { markedCount: result.markedCount });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
-
-// ── Handoff ───────────────────────────────────────────────────────────────────
-
-/** POST /api/chat/conversations/:id/handoff — yêu cầu chuyển nhân viên. */
-export const createHandoff = ah(async (req, res) => {
-  const body = req.body ?? {};
-
-  try {
-    const handoff = await handoffService.createHandoff(actorOf(req), {
-      conversationId: param(req, "id"),
-      reason: String(body.reason ?? "Khách hàng yêu cầu tư vấn viên"),
-      priority: body.priority,
-      summary: body.summary ? String(body.summary) : undefined,
-    });
-
-    const conversation = await conversationService.getConversation(
-      param(req, "id"),
-      actorOf(req)
-    );
-
-    created(res, {
-      handoff: handoffToDto(handoff),
-      conversation: conversationToDto(conversation),
-      resolvedByAi: false,
-    });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
-
-/** GET /api/chat/conversations/:id/handoff — trạng thái handoff. */
-export const getHandoff = ah(async (req, res) => {
-  try {
-    const handoff = await handoffService.getHandoffForConversation(
-      param(req, "id"),
-      actorOf(req)
-    );
-    ok(res, { handoff: handoff ? handoffToDto(handoff) : null });
-  } catch (err) {
-    handleServiceError(res, err);
-  }
-});
-
-/** DELETE /api/chat/conversations/:id/handoff — user huỷ yêu cầu. */
-export const cancelHandoff = ah(async (req, res) => {
-  try {
-    const handoff = await handoffService.cancelHandoff(param(req, "id"), actorOf(req));
-    ok(res, { handoff: handoffToDto(handoff) });
   } catch (err) {
     handleServiceError(res, err);
   }

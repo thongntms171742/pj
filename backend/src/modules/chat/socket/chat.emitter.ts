@@ -3,7 +3,7 @@
  *
  * Vấn đề kiến trúc:
  *   Nếu chỉ socket handler phát event, thì mọi thay đổi state thực hiện
- *   qua REST (đóng conversation, admin nhận handoff, AI escalate...) sẽ
+ *   qua REST (đóng conversation, admin nhận hội thoại...) sẽ
  *   KHÔNG báo tới client ⇒ FE bị lệch trạng thái.
  *
  * Giải pháp:
@@ -105,45 +105,5 @@ export function emitUnreadChanged(params: {
     );
   } catch (err) {
     console.error("[chat.emitter] emitUnreadChanged failed:", err);
-  }
-}
-
-/** Phát cập nhật handoff tới room admin + conversation. */
-export function emitHandoffUpdated(params: {
-  conversationId: string;
-  handoff: unknown;
-  status: "created" | "accepted" | "resolved" | "cancelled";
-}): void {
-  if (!namespace) return;
-  try {
-    const payload = {
-      conversationId: params.conversationId,
-      handoff: params.handoff,
-      status: params.status,
-    };
-    namespace.to(ChatRooms.conversation(params.conversationId)).emit(
-      ChatServerEvents.HANDOFF_UPDATED,
-      payload
-    );
-    namespace.to(ChatRooms.admins).emit(ChatServerEvents.HANDOFF_UPDATED, payload);
-  } catch (err) {
-    console.error("[chat.emitter] emitHandoffUpdated failed:", err);
-  }
-}
-
-/** Phát trạng thái AI đang xử lý (thinking / answered / escalated). */
-export function emitAiStatus(params: {
-  conversationId: string;
-  status: "thinking" | "answered" | "escalated" | "unavailable";
-  message?: unknown;
-}): void {
-  if (!namespace) return;
-  try {
-    namespace.to(ChatRooms.conversation(params.conversationId)).emit(
-      ChatServerEvents.AI_STATUS,
-      params
-    );
-  } catch (err) {
-    console.error("[chat.emitter] emitAiStatus failed:", err);
   }
 }

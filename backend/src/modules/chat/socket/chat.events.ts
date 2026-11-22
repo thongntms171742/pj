@@ -66,19 +66,6 @@ export interface ChatUnreadEvent {
   unreadCount: { user: number; admin: number };
 }
 
-export interface ChatHandoffEvent {
-  conversationId: string;
-  handoff: unknown; // HandoffRequestDto
-  status: "created" | "accepted" | "resolved" | "cancelled";
-}
-
-export interface ChatAiStatusEvent {
-  conversationId: string;
-  status: "thinking" | "answered" | "escalated" | "unavailable";
-  /** Chỉ có khi status = "answered". */
-  message?: unknown;
-}
-
 // ── Ack types ────────────────────────────────────────────────────────────────
 
 export type ChatAck<T = unknown> =
@@ -111,10 +98,6 @@ export const ChatServerEvents = {
   TYPING: "message:typing",
   /** Unread count thay đổi. */
   UNREAD_CHANGED: "conversation:unread",
-  /** Handoff thay đổi trạng thái. */
-  HANDOFF_UPDATED: "handoff:updated",
-  /** Trạng thái AI đang xử lý. */
-  AI_STATUS: "ai:status",
   /** Xác nhận kết nối thành công. */
   CONNECTED: "chat:connected",
   /** Lỗi chung. */
@@ -129,7 +112,7 @@ export const ChatServerEvents = {
  * Quy ước room:
  *   - `conversation:{id}` : mọi thành viên của 1 conversation.
  *   - `user:{id}`         : tất cả socket của 1 user (nhiều tab / thiết bị).
- *   - `admin`             : tất cả admin đang online (hàng đợi handoff).
+ *   - `admin`             : tất cả admin đang online (hàng đợi chờ admin).
  */
 export const ChatRooms = {
   conversation: (id: string) => `conversation:${id}`,

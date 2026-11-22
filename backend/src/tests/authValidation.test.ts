@@ -18,7 +18,13 @@
 // Run with: npm test
 // No DB required — all inputs are rejected before DB queries.
 
-import { register, login } from "../controllers/authController";
+import {
+  register,
+  login,
+  validateName,
+  validateEmail,
+  validatePassword,
+} from "../controllers/authController";
 import { ErrorCode } from "../utils/errors";
 
 type MockRes = {
@@ -119,25 +125,61 @@ for (const password of [12345, true, false, null, undefined, [1], { a: 1 }]) {
 // ── Test 4: invalid email format ─────────────────────────────────────────────
 console.log("\n── Test 4: invalid email format ──\n");
 
-for (const email of ["no-at-sign", "no-domain@", "@no-local", "spaces in@x.vn", "x@.vn", "x@v."]) {
-  const r = await callRegister({ name: "X", email, password: "Test@12345" });
+for (const email of [
+  "no-at-sign",
+  "no-domain@",
+  "@no-local",
+  "spaces in@x.vn",
+  "x@.vn",
+  "x@v.",
+  "x..y@x.vn",
+  ".x@x.vn",
+  "x@x.c",
+  "x@-bad.vn",
+]) {
+  const r = await callRegister({ name: "Nguyễn Văn A", email, password: "Aa@12345" });
   assert(r.status === 400, `register email=${JSON.stringify(email)} returns 400 (got ${r.status})`);
-  assert(r.status !== 500, `register email=${JSON.stringify(email)} does not return 500`);
+  assert(r.body?.error?.code === ErrorCode.INVALID_INPUT, `register invalid email returns INVALID_INPUT (got ${r.body?.error?.code})`);
 }
 
-// ── Test 5: register password length validation ─────────────────────────────
-console.log("\n── Test 5: register password length validation ──\n");
+// ── Test 5: register name & password strength validation (Aa@12345) ─────────
+console.log("\n── Test 5: register name & strong password validation ──\n");
 
-for (const password of ["", "a", "ab1", "1234567"]) {
-  const r = await callRegister({ name: "X", email: "x@x.vn", password });
-  assert(r.status === 400, `register password=${JSON.stringify(password)} returns 400 (got ${r.status})`);
+for (const name of ["A", "12345", "<script>a</script>", "!!!"]) {
+  const r = await callRegister({ name, email: "x@x.vn", password: "Aa@12345" });
+  assert(r.status === 400, `register invalid name=${JSON.stringify(name)} returns 400 (got ${r.status})`);
+  assert(r.body?.error?.code === ErrorCode.INVALID_INPUT, `register invalid name gives INVALID_INPUT`);
+}
+
+for (const password of [
+  "",
+  "a",
+  "ab1",
+  "1234567",
+  "12345678",      // thiếu chữ hoa, chữ thường, ký tự đặc biệt
+  "abcdefgh",      // thiếu hoa, số, đặc biệt
+  "Abcdefgh",      // thiếu số, đặc biệt
+  "Abc12345",      // thiếu ký tự đặc biệt
+  "aa@12345",      // thiếu chữ hoa
+  "AA@12345",      // thiếu chữ thường
+  "Aa@abcde",      // thiếu chữ số
+  "Aa @12345",     // chứa khoảng trắng
+]) {
+  const r = await callRegister({ name: "Nguyễn Văn A", email: "x@x.vn", password });
+  assert(r.status === 400, `register weak/bad password=${JSON.stringify(password)} returns 400 (got ${r.status})`);
   assert(r.status !== 500, `register password=${JSON.stringify(password)} does not return 500`);
 }
 
-const tooLong = "a".repeat(129);
-const r = await callRegister({ name: "X", email: "x@x.vn", password: tooLong });
+const tooLong = "Aa@1" + "a".repeat(125);
+const r = await callRegister({ name: "Nguyễn Văn A", email: "x@x.vn", password: tooLong });
 assert(r.status === 400, `register password=129 chars returns 400 (got ${r.status})`);
 assert(r.status !== 500, `register password=129 chars does not return 500`);
+
+// Positive validator checks
+assert(validatePassword("Aa@12345") === "Aa@12345", "validatePassword accepts Aa@12345");
+assert(validatePassword("TestBuyer!2026") === "TestBuyer!2026", "validatePassword accepts TestBuyer!2026");
+assert(validateName("  Nguyễn   Văn A ") === "Nguyễn Văn A", "validateName normalizes spaces & preserves Vietnamese");
+assert(validateEmail("  User.Name+1@BuildYourChristmas.VN ") === "user.name+1@buildyourchristmas.vn", "validateEmail normalizes valid RFC email");
 
 // ── Test 6: regression — original 500 cases now return 4xx ──────────────────
 console.log("\n── Test 6: regression — original 500 triggers ──\n");
@@ -145,9 +187,9 @@ console.log("\n── Test 6: regression — original 500 triggers ──\n");
 const cases: Array<[string, "login" | "register", any]> = [
   ["login pw=number", "login", { email: "x@x.vn", password: 123456 }],
   ["login body=null", "login", null],
-  ["register pw=number", "register", { name: "X", email: "x@x.vn", password: 123456 }],
-  ["register name=number", "register", { name: 12345, email: "x@x.vn", password: "Test@12345" }],
-  ["register pw=empty", "register", { name: "X", email: "x@x.vn", password: "" }],
+  ["register pw=number", "register", { name: "Nguyễn Văn A", email: "x@x.vn", password: 123456 }],
+  ["register name=number", "register", { name: 12345, email: "x@x.vn", password: "Aa@12345" }],
+  ["register pw=empty", "register", { name: "Nguyễn Văn A", email: "x@x.vn", password: "" }],
 ];
 
 for (const [name, op, body] of cases) {

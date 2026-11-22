@@ -6,7 +6,6 @@ import { ErrorCode, ErrorStatus } from "../utils/errors";
 import "../models";
 import { Conversation } from "../models/Conversation";
 import { Message } from "../models/Message";
-import { HandoffRequest } from "../models/HandoffRequest";
 import {
   canTransitionStatus,
   canTransitionMode,
@@ -19,9 +18,6 @@ import {
   isConversationOwner,
 } from "../modules/chat/services/chatPermission.service";
 import { validateMessageInput } from "../modules/chat/services/message.service";
-import {
-  canTransitionHandoff,
-} from "../modules/chat/services/handoff.service";
 import { consume, resetAll } from "../modules/chat/services/chatRateLimit.service";
 import { messageToDto, conversationToDto } from "../modules/chat/dto/chat.mapper";
 import { ChatRooms, ChatServerEvents } from "../modules/chat/socket/chat.events";
@@ -66,12 +62,6 @@ function runContractTests() {
     "CHAT_DUPLICATE_MESSAGE",
     "CHAT_VERSION_CONFLICT",
     "CHAT_RATE_LIMITED",
-    "CHAT_AI_UNAVAILABLE",
-    "CHAT_AI_ESCALATED",
-    "CHAT_AI_QUOTA_EXCEEDED",
-    "CHAT_HANDOFF_NOT_FOUND",
-    "CHAT_HANDOFF_ALREADY_EXISTS",
-    "CHAT_HANDOFF_INVALID_TRANSITION",
     "CHAT_REOPEN_WINDOW_EXPIRED",
   ] as const;
 
@@ -81,6 +71,17 @@ function runContractTests() {
       `ErrorStatus[${code}] is defined`,
       typeof ErrorStatus[code as keyof typeof ErrorStatus] === "number"
     );
+  }
+
+  for (const removed of [
+    "CHAT_AI_UNAVAILABLE",
+    "CHAT_AI_ESCALATED",
+    "CHAT_AI_QUOTA_EXCEEDED",
+    "CHAT_HANDOFF_NOT_FOUND",
+    "CHAT_HANDOFF_ALREADY_EXISTS",
+    "CHAT_HANDOFF_INVALID_TRANSITION",
+  ]) {
+    check(`Removed ErrorCode.${removed} does not exist`, (ErrorCode as any)[removed] === undefined);
   }
 
   check(
@@ -99,14 +100,9 @@ function runContractTests() {
 
   const conv = new Conversation({
     userId: new Types.ObjectId(),
-    status: "open",
-    supportMode: "ai",
-    aiConfig: { enabled: true, intent: "product_inquiry", intentConfidence: 0.9 },
-    unreadCount: { user: 0, admin: 0 },
-    version: 1,
   });
   check("Conversation default status = open", conv.status === "open");
-  check("Conversation default supportMode = ai", conv.supportMode === "ai");
+  check("Conversation default supportMode = waiting_admin", conv.supportMode === "waiting_admin");
   check("Conversation default version = 1", conv.version === 1);
   check("Conversation default unreadCount.user = 0", conv.unreadCount?.user === 0);
   check("Conversation default unreadCount.admin = 0", conv.unreadCount?.admin === 0);
@@ -115,12 +111,12 @@ function runContractTests() {
   const badConv = new Conversation({
     userId: new Types.ObjectId(),
     status: "bogus" as any,
-    supportMode: "also_bogus" as any,
+    supportMode: "ai" as any,
   });
   const convErr = badConv.validateSync();
   check("Conversation rejects invalid status enum", !!convErr?.errors?.status);
   check(
-    "Conversation rejects invalid supportMode enum",
+    "Conversation rejects legacy 'ai' supportMode enum",
     !!convErr?.errors?.supportMode
   );
 
@@ -137,34 +133,13 @@ function runContractTests() {
 
   const badMsg = new Message({
     conversationId: new Types.ObjectId(),
-    senderType: "not_a_sender" as any,
+    senderType: "ai" as any,
     content: "x",
     visibility: "nope" as any,
   });
   const msgErr = badMsg.validateSync();
-  check("Message rejects invalid senderType enum", !!msgErr?.errors?.senderType);
+  check("Message rejects legacy 'ai' senderType enum", !!msgErr?.errors?.senderType);
   check("Message rejects invalid visibility enum", !!msgErr?.errors?.visibility);
-
-  const handoff = new HandoffRequest({
-    conversationId: new Types.ObjectId(),
-    userId: new Types.ObjectId(),
-    reason: "Cần nhân viên tư vấn",
-    priority: "high",
-    status: "waiting",
-  });
-  check("Handoff default status = waiting", handoff.status === "waiting");
-  check("Handoff default version = 1", handoff.version === 1);
-
-  const badHandoff = new HandoffRequest({
-    conversationId: new Types.ObjectId(),
-    userId: new Types.ObjectId(),
-    reason: "x",
-    priority: "extremely_urgent" as any,
-    status: "maybe" as any,
-  });
-  const handoffErr = badHandoff.validateSync();
-  check("Handoff rejects invalid priority enum", !!handoffErr?.errors?.priority);
-  check("Handoff rejects invalid status enum", !!handoffErr?.errors?.status);
 
   // ── 3. Permission logic ───────────────────────────────────────────────────
   section("Permission Rules");
@@ -206,20 +181,16 @@ function runContractTests() {
   check("open → open is invalid", !canTransitionStatus("open", "open"));
   check("closed → pending is invalid", !canTransitionStatus("closed", "pending"));
 
-  check("ai → waiting_admin is valid", canTransitionMode("ai", "waiting_admin"));
-  check("ai → human is valid", canTransitionMode("ai", "human"));
-  check("ai → ai_assisted is valid", canTransitionMode("ai", "ai_assisted"));
   check("waiting_admin → human is valid", canTransitionMode("waiting_admin", "human"));
-  check("waiting_admin → ai is valid", canTransitionMode("waiting_admin", "ai"));
-  check("human → ai_assisted is valid", canTransitionMode("human", "ai_assisted"));
-  check("human → ai is valid", canTransitionMode("human", "ai"));
-  check("ai → closed-mode nonsense invalid", !canTransitionMode("ai", "bogus" as any));
-
-  check("handoff waiting → assigned valid", canTransitionHandoff("waiting", "assigned"));
-  check("handoff assigned → accepted valid", canTransitionHandoff("assigned", "accepted"));
-  check("handoff accepted → resolved valid", canTransitionHandoff("accepted", "resolved"));
-  check("handoff resolved → anything invalid", !canTransitionHandoff("resolved", "waiting"));
-  check("handoff cancelled → anything invalid", !canTransitionHandoff("cancelled", "waiting"));
+  check("human → waiting_admin is valid", canTransitionMode("human", "waiting_admin"));
+  check(
+    "waiting_admin → legacy 'ai' is invalid",
+    !canTransitionMode("waiting_admin", "ai" as any)
+  );
+  check(
+    "waiting_admin → bogus is invalid",
+    !canTransitionMode("waiting_admin", "bogus" as any)
+  );
 
   // ── 5. Message validation ─────────────────────────────────────────────────
   section("Message Validation");
@@ -293,30 +264,30 @@ function runContractTests() {
   const mapConv = new Conversation({
     userId: ownerId,
     status: "open",
-    supportMode: "ai",
-    aiConfig: { enabled: true, intent: "greeting", intentConfidence: 0.8 },
+    supportMode: "human",
+    assignedAdminId: new Types.ObjectId(adminActor.userId),
     unreadCount: { user: 2, admin: 3 },
     version: 5,
   });
-  const convDto = conversationToDto(mapConv);
+  const convDto = conversationToDto(mapConv, { admin: { name: "Tư vấn viên A" } });
   check("DTO id is string", typeof convDto.id === "string");
   check("DTO userId is string", typeof convDto.userId === "string");
+  check("DTO supportMode = human", convDto.supportMode === "human");
+  check("DTO assignedAdminName preserved", convDto.assignedAdminName === "Tư vấn viên A");
   check("DTO version preserved", convDto.version === 5);
   check("DTO unreadCount preserved", convDto.unreadCount.user === 2);
-  check("DTO aiConfig.intent preserved", convDto.aiConfig.intent === "greeting");
-  check("DTO aiConfig.intentConfidence preserved", convDto.aiConfig.intentConfidence === 0.8);
+  check("DTO omits legacy aiConfig", !("aiConfig" in convDto));
   check("DTO createdAt is ISO string", typeof convDto.createdAt === "string");
 
   const mapMsg = new Message({
     conversationId: ownerId,
-    senderType: "ai",
+    senderType: "admin",
     content: "Chào bạn",
     visibility: "public",
-    aiMetadata: { model: "gemini-2.5-flash", tokensUsed: 100 },
   });
   const msgDto = messageToDto(mapMsg);
-  check("Message DTO senderType preserved", msgDto.senderType === "ai");
-  check("Message DTO aiMetadata.model preserved", msgDto.aiMetadata?.model === "gemini-2.5-flash");
+  check("Message DTO senderType preserved", msgDto.senderType === "admin");
+  check("Message DTO omits legacy aiMetadata", !("aiMetadata" in msgDto));
   check("Message DTO attachments is array", Array.isArray(msgDto.attachments));
 
   // ── 8. Socket event contract ──────────────────────────────────────────────
@@ -328,6 +299,8 @@ function runContractTests() {
   check("MESSAGE_NEW event name", ChatServerEvents.MESSAGE_NEW === "message:new");
   check("CONVERSATION_UPDATED event name", ChatServerEvents.CONVERSATION_UPDATED === "conversation:updated");
   check("TYPING event name", ChatServerEvents.TYPING === "message:typing");
+  check("AI_STATUS event removed", !("AI_STATUS" in ChatServerEvents));
+  check("HANDOFF_UPDATED event removed", !("HANDOFF_UPDATED" in ChatServerEvents));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -350,7 +323,6 @@ async function runDatabaseTests() {
 
     const convService = await import("../modules/chat/services/conversation.service");
     const msgService = await import("../modules/chat/services/message.service");
-    const handoffService = await import("../modules/chat/services/handoff.service");
 
     const userId = new Types.ObjectId();
     const otherUserId = new Types.ObjectId();
@@ -367,6 +339,8 @@ async function runDatabaseTests() {
     check("Conversation created", !!conv._id);
     check("Conversation belongs to user", String(conv.userId) === String(userId));
     check("Conversation starts open", conv.status === "open");
+    check("Conversation starts in waiting_admin mode", conv.supportMode === "waiting_admin");
+    check("Conversation starts unassigned", conv.assignedAdminId === null || conv.assignedAdminId === undefined);
     check("Conversation version = 1", conv.version === 1);
 
     const convAgain = await convService.createConversation(userActor);
@@ -516,7 +490,8 @@ async function runDatabaseTests() {
 
     const reopened = await convService.reopenConversation(String(conv._id), userActor);
     check("Conversation reopened", reopened.status === "open");
-    check("Reopen returns to AI mode", reopened.supportMode === "ai");
+    check("Reopen returns to waiting_admin mode", reopened.supportMode === "waiting_admin");
+    check("Reopen clears assignedAdminId", !reopened.assignedAdminId);
 
     // ── Optimistic locking ───────────────────────────────────────────────────
     section("Optimistic Locking (version)");
@@ -543,27 +518,23 @@ async function runDatabaseTests() {
     check("Correct version succeeds", okTransition.supportMode === "human");
     check("Version incremented after transition", okTransition.version === versionBefore + 1);
 
-    // ── Admin assign ─────────────────────────────────────────────────────────
+    // ── Admin assign (waiting_admin → human) ─────────────────────────────────
     section("Admin Assign");
 
-    const assigned = await convService.transitionConversation(String(conv._id), adminActor, {
-      supportMode: "human",
-      assignedAdminId: adminId,
-    });
+    const assigned = await convService.assignConversation(String(conv._id), adminActor);
     check("Admin assigned", String(assigned.assignedAdminId) === String(adminId));
+    check("Assign transitions waiting_admin → human", assigned.supportMode === "human");
 
     let userCannotAssign = false;
     try {
-      await convService.transitionConversation(String(conv._id), userActor, {
-        assignedAdminId: otherUserId,
-      });
+      await convService.assignConversation(String(conv._id), userActor);
     } catch (err) {
       userCannotAssign = err instanceof ChatError && err.code === ErrorCode.CHAT_FORBIDDEN;
     }
     check("User CANNOT assign admin", userCannotAssign);
 
-    // ── Admin list scopes ────────────────────────────────────────────────────
-    section("Admin List Scopes");
+    // ── Admin list scopes & status=closed filter ─────────────────────────────
+    section("Admin List Scopes & Filters");
 
     const all = await convService.listAdminConversations(adminActor, { limit: 50 });
     check("Admin list returns conversations", all.total >= 1);
@@ -575,8 +546,8 @@ async function runDatabaseTests() {
     check(
       "scope=mine only returns conversations assigned to me",
       mine.items.every((c) => {
-        const assigned = convService.rawAssignedAdminId(c);
-        return assigned !== null && String(assigned) === String(adminId);
+        const assignedAdmin = convService.rawAssignedAdminId(c);
+        return assignedAdmin !== null && String(assignedAdmin) === String(adminId);
       })
     );
 
@@ -587,6 +558,42 @@ async function runDatabaseTests() {
     check(
       "scope=unassigned only returns conversations without admin",
       unassigned.items.every((c) => convService.rawAssignedAdminId(c) === null)
+    );
+
+    const waitingFilter = await convService.listAdminConversations(adminActor, {
+      supportMode: "waiting_admin",
+      limit: 50,
+    });
+    check(
+      "supportMode=waiting_admin filters correctly",
+      waitingFilter.items.every((c) => c.supportMode === "waiting_admin")
+    );
+
+    // Đóng convNew để test filter status=closed và reopen → waiting_admin + unassigned
+    await convService.assignConversation(String(convNew._id), adminActor);
+    await convService.closeConversation(String(convNew._id), adminActor);
+    const closedList = await convService.listAdminConversations(adminActor, {
+      status: "closed",
+      limit: 50,
+    });
+    check(
+      "status=closed returns closed conversations",
+      closedList.items.some((c) => String(c._id) === String(convNew._id) && c.status === "closed")
+    );
+
+    let assignClosedBlocked = false;
+    try {
+      await convService.assignConversation(String(convNew._id), adminActor);
+    } catch (err) {
+      assignClosedBlocked =
+        err instanceof ChatError && err.code === ErrorCode.CHAT_STATUS_INVALID;
+    }
+    check("Cannot assign closed conversation", assignClosedBlocked);
+
+    const reopenedNew = await convService.reopenConversation(String(convNew._id), userActor);
+    check(
+      "Reopen claimed+closed conversation clears assignedAdminId → waiting_admin",
+      reopenedNew.supportMode === "waiting_admin" && !reopenedNew.assignedAdminId
     );
 
     let nonAdminBlocked = false;
@@ -611,77 +618,6 @@ async function runDatabaseTests() {
       "Other user sees none of user's conversations",
       otherList.items.every((c) => String(c.userId) === String(otherUserId))
     );
-
-    // ── Handoff flow ─────────────────────────────────────────────────────────
-    section("Handoff Flow");
-
-    const handoff = await handoffService.createHandoff(userActor, {
-      conversationId: String(conv._id),
-      reason: "Cần tư vấn viên",
-      priority: "high",
-    });
-    check("Handoff created", handoff.status === "waiting");
-    check("Handoff priority = high", handoff.priority === "high");
-
-    // Conversation này đang ở mode "human" (đã admin nhận ở bước trước)
-    // ⇒ giữ nguyên mode, không đẩy về waiting_admin.
-    const convAfterHandoff = await Conversation.findById(conv._id);
-    check(
-      "Handoff on human-mode conversation keeps supportMode=human",
-      convAfterHandoff?.supportMode === "human"
-    );
-
-    // ── Escalate từ mode AI ⇒ chuyển sang waiting_admin ─────────────────────
-    const aiConv = await convService.createConversation(userActor, { forceNew: true });
-    await convService.updateConversationState(aiConv._id, { supportMode: "ai" });
-    const aiHandoff = await handoffService.createHandoff(userActor, {
-      conversationId: String(aiConv._id),
-      reason: "AI không trả lời được",
-      priority: "urgent",
-    });
-    check("Escalate from AI mode creates handoff", aiHandoff.status === "waiting");
-    const aiConvAfter = await Conversation.findById(aiConv._id);
-    check(
-      "Conversation switched to waiting_admin when escalating from AI",
-      aiConvAfter?.supportMode === "waiting_admin"
-    );
-    check(
-      "Escalate priority = urgent",
-      aiHandoff.priority === "urgent"
-    );
-
-    let duplicateHandoff = false;
-    try {
-      await handoffService.createHandoff(userActor, {
-        conversationId: String(conv._id),
-        reason: "Cần tư vấn viên",
-      });
-    } catch (err) {
-      duplicateHandoff =
-        err instanceof ChatError && err.code === ErrorCode.CHAT_HANDOFF_ALREADY_EXISTS;
-    }
-    check("Duplicate handoff → CHAT_HANDOFF_ALREADY_EXISTS", duplicateHandoff);
-
-    const assignedHandoff = await handoffService.assignHandoff(String(conv._id), adminActor, {});
-    check("Handoff assigned to admin", assignedHandoff.status === "assigned");
-    check(
-      "Handoff assignedAdminId set",
-      String(assignedHandoff.assignedAdminId) === String(adminId)
-    );
-
-    const acceptedHandoff = await handoffService.acceptHandoff(String(conv._id), adminActor, {});
-    check("Handoff accepted", acceptedHandoff.status === "accepted");
-    check("acceptedAt is set", !!acceptedHandoff.acceptedAt);
-
-    const convAfterAccept = await Conversation.findById(conv._id);
-    check("Conversation mode = human after accept", convAfterAccept?.supportMode === "human");
-
-    const resolvedHandoff = await handoffService.resolveHandoff(String(conv._id), adminActor, {});
-    check("Handoff resolved", resolvedHandoff.status === "resolved");
-    check("resolvedAt is set", !!resolvedHandoff.resolvedAt);
-
-    const convAfterResolve = await Conversation.findById(conv._id);
-    check("Conversation returns to AI after resolve", convAfterResolve?.supportMode === "ai");
 
     // ── Unread counts ────────────────────────────────────────────────────────
     section("Unread Counters");
@@ -727,22 +663,9 @@ async function runDatabaseTests() {
       page2.items.every((m) => !page1Ids.has(String(m._id)))
     );
 
-    // ── AI lock ──────────────────────────────────────────────────────────────
-    section("AI Lock");
-
-    const lockTarget = await Conversation.findById(conv._id);
-    const lockVersion = lockTarget!.version;
-
-    const lock1 = await convService.acquireAiLock(conv._id, lockVersion);
-    check("First AI lock succeeds", !!lock1);
-
-    const lock2 = await convService.acquireAiLock(conv._id, lockVersion);
-    check("Second AI lock with same version FAILS", lock2 === null);
-
     // ── Cleanup ──────────────────────────────────────────────────────────────
     section("Cleanup");
-    await Message.deleteMany({ conversationId: { $in: [conv._id, convNew._id, aiConv._id] } });
-    await HandoffRequest.deleteMany({ conversationId: { $in: [conv._id, aiConv._id] } });
+    await Message.deleteMany({ conversationId: { $in: [conv._id, convNew._id] } });
     await Conversation.deleteMany({ userId: { $in: [userId, otherUserId] } });
     const left = await Conversation.countDocuments({ userId: userId });
     check("Test conversations cleaned up", left === 0);

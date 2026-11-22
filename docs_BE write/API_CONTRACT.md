@@ -100,39 +100,85 @@
 
 ### POST `/api/auth/register`
 
-**Mục đích**: Tạo tài khoản mới (mặc định role `buyer`).
+**Mục đích**: Tạo tài khoản mới (mặc định role `buyer`) và gửi mã OTP 6 số xác thực email qua webhook (khi `REQUIRE_EMAIL_VERIFICATION !== "false"`).
 
 **Auth**: Public.
 
 **Request**:
 ```json
 {
-  "name": "string (required, trim)",
+  "name": "string (required, 2..100 ký tự, có chữ cái)",
   "email": "string (required, unique, lowercase)",
-  "password": "string (required, plaintext — BE hash với bcrypt)"
+  "password": "string (required, 8..128 ký tự, không khoảng trắng, gồm chữ hoa + thường + số + ký tự đặc biệt, VD: Aa@12345)"
 }
 ```
 
 **Success (201)**:
 ```json
 {
-  "token": "JWT (7d)",
+  "requiresEmailVerification": true,
+  "message": "Đăng ký thành công. Vui lòng nhập mã OTP 6 số đã gửi về email để kích hoạt tài khoản.",
+  "email": "nguyenvana@example.com",
+  "expiresInSeconds": 600,
   "user": {
     "_id": "string (ObjectId)",
     "name": "string",
     "email": "string",
-    "avatarUrl": "string",
+    "phone": "",
+    "avatarUrl": "",
     "roles": ["buyer"],
     "accountStatus": "active",
+    "emailVerified": false,
+    "authProvider": "local",
     "addresses": []
   }
 }
 ```
+*(Nếu đặt `REQUIRE_EMAIL_VERIFICATION=false`, trả về `{ "requiresEmailVerification": false, "token": "JWT", "user": { ... } }`.)*
 
 **Errors**:
-- `400 MISSING_FIELD`
-- `409 EMAIL_ALREADY_USED`
-- `500 INTERNAL_ERROR`
+- `400 MISSING_FIELD` / `400 INVALID_INPUT`
+- `409 EMAIL_ALREADY_USED` (khi email đã được kích hoạt)
+- `429 VERIFY_OTP_COOLDOWN` (`details.retryAfterSeconds`)
+- `502 UPSTREAM_ERROR` / `503 SERVICE_UNAVAILABLE`
+
+---
+
+### POST `/api/auth/verify-email`
+
+**Mục đích**: Xác thực mã OTP 6 số nhận qua email khi đăng ký và tự động đăng nhập (trả JWT `token`).
+
+**Auth**: Public. Tối đa `5` lần nhập sai.
+
+**Request**:
+```json
+{ "email": "nguyenvana@example.com", "otp": "123456" }
+```
+
+**Success (200)**: `{ "token": "JWT (7d)", "user": { /* emailVerified: true */ } }`
+
+**Errors**:
+- `400 MISSING_FIELD` / `400 INVALID_INPUT`
+- `400 VERIFY_OTP_INVALID` (`details.remainingAttempts`) / `400 VERIFY_OTP_EXPIRED`
+- `409 EMAIL_ALREADY_VERIFIED`
+- `429 VERIFY_OTP_TOO_MANY_ATTEMPTS`
+
+---
+
+### POST `/api/auth/resend-verification-otp`
+
+**Mục đích**: Gửi lại mã OTP xác thực email cho tài khoản chưa kích hoạt (cooldown `60s`).
+
+**Auth**: Public.
+
+**Request**:
+```json
+{ "email": "nguyenvana@example.com" }
+```
+
+**Success (200)**: `{ "message": "...", "expiresInSeconds": 600 }`
+
+**Errors**: `400 MISSING_FIELD`, `400 INVALID_INPUT`, `409 EMAIL_ALREADY_VERIFIED`, `429 VERIFY_OTP_COOLDOWN`
 
 ---
 
@@ -145,13 +191,53 @@
 { "email": "string", "password": "string" }
 ```
 
-**Success (200)**: Same shape as register response.
+**Success (200)**: `{ "token": "JWT (7d)", "user": { ... } }`
 
 **Errors**:
 - `400 MISSING_FIELD`
 - `401 INVALID_CREDENTIALS`
 - `403 FORBIDDEN` — Tài khoản bị suspended
+- `403 EMAIL_NOT_VERIFIED` — Email chưa xác thực OTP
 - `500 INTERNAL_ERROR`
+
+---
+
+### POST `/api/auth/google`
+
+**Mục đích**: Đăng ký mới hoặc đăng nhập bằng tài khoản Google (nhận `idToken` / `credential` từ Google Identity Services trên Web hoặc Google Sign-In trên Mobile). Backend tự verify chữ ký RS256 qua Google JWKS và tự động đánh dấu `emailVerified: true`.
+
+**Auth**: Public.
+
+**Request**:
+```json
+{ "idToken": "<Google_ID_Token_JWT>" }
+```
+*(Chấp nhận alias `"credential"` thay cho `"idToken"`.)*
+
+**Success (201 nếu tài khoản mới / 200 nếu đã có tài khoản)**:
+```json
+{
+  "token": "JWT (7d)",
+  "isNewUser": true,
+  "user": {
+    "_id": "string",
+    "name": "string",
+    "email": "user@gmail.com",
+    "avatarUrl": "https://lh3.googleusercontent.com/...",
+    "roles": ["buyer"],
+    "accountStatus": "active",
+    "emailVerified": true,
+    "authProvider": "google | both",
+    "addresses": []
+  }
+}
+```
+
+**Errors**:
+- `400 MISSING_FIELD`
+- `401 GOOGLE_TOKEN_INVALID` (chữ ký sai, hết hạn, sai `GOOGLE_CLIENT_ID`, hoặc email Google chưa xác thực)
+- `403 FORBIDDEN` (tài khoản bị suspended)
+- `503 SERVICE_UNAVAILABLE` (BE chưa cấu hình `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_IDS`)
 
 ---
 
@@ -224,6 +310,92 @@
 - `400 INVALID_INPUT`
 - `401 UNAUTHORIZED`
 - `404 ACCOUNT_NOT_FOUND`
+
+---
+
+### POST `/api/auth/forgot-password`
+
+**Mục đích**: Gửi mã OTP 6 số (hiệu lực 10 phút) qua Email để đặt lại mật khẩu. Luôn trả `200` thống nhất kể cả khi email không tồn tại (chống email enumeration).
+
+**Auth**: Public. Cooldown: tối thiểu `60s` giữa 2 lần gửi liên tiếp cho cùng 1 email.
+
+**Request**:
+```json
+{ "email": "nguyenvana@example.com" }
+```
+
+**Success (200)**:
+```json
+{
+  "message": "Nếu email tồn tại trong hệ thống, mã OTP đặt lại mật khẩu đã được gửi.",
+  "expiresInSeconds": 600
+}
+```
+
+**Errors**:
+- `400 MISSING_FIELD` / `400 INVALID_INPUT`
+- `429 RESET_OTP_COOLDOWN` (`details.retryAfterSeconds`)
+- `502 UPSTREAM_ERROR` / `503 SERVICE_UNAVAILABLE` (nếu cấu hình mail provider gặp sự cố)
+
+---
+
+### POST `/api/auth/verify-reset-otp`
+
+**Mục đích**: Kiểm tra mã OTP 6 số trước khi chuyển sang bước nhập mật khẩu mới (phù hợp UI 3 bước trên Web & Mobile). Trả về `resetToken` dùng 1 lần.
+
+**Auth**: Public. Giới hạn nhập sai tối đa `5` lần.
+
+**Request**:
+```json
+{ "email": "nguyenvana@example.com", "otp": "123456" }
+```
+
+**Success (200)**:
+```json
+{
+  "valid": true,
+  "resetToken": "<hex_64_chars>",
+  "expiresInSeconds": 600
+}
+```
+
+**Errors**:
+- `400 MISSING_FIELD` / `400 INVALID_INPUT`
+- `400 RESET_OTP_INVALID` (`details.remainingAttempts`)
+- `400 RESET_OTP_EXPIRED`
+- `429 RESET_OTP_TOO_MANY_ATTEMPTS`
+
+---
+
+### POST `/api/auth/reset-password`
+
+**Mục đích**: Đặt lại mật khẩu mới. Hỗ trợ cả 2 luồng:
+- **Luồng 3 bước**: gửi `{ email, resetToken, newPassword }` (sau khi đã gọi `/verify-reset-otp`).
+- **Luồng 2 bước**: gửi trực tiếp `{ email, otp, newPassword }`.
+
+**Auth**: Public.
+
+**Request**:
+```json
+{
+  "email": "nguyenvana@example.com",
+  "resetToken": "string (bắt buộc nếu không gửi otp)",
+  "otp": "123456 (bắt buộc nếu không gửi resetToken)",
+  "newPassword": "string (8..128 ký tự, không khoảng trắng, gồm chữ hoa + thường + số + ký tự đặc biệt, VD: Aa@12345)"
+}
+```
+
+**Success (200)**:
+```json
+{
+  "message": "Đặt lại mật khẩu thành công. Bạn có thể đăng nhập với mật khẩu mới."
+}
+```
+
+**Errors**:
+- `400 MISSING_FIELD` / `400 INVALID_INPUT`
+- `400 RESET_OTP_INVALID` / `400 RESET_OTP_EXPIRED` / `400 RESET_TOKEN_INVALID`
+- `429 RESET_OTP_TOO_MANY_ATTEMPTS`
 
 ---
 

@@ -12,12 +12,13 @@
 | 1 | **[FE_API_REFERENCE.md](./FE_API_REFERENCE.md)** | **Cẩm nang tích hợp chính**: Môi trường, tài khoản test, flow giỏ hàng, danh mục cây 3 tầng Shopee, Media, Reviews, code mẫu React và cURL. |
 | 2 | **[API_CONTRACT.md](./API_CONTRACT.md)** | **Đặc tả hợp đồng API chi tiết**: Request body, Response JSON, Headers, Status codes cho toàn bộ endpoints. |
 | 3 | **[API_CHANGELOG.md](./API_CHANGELOG.md)** | **Nhật ký thay đổi API**: Theo dõi toàn bộ thay đổi và các cập nhật mới nhất của backend. |
-| 4 | **[FE_CHAT_INTEGRATION_GUIDE.md](./FE_CHAT_INTEGRATION_GUIDE.md)** | **Tích hợp Chat Hybrid (AI + Admin)** & Socket.IO namespace `/chat`. |
+| 4 | **[FE_CHAT_INTEGRATION_GUIDE.md](./FE_CHAT_INTEGRATION_GUIDE.md)** | **Tích hợp Chat 1-1 (User ↔ Admin)** & Socket.IO namespace `/chat`. |
 | 5 | **[FE_MEDIA_INTEGRATION_GUIDE.md](./FE_MEDIA_INTEGRATION_GUIDE.md)** | **Tích hợp Media** (Hero Video, Story Feed, Nhạc nền). |
 | 6 | **[BE_HANDOFF_COMPOSITING.md](./BE_HANDOFF_COMPOSITING.md)** | **Hệ thống ghép ảnh 4 lớp** cho Tree Customizer (`foregroundMask`, `anchor`, `shadow`, `depth`). |
 | 7 | **[ASSET_PREPARATION_GUIDE.md](./ASSET_PREPARATION_GUIDE.md)** | **Hướng dẫn chuẩn bị ảnh** cho designer/ops (cây trơn, mask cành trước, PNG phụ kiện). |
+| 8 | **[FE_AUTH_INTEGRATION_GUIDE.md](./FE_AUTH_INTEGRATION_GUIDE.md)** | **Tích hợp Auth đầy đủ**: Validation `Aa@12345`, Xác thực Email OTP, Google Login/Sign-Up & Quên mật khẩu. |
 
-> Tài liệu kỹ thuật nội bộ BE xem thêm tại `backend/docs/` (`PRODUCT_CUSTOMIZATION.md`, `CHAT_API.md`, `CHAT_HYBRID_API.md`, `RENDER_KEEPALIVE.md`).
+> Tài liệu kỹ thuật nội bộ BE xem thêm tại `backend/docs/` (`PRODUCT_CUSTOMIZATION.md`, `CHAT_API.md`, `RENDER_KEEPALIVE.md`).
 
 ---
 

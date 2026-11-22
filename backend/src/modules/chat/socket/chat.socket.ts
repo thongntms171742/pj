@@ -129,7 +129,7 @@ export function initChatSocket(io: SocketIOServer): void {
     // Join room cá nhân: mọi tab/thiết bị của user đều nhận event.
     socket.join(ChatRooms.user(actor.userId));
 
-    // Admin join room admin để nhận tin nhắn nội bộ + handoff.
+    // Admin join room admin để nhận tin nhắn nội bộ + cập nhật hàng đợi.
     if (isAdmin(actor)) {
       socket.join(ChatRooms.admins);
     }

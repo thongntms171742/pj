@@ -48,17 +48,13 @@ const STATUS_TRANSITIONS: Record<ConversationStatus, ConversationStatus[]> = {
 };
 
 /**
- * Transition hợp lệ của `supportMode`.
- *   ai           → waiting_admin (escalate), human (admin nhận), ai_assisted
- *   waiting_admin→ human (admin nhận), ai (user hủy / AI tiếp tục)
- *   human        → ai_assisted (admin bật copilot), ai (trả về AI)
- *   ai_assisted  → human, ai
+ * Transition hợp lệ của `supportMode` (chat 1-1, không AI).
+ *   waiting_admin → human (admin nhận)
+ *   human         → waiting_admin (admin nhả / chuyển lại hàng đợi)
  */
 const MODE_TRANSITIONS: Record<SupportMode, SupportMode[]> = {
-  ai: ["waiting_admin", "human", "ai_assisted"],
-  waiting_admin: ["human", "ai"],
-  human: ["ai_assisted", "ai", "waiting_admin"],
-  ai_assisted: ["human", "ai"],
+  waiting_admin: ["human"],
+  human: ["waiting_admin"],
 };
 
 export function canTransitionStatus(
@@ -80,7 +76,7 @@ export function canTransitionMode(
 export interface ListConversationsOptions {
   page?: number;
   limit?: number;
-  status?: ConversationStatus | "all";
+  status?: ConversationStatus | "active" | "all";
 }
 
 export interface ConversationUserInfo {
@@ -88,11 +84,6 @@ export interface ConversationUserInfo {
   name: string;
   email: string;
   avatarUrl?: string;
-}
-
-export interface ConversationAdminInfo {
-  _id: Types.ObjectId;
-  name: string;
 }
 
 /**
@@ -140,6 +131,31 @@ export async function loadAdminNames(
   return map;
 }
 
+/** Chuyển 1 conversation sang DTO kèm `assignedAdminName` (nếu có admin). */
+export async function mapConversationWithAdmin(conversation: IConversation) {
+  const adminId = rawAssignedAdminId(conversation);
+  let adminName: string | null = null;
+  if (adminId) {
+    const names = await loadAdminNames([adminId]);
+    adminName = names.get(String(adminId)) ?? null;
+  }
+  return conversationToDto(conversation, {
+    admin: adminName ? { name: adminName } : null,
+  });
+}
+
+/** Chuyển danh sách conversation sang DTO kèm `assignedAdminName` (batch 1 query). */
+export async function mapConversationsWithAdmin(conversations: IConversation[]) {
+  const adminNames = await loadAdminNames(
+    conversations.map((c) => rawAssignedAdminId(c))
+  );
+  return conversations.map((c) => {
+    const adminId = rawAssignedAdminId(c);
+    const adminName = adminId ? adminNames.get(String(adminId)) ?? null : null;
+    return conversationToDto(c, { admin: adminName ? { name: adminName } : null });
+  });
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function assertTransition(
@@ -179,7 +195,7 @@ function normalizePagination(page?: number, limit?: number) {
  *
  * - Idempotent: nếu user đã có conversation `open`/`pending` thì trả lại
  *   conversation đó thay vì tạo trùng (1 user — 1 hội thoại active).
- * - `supportMode` khởi tạo là `ai` nếu AI khả dụng, ngược lại `waiting_admin`.
+ * - `supportMode` khởi tạo luôn là `waiting_admin` (chờ admin nhận).
  */
 export async function createConversation(
   actor: ChatActor,
@@ -198,15 +214,10 @@ export async function createConversation(
     if (existing) return existing;
   }
 
-  // AI khả dụng → bắt đầu ở mode AI. Ngược lại → chờ admin.
-  const { isAiAvailable } = await import("../../../config/ai.config");
-  const supportMode: SupportMode = isAiAvailable() ? "ai" : "waiting_admin";
-
   return Conversation.create({
     userId: actor.userId,
     status: "open",
-    supportMode,
-    aiConfig: { enabled: supportMode === "ai" },
+    supportMode: "waiting_admin",
     unreadCount: { user: 0, admin: 0 },
     version: 1,
   });
@@ -261,14 +272,21 @@ export async function listAdminConversations(
   const scope = options.scope ?? "all";
 
   const filter: Record<string, unknown> = {};
-  if (scope === "unassigned") {
+  if (
+    options.status === "open" ||
+    options.status === "pending" ||
+    options.status === "closed"
+  ) {
+    filter.status = options.status;
+  } else if (options.status !== "all") {
+    // Mặc định ("active" hoặc không truyền): chỉ lấy hội thoại đang hoạt động.
     filter.status = { $in: ["open", "pending"] };
+  }
+
+  if (scope === "unassigned") {
     filter.assignedAdminId = null;
   } else if (scope === "mine") {
     filter.assignedAdminId = actor.userId;
-    filter.status = { $in: ["open", "pending"] };
-  } else {
-    filter.status = { $in: ["open", "pending"] };
   }
 
   if (options.supportMode && options.supportMode !== "all") {
@@ -301,7 +319,7 @@ export async function getConversation(
 // ── Mutation: supportMode / status ───────────────────────────────────────────
 
 /**
- * Chuyển trạng thái conversation — dùng NỘI BỘ (handoff, AI orchestrator).
+ * Chuyển trạng thái conversation — dùng NỘI BỘ (admin claim/close/reopen).
  *
  * KHÔNG kiểm tra quyền actor — caller đã chịu trách nhiệm kiểm tra trước.
  * Vẫn validate state machine + optimistic locking.
@@ -327,6 +345,19 @@ export async function updateConversationState(
   const nextStatus = params.status ?? conversation.status;
   const nextMode = params.supportMode ?? conversation.supportMode;
 
+  if (
+    conversation.status === "closed" &&
+    nextStatus === "closed" &&
+    params.supportMode &&
+    params.supportMode !== conversation.supportMode
+  ) {
+    throw new ChatError(
+      ErrorCode.CHAT_STATUS_INVALID,
+      "Hội thoại đã đóng — hãy mở lại trước khi đổi chế độ hỗ trợ",
+      400
+    );
+  }
+
   assertTransition(conversation.status, nextStatus, conversation.supportMode, nextMode);
 
   const now = new Date();
@@ -338,6 +369,9 @@ export async function updateConversationState(
 
   if (params.assignedAdminId !== undefined) {
     update.assignedAdminId = params.assignedAdminId;
+  } else if (nextMode === "waiting_admin") {
+    // Quay về hàng đợi chờ admin ⇒ xóa admin đã gán trước đó (VD: khi reopen).
+    update.assignedAdminId = null;
   }
   if (nextStatus === "closed") {
     update.closedAt = now;
@@ -363,9 +397,10 @@ export async function updateConversationState(
   }
 
   // Báo realtime cho các client đang subscribe conversation này.
+  const dto = await mapConversationWithAdmin(updated);
   emitConversationUpdated({
     conversationId: String(updated._id),
-    conversation: conversationToDto(updated),
+    conversation: dto,
   });
   emitUnreadChanged({
     userId: String(updated.userId),
@@ -438,7 +473,7 @@ export async function transitionConversation(
       );
     }
 
-    // Owner được đổi supportMode kèm khi mở lại (→ AI), không đổi tùy ý.
+    // Owner được đổi supportMode kèm khi mở lại (→ waiting_admin), không đổi tùy ý.
     const modeChangeAllowed =
       nextMode === conversation.supportMode ||
       (nextStatus === "open" && conversation.status === "closed");
@@ -496,6 +531,34 @@ export async function totalUnreadForAdmin(): Promise<number> {
 
 // ── Close / reopen ────────────────────────────────────────────────────────────
 
+/** Admin tiếp nhận (claim) conversation đang mở → supportMode="human". */
+export async function assignConversation(
+  conversationId: string,
+  actor: ChatActor,
+  expectedVersion?: number
+): Promise<IConversation> {
+  if (!isAdmin(actor)) {
+    throw new ChatError(
+      ErrorCode.CHAT_FORBIDDEN,
+      "Chỉ admin mới có quyền tiếp nhận hội thoại",
+      403
+    );
+  }
+  const conversation = await loadConversationForActor(conversationId, actor);
+  if (conversation.status === "closed") {
+    throw new ChatError(
+      ErrorCode.CHAT_STATUS_INVALID,
+      "Hội thoại đã đóng — hãy mở lại trước khi tiếp nhận",
+      400
+    );
+  }
+  return updateConversationState(conversation._id, {
+    supportMode: "human",
+    assignedAdminId: new Types.ObjectId(actor.userId),
+    expectedVersion,
+  });
+}
+
 /** Đóng conversation (user hoặc admin). */
 export async function closeConversation(
   conversationId: string,
@@ -537,27 +600,8 @@ export async function reopenConversation(
 
   return transitionConversation(conversationId, actor, {
     status: "open",
-    supportMode: "ai",
+    supportMode: "waiting_admin",
   });
-}
-
-// ── AI lock (Phase 5) ────────────────────────────────────────────────────────
-
-/**
- * Khoá conversation để AI xử lý — chống 2 request AI chạy song song.
- *
- * Dùng `version` làm token: chỉ request có `expectedVersion` khớp mới
- * thắng. Request sau thất bại ⇒ đã có request khác đang xử lý.
- */
-export async function acquireAiLock(
-  conversationId: Types.ObjectId,
-  expectedVersion: number
-): Promise<IConversation | null> {
-  return Conversation.findOneAndUpdate(
-    { _id: conversationId, version: expectedVersion, status: { $ne: "closed" } },
-    { $inc: { version: 1 } },
-    { new: true }
-  );
 }
 
 // ── Messages helper ───────────────────────────────────────────────────────────

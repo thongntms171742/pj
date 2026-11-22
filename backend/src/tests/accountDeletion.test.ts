@@ -210,7 +210,7 @@ async function runAccountDeletionTests() {
       check("Reviews deleted", reviewsAfter.length === 0);
       check("Notifications deleted", notifsAfter.length === 0);
 
-      // Step D: Delete Chat data (conversation + messages + handoff)
+      // Step D: Delete Chat data (conversation + messages)
       const convIds = (await Conversation.find({ userId }).select("_id")).map(
         (c) => c._id
       );
