@@ -195,20 +195,79 @@ async function runUnitTests() {
       webhookRes.delivered
     );
 
-    // Webhook returns HTTP 200 with { ok: false, error: "..." }
-    globalThis.fetch = (async () => ({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({ ok: false, error: "Invalid secret" }),
-    }) as any) as typeof fetch;
+    const origConsoleError = console.error;
+    const loggedServerErrors: string[] = [];
+    console.error = (...args: unknown[]) => {
+      loggedServerErrors.push(args.map((a) => String(a)).join(" "));
+    };
 
-    let appErrThrew = false;
     try {
-      await sendEmail({ to: "u@test.vn", subject: "OTP", html: "<b>123456</b>", text: "123456" });
-    } catch (e) {
-      appErrThrew = e instanceof EmailDeliveryError && e.status === 502 && e.message.includes("Invalid secret");
+      // Webhook returns HTTP 200 with { ok: false, error: "..." }
+      globalThis.fetch = (async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: false, error: "Invalid secret" }),
+      }) as any) as typeof fetch;
+
+      let appErrThrew = false;
+      try {
+        await sendEmail({ to: "u@test.vn", subject: "OTP", html: "<b>123456</b>", text: "123456" });
+      } catch (e) {
+        appErrThrew = e instanceof EmailDeliveryError && e.status === 502 && e.message.includes("Invalid secret");
+      }
+      check("Webhook JSON { ok: false } throws 502 EmailDeliveryError", appErrThrew);
+
+      // Webhook returns HTTP 500 with raw HTML page → must NOT leak HTML to client, MUST log server-side
+      loggedServerErrors.length = 0;
+      globalThis.fetch = (async () => ({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        headers: new Headers({ "content-type": "text/html; charset=utf-8" }),
+        text: async () => "<!DOCTYPE html><html><body><h1>Google Script Error Stack</h1></body></html>",
+      }) as any) as typeof fetch;
+
+      let htmlErrSanitized = false;
+      try {
+        await sendEmail({ to: "u@test.vn", subject: "OTP", html: "<b>123456</b>", text: "123456" });
+      } catch (e) {
+        htmlErrSanitized =
+          e instanceof EmailDeliveryError &&
+          e.status === 502 &&
+          e.message === "Dịch vụ gửi email tạm thời gián đoạn" &&
+          !e.message.includes("<html") &&
+          !e.message.includes("<!DOCTYPE");
+      }
+      check(
+        "Webhook HTML error logs server-side and returns concise client message",
+        htmlErrSanitized && loggedServerErrors.some((l) => l.includes("Google Script Error Stack"))
+      );
+
+      // Webhook returns HTTP 200 HTML login page (e.g., private Apps Script redirect) → treat as 502 outage
+      loggedServerErrors.length = 0;
+      globalThis.fetch = (async () => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "text/html" }),
+        text: async () => "<!doctype html><html><title>Sign in - Google Accounts</title></html>",
+      }) as any) as typeof fetch;
+
+      let html200Blocked = false;
+      try {
+        await sendEmail({ to: "u@test.vn", subject: "OTP", html: "<b>123456</b>", text: "123456" });
+      } catch (e) {
+        html200Blocked =
+          e instanceof EmailDeliveryError &&
+          e.status === 502 &&
+          e.message === "Dịch vụ gửi email tạm thời gián đoạn";
+      }
+      check(
+        "Webhook HTTP 200 HTML page is rejected as 502 instead of false success",
+        html200Blocked && loggedServerErrors.some((l) => l.includes("Sign in - Google Accounts"))
+      );
+    } finally {
+      console.error = origConsoleError;
     }
-    check("Webhook JSON { ok: false } throws 502 EmailDeliveryError", appErrThrew);
   } finally {
     globalThis.fetch = origFetch;
     Object.entries(prevEnv).forEach(([k, v]) => {
@@ -352,8 +411,8 @@ async function runDbIntegrationTests() {
   } finally {
     setEmailTransportForTest(null);
     clearResetCooldownsForTest();
-    await PasswordReset.deleteMany({ email: testEmail }).catch(() => {});
-    await User.deleteMany({ email: testEmail }).catch(() => {});
+    await PasswordReset.deleteMany({ email: testEmail }).catch(() => { });
+    await User.deleteMany({ email: testEmail }).catch(() => { });
   }
 }
 

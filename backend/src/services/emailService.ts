@@ -64,6 +64,19 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+const SAFE_EMAIL_OUTAGE_MESSAGE = "Dịch vụ gửi email tạm thời gián đoạn";
+
+function looksLikeHtml(body: string, contentType?: string | null): boolean {
+  if (contentType && /\btext\/html\b/i.test(contentType)) return true;
+  const trimmed = body.trim();
+  if (!trimmed) return false;
+  return (
+    /^(<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]|<script[\s>]|<style[\s>]|<div[\s>])/i.test(
+      trimmed
+    ) || /<\/(html|body|head|title|script|div)>/i.test(trimmed)
+  );
+}
+
 async function sendViaWebhook(input: SendEmailInput): Promise<SendEmailResult> {
   const webhookUrl = getWebhookUrl();
   if (!/^https?:\/\//i.test(webhookUrl)) {
@@ -88,24 +101,39 @@ async function sendViaWebhook(input: SendEmailInput): Promise<SendEmailResult> {
     signal: AbortSignal.timeout(15_000),
   });
 
+  const contentType = res.headers?.get?.("content-type");
+
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    throw new EmailDeliveryError(
-      `Email webhook lỗi (${res.status}): ${errText || res.statusText}`,
-      502
+    console.error(
+      `[email] Webhook HTTP ${res.status} (${res.statusText || "error"}):`,
+      errText.slice(0, 2000)
     );
+    throw new EmailDeliveryError(SAFE_EMAIL_OUTAGE_MESSAGE, 502);
   }
 
-  // Google Apps Script thường trả HTTP 200 kể cả khi script báo lỗi trong JSON.
+  // Google Apps Script thường trả HTTP 200 kể cả khi script báo lỗi trong JSON,
+  // hoặc trả trang HTML đăng nhập nếu deployment chưa mở quyền "Anyone".
   const rawBody = await res.text().catch(() => "");
   if (rawBody) {
+    if (looksLikeHtml(rawBody, contentType)) {
+      console.error(
+        `[email] Webhook trả HTML ngoài dự kiến (HTTP ${res.status}):`,
+        rawBody.slice(0, 2000)
+      );
+      throw new EmailDeliveryError(SAFE_EMAIL_OUTAGE_MESSAGE, 502);
+    }
+
     try {
-      const parsed = JSON.parse(rawBody) as { ok?: boolean; error?: string };
+      const parsed = JSON.parse(rawBody) as { ok?: boolean; error?: unknown };
       if (parsed && parsed.ok === false) {
-        throw new EmailDeliveryError(
-          `Email webhook từ chối: ${parsed.error || "Unknown error"}`,
-          502
-        );
+        const rawErr = typeof parsed.error === "string" ? parsed.error.trim() : "";
+        console.error("[email] Webhook từ chối gửi mail:", rawErr || parsed.error);
+        const safeErr =
+          rawErr && !looksLikeHtml(rawErr) && rawErr.length <= 200
+            ? `Email webhook từ chối: ${rawErr}`
+            : SAFE_EMAIL_OUTAGE_MESSAGE;
+        throw new EmailDeliveryError(safeErr, 502);
       }
     } catch (err) {
       if (err instanceof EmailDeliveryError) throw err;
