@@ -8,17 +8,22 @@
  */
 
 import { User, type IUser } from "../models/User";
-import { EmailVerification, type IEmailVerification } from "../models/EmailVerification";
+import { EmailVerification } from "../models/EmailVerification";
 import { ErrorCode } from "../utils/errors";
 import {
+  assertOtpRecordActive,
   AuthFlowError,
+  consumeInvalidOtpAttempt,
+  enforceOtpCooldown,
   generateOtpCode,
   hashOtpSecret,
   isValidOtpFormat,
   readPositiveIntEnv,
+  restoreOtpCooldown,
+  rethrowAsAuthFlowError,
   safeEqualHex,
 } from "../utils/otp";
-import { EmailDeliveryError, sendEmailVerificationOtpEmail } from "./emailService";
+import { sendEmailVerificationOtpEmail } from "./emailService";
 
 export function isEmailVerificationRequired(): boolean {
   return process.env.REQUIRE_EMAIL_VERIFICATION?.trim().toLowerCase() !== "false";
@@ -42,23 +47,20 @@ export function clearVerifyCooldownsForTest(): void {
   verifyCooldownMap.clear();
 }
 
+function checkVerifyCooldown(email: string) {
+  return enforceOtpCooldown(
+    verifyCooldownMap,
+    email,
+    getVerifyCooldownMs(),
+    ErrorCode.VERIFY_OTP_COOLDOWN,
+    (sec) => `Vui lòng chờ ${sec} giây trước khi gửi lại mã xác thực`
+  );
+}
+
 export async function issueVerificationOtpForUser(
   user: Pick<IUser, "_id" | "email" | "name">
 ): Promise<{ expiresInSeconds: number }> {
-  const now = Date.now();
-  const cooldownMs = getVerifyCooldownMs();
-  const prevSentAt = verifyCooldownMap.get(user.email);
-  if (prevSentAt !== undefined && now - prevSentAt < cooldownMs) {
-    const retryAfterSeconds = Math.max(1, Math.ceil((cooldownMs - (now - prevSentAt)) / 1000));
-    throw new AuthFlowError(
-      ErrorCode.VERIFY_OTP_COOLDOWN,
-      `Vui lòng chờ ${retryAfterSeconds} giây trước khi gửi lại mã xác thực`,
-      429,
-      { retryAfterSeconds }
-    );
-  }
-
-  verifyCooldownMap.set(user.email, now);
+  const { now, prevSentAt } = checkVerifyCooldown(user.email);
 
   const ttlMs = getVerifyOtpTtlMs();
   const expiresInSeconds = Math.floor(ttlMs / 1000);
@@ -84,17 +86,8 @@ export async function issueVerificationOtpForUser(
     });
   } catch (err) {
     await EmailVerification.deleteOne({ _id: record._id }).catch(() => {});
-    if (prevSentAt !== undefined) verifyCooldownMap.set(user.email, prevSentAt);
-    else verifyCooldownMap.delete(user.email);
-
-    if (err instanceof EmailDeliveryError) {
-      throw new AuthFlowError(
-        err.status === 503 ? ErrorCode.SERVICE_UNAVAILABLE : ErrorCode.UPSTREAM_ERROR,
-        err.message,
-        err.status
-      );
-    }
-    throw err;
+    restoreOtpCooldown(verifyCooldownMap, user.email, prevSentAt);
+    rethrowAsAuthFlowError(err);
   }
 
   return { expiresInSeconds };
@@ -115,19 +108,7 @@ export async function resendVerificationOtp(email: string): Promise<{
   );
   if (!user || user.accountStatus === "suspended") {
     // Tôn trọng cooldown trước để tránh dò tài khoản qua timing/429 khác biệt.
-    const now = Date.now();
-    const cooldownMs = getVerifyCooldownMs();
-    const prev = verifyCooldownMap.get(email);
-    if (prev !== undefined && now - prev < cooldownMs) {
-      const retryAfterSeconds = Math.max(1, Math.ceil((cooldownMs - (now - prev)) / 1000));
-      throw new AuthFlowError(
-        ErrorCode.VERIFY_OTP_COOLDOWN,
-        `Vui lòng chờ ${retryAfterSeconds} giây trước khi gửi lại mã xác thực`,
-        429,
-        { retryAfterSeconds }
-      );
-    }
-    verifyCooldownMap.set(email, now);
+    checkVerifyCooldown(email);
     return { message: UNIFORM_RESEND_MESSAGE, expiresInSeconds: defaultExpires };
   }
 
@@ -141,30 +122,6 @@ export async function resendVerificationOtp(email: string): Promise<{
 
   const { expiresInSeconds } = await issueVerificationOtpForUser(user);
   return { message: UNIFORM_RESEND_MESSAGE, expiresInSeconds };
-}
-
-async function consumeWrongVerifyAttempt(record: IEmailVerification): Promise<never> {
-  const maxAttempts = getVerifyMaxAttempts();
-  const updated = await EmailVerification.findOneAndUpdate(
-    { _id: record._id },
-    { $inc: { attempts: 1 } },
-    { new: true }
-  );
-  const nextAttempts = updated?.attempts ?? record.attempts + 1;
-  if (nextAttempts >= maxAttempts) {
-    await EmailVerification.deleteMany({ userId: record.userId });
-    throw new AuthFlowError(
-      ErrorCode.VERIFY_OTP_TOO_MANY_ATTEMPTS,
-      "Bạn đã nhập sai OTP xác thực quá số lần cho phép. Vui lòng yêu cầu mã mới.",
-      429
-    );
-  }
-  throw new AuthFlowError(
-    ErrorCode.VERIFY_OTP_INVALID,
-    "Mã OTP xác thực không đúng",
-    400,
-    { remainingAttempts: Math.max(0, maxAttempts - nextAttempts) }
-  );
 }
 
 export async function verifyEmailOtp(params: {
@@ -207,34 +164,48 @@ export async function verifyEmailOtp(params: {
     );
   }
 
-  if (record.expiresAt.getTime() <= Date.now()) {
-    await EmailVerification.deleteMany({ userId: user._id });
-    throw new AuthFlowError(
-      ErrorCode.VERIFY_OTP_EXPIRED,
-      "Mã OTP đã hết hạn. Vui lòng yêu cầu gửi lại mã mới.",
-      400
-    );
-  }
+  const maxAttempts = getVerifyMaxAttempts();
+  const clearRecords = () => EmailVerification.deleteMany({ userId: user._id });
 
-  if (record.attempts >= getVerifyMaxAttempts()) {
-    await EmailVerification.deleteMany({ userId: user._id });
-    throw new AuthFlowError(
-      ErrorCode.VERIFY_OTP_TOO_MANY_ATTEMPTS,
+  await assertOtpRecordActive({
+    expiresAt: record.expiresAt,
+    attempts: record.attempts,
+    maxAttempts,
+    clearRecords,
+    expiredCode: ErrorCode.VERIFY_OTP_EXPIRED,
+    expiredMessage: "Mã OTP đã hết hạn. Vui lòng yêu cầu gửi lại mã mới.",
+    tooManyAttemptsCode: ErrorCode.VERIFY_OTP_TOO_MANY_ATTEMPTS,
+    tooManyAttemptsMessage:
       "Bạn đã nhập sai OTP xác thực quá số lần cho phép. Vui lòng yêu cầu mã mới.",
-      429
-    );
-  }
+  });
 
   const expectedHash = hashOtpSecret(String(user._id), params.otp.trim(), "email_verify");
   if (!safeEqualHex(record.otpHash, expectedHash)) {
-    await consumeWrongVerifyAttempt(record);
+    await consumeInvalidOtpAttempt({
+      fallbackAttempts: record.attempts,
+      maxAttempts,
+      incrementAttempt: async () => {
+        const updated = await EmailVerification.findOneAndUpdate(
+          { _id: record._id },
+          { $inc: { attempts: 1 } },
+          { new: true }
+        );
+        return updated?.attempts;
+      },
+      clearRecords,
+      tooManyAttemptsCode: ErrorCode.VERIFY_OTP_TOO_MANY_ATTEMPTS,
+      tooManyAttemptsMessage:
+        "Bạn đã nhập sai OTP xác thực quá số lần cho phép. Vui lòng yêu cầu mã mới.",
+      invalidCode: ErrorCode.VERIFY_OTP_INVALID,
+      invalidMessage: "Mã OTP xác thực không đúng",
+    });
   }
 
   user.emailVerified = true;
   user.emailVerifiedAt = new Date();
   await user.save();
 
-  await EmailVerification.deleteMany({ userId: user._id });
+  await clearRecords();
   verifyCooldownMap.delete(user.email);
 
   return user;

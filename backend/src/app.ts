@@ -24,6 +24,7 @@ import adminChatRoutes from "./modules/chat/routes/adminChat.routes";
 import shippingRoutes from "./routes/shipping";
 import reviewRoutes from "./routes/reviews";
 import productRoutes from "./routes/products";
+import appVersionRoutes from "./routes/appVersion";
 import { sendError, ErrorCode, handleInternalError } from "./utils/errors";
 
 const app = express();
@@ -119,6 +120,7 @@ app.use("/api/chat/admin", adminChatRoutes);
 app.use("/api/shipping", shippingRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/app-version", appVersionRoutes);
 
 // ── 404 catch-all ──────────────────────────────────────────────────────────────
 app.use("/api/*", (_req, res) => {

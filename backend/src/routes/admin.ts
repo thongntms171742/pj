@@ -50,6 +50,10 @@ import {
   getWarehouse,
   updateWarehouse,
 } from "../controllers/shippingController";
+import {
+  getAdminAppVersionConfigs,
+  updateAdminAppVersionConfig,
+} from "../controllers/appVersionController";
 
 const router = Router();
 
@@ -122,5 +126,11 @@ router.get("/reviews", adminListReviews);
 router.post("/reviews/:id/reply", adminReplyReview);
 router.patch("/reviews/:id/status", adminUpdateReviewStatus);
 router.delete("/reviews/:id", adminDeleteReview);
+
+// ── Mobile App Version / Force Update ────────────────────────────────────────
+router.get("/app-version", getAdminAppVersionConfigs);
+router.put("/app-version", updateAdminAppVersionConfig);
+router.patch("/app-version", updateAdminAppVersionConfig);
+router.post("/app-version", updateAdminAppVersionConfig);
 
 export default router;

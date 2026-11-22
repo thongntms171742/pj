@@ -11,19 +11,20 @@ import { User } from "../models/User";
 import { PasswordReset, type IPasswordReset } from "../models/PasswordReset";
 import { ErrorCode } from "../utils/errors";
 import {
+  assertOtpRecordActive,
   AuthFlowError,
+  consumeInvalidOtpAttempt,
+  enforceOtpCooldown,
   generateHexToken,
   generateOtpCode,
   hashOtpSecret,
   isValidOtpFormat,
   readPositiveIntEnv,
+  restoreOtpCooldown,
+  rethrowAsAuthFlowError,
   safeEqualHex,
 } from "../utils/otp";
-import {
-  EmailDeliveryError,
-  isEmailProviderConfigured,
-  sendPasswordResetOtpEmail,
-} from "./emailService";
+import { isEmailProviderConfigured, sendPasswordResetOtpEmail } from "./emailService";
 
 export const PasswordResetError = AuthFlowError;
 export {
@@ -74,20 +75,13 @@ export async function requestPasswordReset(email: string): Promise<{
   expiresInSeconds: number;
   devOtp?: string;
 }> {
-  const now = Date.now();
-  const cooldownMs = getOtpCooldownMs();
-  const prevSentAt = requestCooldownMap.get(email);
-  if (prevSentAt !== undefined && now - prevSentAt < cooldownMs) {
-    const retryAfterSeconds = Math.max(1, Math.ceil((cooldownMs - (now - prevSentAt)) / 1000));
-    throw new AuthFlowError(
-      ErrorCode.RESET_OTP_COOLDOWN,
-      `Vui lòng chờ ${retryAfterSeconds} giây trước khi gửi lại mã OTP`,
-      429,
-      { retryAfterSeconds }
-    );
-  }
-
-  requestCooldownMap.set(email, now);
+  const { now, prevSentAt } = enforceOtpCooldown(
+    requestCooldownMap,
+    email,
+    getOtpCooldownMs(),
+    ErrorCode.RESET_OTP_COOLDOWN,
+    (sec) => `Vui lòng chờ ${sec} giây trước khi gửi lại mã OTP`
+  );
 
   const otpTtlMs = getOtpTtlMs();
   const expiresInSeconds = Math.floor(otpTtlMs / 1000);
@@ -120,17 +114,8 @@ export async function requestPasswordReset(email: string): Promise<{
     });
   } catch (err) {
     await PasswordReset.deleteOne({ _id: createdRecord._id }).catch(() => {});
-    if (prevSentAt !== undefined) requestCooldownMap.set(email, prevSentAt);
-    else requestCooldownMap.delete(email);
-
-    if (err instanceof EmailDeliveryError) {
-      throw new AuthFlowError(
-        err.status === 503 ? ErrorCode.SERVICE_UNAVAILABLE : ErrorCode.UPSTREAM_ERROR,
-        err.message,
-        err.status
-      );
-    }
-    throw err;
+    restoreOtpCooldown(requestCooldownMap, email, prevSentAt);
+    rethrowAsAuthFlowError(err);
   }
 
   const exposeDevOtp =
@@ -143,30 +128,6 @@ export async function requestPasswordReset(email: string): Promise<{
     expiresInSeconds,
     ...(exposeDevOtp ? { devOtp: otp } : {}),
   };
-}
-
-async function consumeWrongOtpAttempt(record: IPasswordReset): Promise<never> {
-  const maxAttempts = getOtpMaxAttempts();
-  const updated = await PasswordReset.findOneAndUpdate(
-    { _id: record._id },
-    { $inc: { attempts: 1 } },
-    { new: true }
-  );
-  const nextAttempts = updated?.attempts ?? record.attempts + 1;
-  if (nextAttempts >= maxAttempts) {
-    await PasswordReset.deleteMany({ userId: record.userId });
-    throw new AuthFlowError(
-      ErrorCode.RESET_OTP_TOO_MANY_ATTEMPTS,
-      "Bạn đã nhập sai OTP quá số lần cho phép. Vui lòng yêu cầu mã mới.",
-      429
-    );
-  }
-  throw new AuthFlowError(
-    ErrorCode.RESET_OTP_INVALID,
-    "Mã OTP không đúng",
-    400,
-    { remainingAttempts: Math.max(0, maxAttempts - nextAttempts) }
-  );
 }
 
 async function validateActiveOtpRecord(
@@ -191,27 +152,41 @@ async function validateActiveOtpRecord(
     );
   }
 
-  if (record.expiresAt.getTime() <= Date.now()) {
-    await PasswordReset.deleteMany({ userId: user._id });
-    throw new AuthFlowError(
-      ErrorCode.RESET_OTP_EXPIRED,
-      "Mã OTP đã hết hạn. Vui lòng yêu cầu mã mới.",
-      400
-    );
-  }
+  const maxAttempts = getOtpMaxAttempts();
+  const clearRecords = () => PasswordReset.deleteMany({ userId: user._id });
 
-  if (record.attempts >= getOtpMaxAttempts()) {
-    await PasswordReset.deleteMany({ userId: user._id });
-    throw new AuthFlowError(
-      ErrorCode.RESET_OTP_TOO_MANY_ATTEMPTS,
+  await assertOtpRecordActive({
+    expiresAt: record.expiresAt,
+    attempts: record.attempts,
+    maxAttempts,
+    clearRecords,
+    expiredCode: ErrorCode.RESET_OTP_EXPIRED,
+    expiredMessage: "Mã OTP đã hết hạn. Vui lòng yêu cầu mã mới.",
+    tooManyAttemptsCode: ErrorCode.RESET_OTP_TOO_MANY_ATTEMPTS,
+    tooManyAttemptsMessage:
       "Bạn đã nhập sai OTP quá số lần cho phép. Vui lòng yêu cầu mã mới.",
-      429
-    );
-  }
+  });
 
   const expectedHash = hashOtpSecret(String(user._id), otp, "otp");
   if (!safeEqualHex(record.otpHash, expectedHash)) {
-    await consumeWrongOtpAttempt(record);
+    await consumeInvalidOtpAttempt({
+      fallbackAttempts: record.attempts,
+      maxAttempts,
+      incrementAttempt: async () => {
+        const updated = await PasswordReset.findOneAndUpdate(
+          { _id: record._id },
+          { $inc: { attempts: 1 } },
+          { new: true }
+        );
+        return updated?.attempts;
+      },
+      clearRecords,
+      tooManyAttemptsCode: ErrorCode.RESET_OTP_TOO_MANY_ATTEMPTS,
+      tooManyAttemptsMessage:
+        "Bạn đã nhập sai OTP quá số lần cho phép. Vui lòng yêu cầu mã mới.",
+      invalidCode: ErrorCode.RESET_OTP_INVALID,
+      invalidMessage: "Mã OTP không đúng",
+    });
   }
 
   return { userId: String(user._id), record };

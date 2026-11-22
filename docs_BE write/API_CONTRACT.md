@@ -2151,6 +2151,90 @@ resource_type: "raw"        // ← field MỚI (optional, mặc định "auto")
 
 ---
 
+## Mobile App Version & Force Update
+
+### GET `/api/app-version/check`
+
+**Mục đích**: Mobile App (Android / iOS) kiểm tra phiên bản mới nhất, xác định có cần hiện popup khuyến nghị cập nhật (`hasUpdate: true`) hay bắt buộc cập nhật (`forceUpdate: true`) hoặc bảo trì (`isMaintenance: true`).
+
+**Auth**: Public.
+
+**Query params**:
+- `platform` (alias `os`): `android | ios` *(bỏ trống sẽ trả về cả `{ android, ios }`)*
+- `version` (alias `appVersion`, `currentVersion`): `string` (VD: `1.1.3`)
+- `buildNumber` (alias `build`, `versionCode`): `integer` (optional, VD: `7`)
+
+> **Mặc định hệ thống (khi Admin chưa lưu MongoDB / có thể ghi đè qua env Render)**:
+> - **Android**: `latestVersion: "1.1.3"`, `minSupportedVersion: "1.1.3"`, `latestBuildNumber: 7`, `minBuildNumber: 7`, `storeUrl: "https://play.google.com/store/apps/details?id=com.buildyourchristmas.mobile"`. Mọi máy `< 1.1.3` hoặc `buildNumber < 7` sẽ nhận `hasUpdate: true, forceUpdate: true`; máy đang ở `1.1.3 (7)` nhận `hasUpdate: false, forceUpdate: false`.
+> - **iOS**: `latestVersion: "1.0.0"`, `minSupportedVersion: "1.0.0"`, `latestBuildNumber: null`, `minBuildNumber: null`, `storeUrl: ""`.
+> - **Biến env fallback**: `MOBILE_<ANDROID|IOS>_LATEST_VERSION`, `MOBILE_<ANDROID|IOS>_MIN_VERSION`, `MOBILE_<ANDROID|IOS>_LATEST_BUILD`, `MOBILE_<ANDROID|IOS>_MIN_BUILD`, `MOBILE_<ANDROID|IOS>_FORCE_UPDATE`, `MOBILE_<ANDROID|IOS>_STORE_URL`.
+
+**Success (200)**:
+```json
+{
+  "platform": "android",
+  "currentVersion": "1.0.0",
+  "currentBuildNumber": 10,
+  "latestVersion": "1.2.0",
+  "minSupportedVersion": "1.1.0",
+  "latestBuildNumber": 12,
+  "minBuildNumber": 11,
+  "hasUpdate": true,
+  "forceUpdate": true,
+  "storeUrl": "https://play.google.com/store/apps/details?id=...",
+  "title": "Đã có phiên bản mới",
+  "message": "Vui lòng cập nhật ứng dụng để có trải nghiệm tốt nhất.",
+  "releaseNotes": ["Cải thiện tốc độ", "Sửa lỗi chat"],
+  "isMaintenance": false,
+  "maintenanceMessage": "",
+  "updatedBy": "admin@buildyourchristmas.vn",
+  "updatedAt": "ISO | null",
+  "checkedAt": "ISO"
+}
+```
+
+**Errors**: `400 INVALID_INPUT` (sai `platform`, `version` hoặc `buildNumber`)
+
+---
+
+### GET `/api/admin/app-version`
+
+**Auth**: Admin.
+
+**Success (200)**: `{ "configs": { "android": { ... }, "ios": { ... } } }`
+
+---
+
+### PUT / PATCH / POST `/api/admin/app-version`
+
+**Mục đích**: Admin cấu hình phiên bản mới nhất & ngưỡng bắt buộc cập nhật cho Android / iOS (lưu DB `MobileAppConfig`).
+
+**Auth**: Admin.
+
+**Request (1 nền tảng hoặc gộp `{ android, ios }`)**:
+```json
+{
+  "platform": "android",
+  "latestVersion": "1.2.0",
+  "minSupportedVersion": "1.1.0",
+  "latestBuildNumber": 12,
+  "minBuildNumber": 11,
+  "forceUpdate": false,
+  "storeUrl": "https://play.google.com/store/apps/details?id=...",
+  "title": "Đã có phiên bản mới",
+  "message": "Cập nhật ngay để trải nghiệm tính năng mới",
+  "releaseNotes": ["Thêm đăng nhập Google", "Tối ưu giao diện"],
+  "isMaintenance": false,
+  "maintenanceMessage": ""
+}
+```
+
+**Success (200)**: `{ "config": { ... } }` (hoặc `{ "configs": { android, ios }, "updated": { ... } }` nếu gửi theo key `android`/`ios`).
+
+**Errors**: `400 MISSING_FIELD` / `400 INVALID_INPUT`, `401 UNAUTHORIZED`, `403 FORBIDDEN`
+
+---
+
 ## Health
 
 ### GET `/api/health`

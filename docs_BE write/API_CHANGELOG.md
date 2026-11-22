@@ -5,6 +5,15 @@ Track changes to the API contract over time to ensure synchronization between Ba
 > **Đọc thế nào**: Entries **MỚI NHẤT Ở TRÊN**. Source of truth cho FE = `backend/src/`.
 
 ---
+## 2026-11-22 📱 MOBILE APP VERSION CHECK & FORCE UPDATE
+
+> **Feature added**: API kiểm tra phiên bản mới & ép cập nhật bắt buộc cho Mobile App (Android / iOS), cấu hình động bởi Admin trong MongoDB (`MobileAppConfig`).
+
+### Added endpoints
+- `GET /api/app-version/check?platform=android|ios&version=1.1.3&buildNumber=7` *(Public)* — Trả về `hasUpdate`, `forceUpdate`, `latestVersion`, `minSupportedVersion`, `latestBuildNumber`, `minBuildNumber`, `storeUrl`, `title`, `message`, `releaseNotes`, `isMaintenance`. Mặc định Android đồng bộ với build `1.1.3` (`versionCode: 7`, `com.buildyourchristmas.mobile`) và hỗ trợ cấu hình fallback qua env (`MOBILE_<ANDROID|IOS>_LATEST_VERSION`, `_MIN_VERSION`, `_LATEST_BUILD`, `_MIN_BUILD`, `_FORCE_UPDATE`, `_STORE_URL`).
+- `GET /api/admin/app-version` & `PUT / PATCH / POST /api/admin/app-version` *(Admin)* — Đọc & cập nhật cấu hình phiên bản cho Android / iOS.
+
+---
 ## 2026-11-22 ✅ XÁC THỰC EMAIL KHI ĐĂNG KÝ & ĐĂNG NHẬP GOOGLE
 
 > **Feature added**: Xác thực email bằng OTP 6 số khi tạo tài khoản + Đăng ký / Đăng nhập bằng Google Account (`idToken`).

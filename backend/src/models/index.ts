@@ -39,3 +39,4 @@ export * from "./Review";
 export * from "./Conversation";
 export * from "./Message";
 export * from "./WarehouseConfig";
+export * from "./MobileAppConfig";

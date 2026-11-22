@@ -130,6 +130,75 @@ export function validatePassword(v: unknown): string | null {
   return v;
 }
 
+/** Parse `req.body` as a plain object and validate its `email` field, sending standardized errors on failure. */
+function parseBodyWithEmail(
+  req: Request,
+  res: Response,
+  missingBodyMsg: string,
+  missingEmailMsg = "Vui lòng nhập email"
+): { body: Record<string, unknown>; email: string } | null {
+  const body = asPlainObject(req.body);
+  if (!body) {
+    sendError(res, ErrorCode.MISSING_FIELD, missingBodyMsg);
+    return null;
+  }
+
+  const emailRaw = asTrimmedString(body.email);
+  if (!emailRaw) {
+    sendError(res, ErrorCode.MISSING_FIELD, missingEmailMsg);
+    return null;
+  }
+
+  const email = validateEmail(emailRaw);
+  if (!email) {
+    sendError(res, ErrorCode.INVALID_INPUT, "Email không hợp lệ");
+    return null;
+  }
+
+  return { body, email };
+}
+
+/** Shared parser for `{ email, otp }` verification requests (`verifyEmail` & `verifyResetOtp`). */
+function parseEmailAndOtpRequest(
+  req: Request,
+  res: Response,
+  otpErrorCode: typeof ErrorCode.VERIFY_OTP_INVALID | typeof ErrorCode.RESET_OTP_INVALID
+): { email: string; otp: string } | null {
+  const body = asPlainObject(req.body);
+  if (!body) {
+    sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email và mã OTP");
+    return null;
+  }
+
+  const emailRaw = asTrimmedString(body.email);
+  const otpRaw = asTrimmedString(body.otp, 16);
+  if (!emailRaw || !otpRaw) {
+    sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email và mã OTP");
+    return null;
+  }
+
+  const email = validateEmail(emailRaw);
+  if (!email) {
+    sendError(res, ErrorCode.INVALID_INPUT, "Email không hợp lệ");
+    return null;
+  }
+
+  if (!isValidOtpFormat(otpRaw)) {
+    sendError(res, otpErrorCode, "Mã OTP phải gồm 6 chữ số");
+    return null;
+  }
+
+  return { email, otp: otpRaw };
+}
+
+async function finishImmediateSignup(res: Response, user: IUser): Promise<void> {
+  await ensureInitialCart(user._id);
+  created(res, {
+    requiresEmailVerification: false,
+    ...buildAuthPayload(user),
+  });
+}
+
 // ── POST /api/auth/register ───────────────────────────────────────────────────
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -195,17 +264,14 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     if (existing && existing.emailVerified === false) {
       existing.name = cleanName;
       existing.passwordHash = passwordHash;
-      await existing.save();
-
       if (!requireVerify) {
         existing.emailVerified = true;
         existing.emailVerifiedAt = new Date();
-        await existing.save();
-        await ensureInitialCart(existing._id);
-        created(res, {
-          requiresEmailVerification: false,
-          ...buildAuthPayload(existing),
-        });
+      }
+      await existing.save();
+
+      if (!requireVerify) {
+        await finishImmediateSignup(res, existing);
         return;
       }
 
@@ -231,11 +297,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     });
 
     if (!requireVerify) {
-      await ensureInitialCart(user._id);
-      created(res, {
-        requiresEmailVerification: false,
-        ...buildAuthPayload(user),
-      });
+      await finishImmediateSignup(res, user);
       return;
     }
 
@@ -262,31 +324,10 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 // ── POST /api/auth/verify-email ───────────────────────────────────────────────
 export const verifyEmail = async (req: Request, res: Response): Promise<void> => {
   try {
-    const body = asPlainObject(req.body);
-    if (!body) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email và mã OTP");
-      return;
-    }
+    const parsed = parseEmailAndOtpRequest(req, res, ErrorCode.VERIFY_OTP_INVALID);
+    if (!parsed) return;
 
-    const emailRaw = asTrimmedString(body.email);
-    const otpRaw = asTrimmedString(body.otp, 16);
-    if (!emailRaw || !otpRaw) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email và mã OTP");
-      return;
-    }
-
-    const email = validateEmail(emailRaw);
-    if (!email) {
-      sendError(res, ErrorCode.INVALID_INPUT, "Email không hợp lệ");
-      return;
-    }
-
-    if (!isValidOtpFormat(otpRaw)) {
-      sendError(res, ErrorCode.VERIFY_OTP_INVALID, "Mã OTP xác thực phải gồm 6 chữ số");
-      return;
-    }
-
-    const user = await verifyEmailOtp({ email, otp: otpRaw });
+    const user = await verifyEmailOtp(parsed);
     await ensureInitialCart(user._id);
     ok(res, buildAuthPayload(user));
   } catch (err) {
@@ -297,25 +338,10 @@ export const verifyEmail = async (req: Request, res: Response): Promise<void> =>
 // ── POST /api/auth/resend-verification-otp ────────────────────────────────────
 export const resendVerificationOtp = async (req: Request, res: Response): Promise<void> => {
   try {
-    const body = asPlainObject(req.body);
-    if (!body) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email");
-      return;
-    }
+    const parsed = parseBodyWithEmail(req, res, "Vui lòng nhập email");
+    if (!parsed) return;
 
-    const emailRaw = asTrimmedString(body.email);
-    if (!emailRaw) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email");
-      return;
-    }
-
-    const email = validateEmail(emailRaw);
-    if (!email) {
-      sendError(res, ErrorCode.INVALID_INPUT, "Email không hợp lệ");
-      return;
-    }
-
-    const result = await resendVerificationOtpService(email);
+    const result = await resendVerificationOtpService(parsed.email);
     ok(res, result);
   } catch (err) {
     handleAuthServiceError(res, err, "[auth] resendVerificationOtp error");
@@ -496,25 +522,10 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
 // ── POST /api/auth/forgot-password ────────────────────────────────────────────
 export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
   try {
-    const body = asPlainObject(req.body);
-    if (!body) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email");
-      return;
-    }
+    const parsed = parseBodyWithEmail(req, res, "Vui lòng nhập email");
+    if (!parsed) return;
 
-    const emailRaw = asTrimmedString(body.email);
-    if (!emailRaw) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email");
-      return;
-    }
-
-    const email = validateEmail(emailRaw);
-    if (!email) {
-      sendError(res, ErrorCode.INVALID_INPUT, "Email không hợp lệ");
-      return;
-    }
-
-    const result = await requestPasswordReset(email);
+    const result = await requestPasswordReset(parsed.email);
     ok(res, result);
   } catch (err) {
     handleAuthServiceError(res, err, "[auth] forgotPassword error");
@@ -524,31 +535,10 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
 // ── POST /api/auth/verify-reset-otp ───────────────────────────────────────────
 export const verifyResetOtp = async (req: Request, res: Response): Promise<void> => {
   try {
-    const body = asPlainObject(req.body);
-    if (!body) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email và mã OTP");
-      return;
-    }
+    const parsed = parseEmailAndOtpRequest(req, res, ErrorCode.RESET_OTP_INVALID);
+    if (!parsed) return;
 
-    const emailRaw = asTrimmedString(body.email);
-    const otpRaw = asTrimmedString(body.otp, 16);
-    if (!emailRaw || !otpRaw) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email và mã OTP");
-      return;
-    }
-
-    const email = validateEmail(emailRaw);
-    if (!email) {
-      sendError(res, ErrorCode.INVALID_INPUT, "Email không hợp lệ");
-      return;
-    }
-
-    if (!isValidOtpFormat(otpRaw)) {
-      sendError(res, ErrorCode.RESET_OTP_INVALID, "Mã OTP phải gồm 6 chữ số");
-      return;
-    }
-
-    const result = await verifyOtpService({ email, otp: otpRaw });
+    const result = await verifyOtpService(parsed);
     ok(res, result);
   } catch (err) {
     handleAuthServiceError(res, err, "[auth] verifyResetOtp error");
@@ -558,23 +548,9 @@ export const verifyResetOtp = async (req: Request, res: Response): Promise<void>
 // ── POST /api/auth/reset-password ─────────────────────────────────────────────
 export const resetPassword = async (req: Request, res: Response): Promise<void> => {
   try {
-    const body = asPlainObject(req.body);
-    if (!body) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng điền đầy đủ thông tin");
-      return;
-    }
-
-    const emailRaw = asTrimmedString(body.email);
-    if (!emailRaw) {
-      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập email");
-      return;
-    }
-
-    const email = validateEmail(emailRaw);
-    if (!email) {
-      sendError(res, ErrorCode.INVALID_INPUT, "Email không hợp lệ");
-      return;
-    }
+    const parsed = parseBodyWithEmail(req, res, "Vui lòng điền đầy đủ thông tin");
+    if (!parsed) return;
+    const { body, email } = parsed;
 
     const otpRaw = body.otp !== undefined ? asTrimmedString(body.otp, 16) : null;
     const resetTokenRaw =
