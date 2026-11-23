@@ -265,10 +265,32 @@ export async function authenticateWithGoogle(idToken: string): Promise<{
       );
     }
 
+    // Chặn tuyệt đối login chéo: acc local-only không được login bằng Google.
+    // (Acc "both" cũ vẫn cho qua để tương thích ngược, nhưng không tạo mới.)
+    const isLocalOnly =
+      existing.authProvider === "local" ||
+      (!!existing.passwordHash && !existing.googleId);
+    if (isLocalOnly) {
+      throw new AuthFlowError(
+        ErrorCode.AUTH_USE_LOCAL_LOGIN,
+        "Email này đã đăng ký bằng mật khẩu. Vui lòng đăng nhập bằng email/mật khẩu.",
+        403
+      );
+    }
+
+    // Cùng email nhưng khác Google sub => tài khoản Google khác nhau.
+    if (existing.googleId && existing.googleId !== claims.sub) {
+      throw new AuthFlowError(
+        ErrorCode.GOOGLE_TOKEN_INVALID,
+        "Tài khoản Google này không khớp với email đã đăng ký",
+        401
+      );
+    }
+
     let dirty = false;
     if (!existing.googleId) {
+      // Chỉ vá dữ liệu thiếu cho acc google/both cũ, KHÔNG auto-link acc local.
       existing.googleId = claims.sub;
-      existing.authProvider = existing.passwordHash ? "both" : "google";
       dirty = true;
     }
     if (existing.emailVerified === false) {

@@ -86,9 +86,21 @@ export async function requestPasswordReset(email: string): Promise<{
   const otpTtlMs = getOtpTtlMs();
   const expiresInSeconds = Math.floor(otpTtlMs / 1000);
 
-  const user = await User.findOne({ email }).select("_id name email accountStatus");
+  const user = await User.findOne({ email }).select("_id name email accountStatus authProvider passwordHash googleId");
   if (!user || user.accountStatus === "suspended") {
     return { message: UNIFORM_FORGOT_MESSAGE, expiresInSeconds };
+  }
+
+  // Chặn tuyệt đối: acc Google-only không dùng luồng quên/đặt lại mật khẩu local.
+  // (Acc "both" cũ vẫn cho qua để tương thích ngược, nhưng không tạo mới.)
+  const isGoogleOnly =
+    user.authProvider === "google" || (!user.passwordHash && !!user.googleId);
+  if (isGoogleOnly) {
+    throw new AuthFlowError(
+      ErrorCode.AUTH_USE_GOOGLE_LOGIN,
+      "Email này đã đăng ký bằng Google. Vui lòng đăng nhập bằng Google.",
+      403
+    );
   }
 
   const otp = generateOtpCode();
@@ -232,13 +244,24 @@ export async function resetPassword(params: {
   newPassword: string;
 }): Promise<{ message: string }> {
   const user = await User.findOne({ email: params.email }).select(
-    "_id accountStatus authProvider emailVerified"
+    "_id accountStatus authProvider emailVerified passwordHash googleId"
   );
   if (!user || user.accountStatus === "suspended") {
     throw new AuthFlowError(
       params.resetToken ? ErrorCode.RESET_TOKEN_INVALID : ErrorCode.RESET_OTP_INVALID,
       "Thông tin xác thực đặt lại mật khẩu không hợp lệ",
       400
+    );
+  }
+
+  // Chặn tuyệt đối: acc Google-only không đặt lại / tạo mới mật khẩu local.
+  const isGoogleOnly =
+    user.authProvider === "google" || (!user.passwordHash && !!user.googleId);
+  if (isGoogleOnly) {
+    throw new AuthFlowError(
+      ErrorCode.AUTH_USE_GOOGLE_LOGIN,
+      "Email này đã đăng ký bằng Google. Vui lòng đăng nhập bằng Google.",
+      403
     );
   }
 
@@ -287,13 +310,11 @@ export async function resetPassword(params: {
   }
 
   const passwordHash = await bcrypt.hash(params.newPassword, 10);
-  const nextProvider = user.authProvider === "google" ? "both" : user.authProvider;
   await User.updateOne(
     { _id: user._id },
     {
       $set: {
         passwordHash,
-        authProvider: nextProvider,
         ...(user.emailVerified === false
           ? { emailVerified: true, emailVerifiedAt: new Date() }
           : {}),

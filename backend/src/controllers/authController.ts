@@ -406,6 +406,16 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Chặn tuyệt đối login chéo: acc Google-only không được login local.
+    if (user.authProvider === "google" || (!user.passwordHash && user.googleId)) {
+      sendError(
+        res,
+        ErrorCode.AUTH_USE_GOOGLE_LOGIN,
+        "Email này đã đăng ký bằng Google. Vui lòng đăng nhập bằng Google."
+      );
+      return;
+    }
+
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       sendError(res, ErrorCode.INVALID_CREDENTIALS, "Email hoặc mật khẩu không đúng");
@@ -516,6 +526,72 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     ok(res, { user: userToDto(user) });
   } catch (err) {
     handleInternalError(res, err, "[auth] updateProfile error");
+  }
+};
+
+// ── POST /api/auth/change-password (yêu cầu đăng nhập) ───────────────────────
+export const changePassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = asPlainObject(req.body);
+    if (!body) {
+      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập mật khẩu hiện tại và mật khẩu mới");
+      return;
+    }
+
+    const currentPassword =
+      typeof body.currentPassword === "string" && body.currentPassword.length > 0
+        ? body.currentPassword
+        : null;
+    if (!currentPassword) {
+      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập mật khẩu hiện tại");
+      return;
+    }
+
+    const newPasswordRaw = body.newPassword !== undefined ? body.newPassword : body.password;
+    if (typeof newPasswordRaw !== "string" || newPasswordRaw.trim().length === 0) {
+      sendError(res, ErrorCode.MISSING_FIELD, "Vui lòng nhập mật khẩu mới");
+      return;
+    }
+    const newPassword = validatePassword(newPasswordRaw);
+    if (!newPassword) {
+      sendError(res, ErrorCode.INVALID_INPUT, PASSWORD_REQUIREMENT_MSG);
+      return;
+    }
+
+    const user = await User.findById(req.user!.id);
+    if (!user) {
+      sendError(res, ErrorCode.ACCOUNT_NOT_FOUND, "Không tìm thấy người dùng");
+      return;
+    }
+
+    // Acc Google-only chưa có mật khẩu local => không dùng API này.
+    if (user.authProvider === "google" || (!user.passwordHash && user.googleId)) {
+      sendError(
+        res,
+        ErrorCode.AUTH_USE_GOOGLE_LOGIN,
+        "Tài khoản Google không dùng mật khẩu. Vui lòng đăng nhập bằng Google."
+      );
+      return;
+    }
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      sendError(res, ErrorCode.INVALID_CREDENTIALS, "Mật khẩu hiện tại không đúng");
+      return;
+    }
+
+    const isSame = await bcrypt.compare(newPassword, user.passwordHash);
+    if (isSame) {
+      sendError(res, ErrorCode.INVALID_INPUT, "Mật khẩu mới phải khác mật khẩu hiện tại");
+      return;
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    ok(res, { message: "Đổi mật khẩu thành công." });
+  } catch (err) {
+    handleInternalError(res, err, "[auth] changePassword error");
   }
 };
 

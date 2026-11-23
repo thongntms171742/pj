@@ -44,6 +44,10 @@ export const ErrorCode = {
   VERIFY_OTP_TOO_MANY_ATTEMPTS: "VERIFY_OTP_TOO_MANY_ATTEMPTS",
   VERIFY_OTP_COOLDOWN: "VERIFY_OTP_COOLDOWN",
   GOOGLE_TOKEN_INVALID: "GOOGLE_TOKEN_INVALID",
+  /** Email thuộc tài khoản Google-only: bắt buộc đăng nhập bằng Google. */
+  AUTH_USE_GOOGLE_LOGIN: "AUTH_USE_GOOGLE_LOGIN",
+  /** Email thuộc tài khoản local: bắt buộc đăng nhập bằng email/mật khẩu. */
+  AUTH_USE_LOCAL_LOGIN: "AUTH_USE_LOCAL_LOGIN",
 
   // ── Christmas catalog (Tree only) ──────────────────────────────────────
   TREE_NOT_FOUND: "TREE_NOT_FOUND",
@@ -178,6 +182,8 @@ export const ErrorStatus: Record<ErrorCodeValue, number> = {
   VERIFY_OTP_TOO_MANY_ATTEMPTS: 429,
   VERIFY_OTP_COOLDOWN: 429,
   GOOGLE_TOKEN_INVALID: 401,
+  AUTH_USE_GOOGLE_LOGIN: 403,
+  AUTH_USE_LOCAL_LOGIN: 403,
 
   // Address
   INVALID_EFFECTIVE_DATE: 400,
